@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { generatePlaywrightSpecs } from "../src/codegen";
@@ -156,16 +156,16 @@ describe("codegen", () => {
     mkdirSync(join(repoRoot, "tests", "e2e"), { recursive: true });
 
     const customConfig = `// Custom config\nexport default defineConfig({ testDir: "." });\n`;
-    Bun.write(configPath, customConfig);
+    writeFileSync(configPath, customConfig);
 
     generateAndWriteScenarios(repoRoot, "L1");
 
     // Execute
     generatePlaywrightSpecs(repoRoot);
 
-    // Assert - should keep custom config
+    // Assert - should keep custom config (only migrates old testDir: "tests/e2e" pattern)
     const configContent = readFileSync(configPath, "utf8");
-    expect(configContent).not.toBe(customConfig); // Will be replaced due to old testDir pattern
+    expect(configContent).toBe(customConfig);
   });
 
   test("should filter routes with onlyRoutes option", () => {
