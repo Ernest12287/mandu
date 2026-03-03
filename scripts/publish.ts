@@ -162,9 +162,10 @@ async function main() {
     );
 
     const published = await getPublishedVersion(pkgJson.name);
+    const alreadyOnNpm = published === pkgJson.version;
 
-    if (published === pkgJson.version) {
-      console.log(`⏭️  ${pkgJson.name}@${pkgJson.version} — already published, skipping`);
+    if (alreadyOnNpm && !GITHUB_TOKEN) {
+      console.log(`⏭️  ${pkgJson.name}@${pkgJson.version} — already on npm, skipping`);
       continue;
     }
 
@@ -178,7 +179,9 @@ async function main() {
 
     try {
       // 1) npm 배포
-      if (isDryRun) {
+      if (alreadyOnNpm) {
+        console.log(`   ⏭️  npm: already published, skipping`);
+      } else if (isDryRun) {
         const result = await $`cd ${pkgPath} && bun publish --dry-run`.text();
         console.log(result);
       } else {
@@ -192,7 +195,7 @@ async function main() {
         try {
           await publishToGPR(pkgPath, pkgJson.name);
         } catch (gprErr) {
-          console.warn(`   ⚠️  GPR publish failed for ${pkgJson.name} (npm publish succeeded)`);
+          console.warn(`   ⚠️  GPR publish failed for ${pkgJson.name}`);
           console.warn(`   ${gprErr}`);
         }
       }
