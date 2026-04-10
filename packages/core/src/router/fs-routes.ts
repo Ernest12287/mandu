@@ -6,7 +6,7 @@
  * @module router/fs-routes
  */
 
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, readFile, mkdir } from "fs/promises";
 import { join, dirname } from "path";
 import type { RoutesManifest, RouteSpec } from "../spec/schema";
 import type { FSRouteConfig, FSScannerConfig, ScanResult } from "./fs-types";
@@ -50,21 +50,26 @@ export interface GenerateOptions {
 /**
  * FSRouteConfig를 RouteSpec으로 변환
  */
+/** Normalize path separators to forward slashes for cross-platform consistency */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 export function fsRouteToRouteSpec(fsRoute: FSRouteConfig): RouteSpec {
   const base = {
     id: fsRoute.id,
     pattern: fsRoute.pattern,
-    module: fsRoute.module,
+    module: normalizePath(fsRoute.module),
   };
 
   if (fsRoute.kind === "page") {
     const pageRoute: RouteSpec = {
       ...base,
       kind: "page" as const,
-      componentModule: fsRoute.componentModule ?? "",
+      componentModule: normalizePath(fsRoute.componentModule ?? ""),
       ...(fsRoute.clientModule
         ? {
-            clientModule: fsRoute.clientModule,
+            clientModule: normalizePath(fsRoute.clientModule),
             hydration: fsRoute.hydration ?? {
               strategy: "island" as const,
               priority: "visible" as const,
@@ -73,10 +78,10 @@ export function fsRouteToRouteSpec(fsRoute: FSRouteConfig): RouteSpec {
           }
         : {}),
       ...(fsRoute.layoutChain && fsRoute.layoutChain.length > 0
-        ? { layoutChain: fsRoute.layoutChain }
+        ? { layoutChain: fsRoute.layoutChain.map(normalizePath) }
         : {}),
-      ...(fsRoute.loadingModule ? { loadingModule: fsRoute.loadingModule } : {}),
-      ...(fsRoute.errorModule ? { errorModule: fsRoute.errorModule } : {}),
+      ...(fsRoute.loadingModule ? { loadingModule: normalizePath(fsRoute.loadingModule) } : {}),
+      ...(fsRoute.errorModule ? { errorModule: normalizePath(fsRoute.errorModule) } : {}),
     };
     return pageRoute;
   }
@@ -115,19 +120,54 @@ export async function resolveAutoLinks(
   manifest: RoutesManifest,
   rootDir: string
 ): Promise<void> {
+  // Slot = server-side data loader (.slot.ts/.tsx)
+  // Client = client-side island module (.client.ts/.tsx) — sets clientModule, NOT slotModule
+  const slotExtensions = [".slot.ts", ".slot.tsx"];
+  const clientExtensions = [".client.ts", ".client.tsx"];
+
   await Promise.all(
     manifest.routes.map(async (route) => {
-      const slotPath = join(rootDir, "spec", "slots", `${route.id}.slot.ts`);
       const contractPath = join(rootDir, "spec", "contracts", `${route.id}.contract.ts`);
 
-      const [slotExists, contractExists] = await Promise.all([
-        Bun.file(slotPath).exists(),
+      // Check all extensions in parallel
+      const slotChecks = slotExtensions.map(async (ext) => {
+        const path = join(rootDir, "spec", "slots", `${route.id}${ext}`);
+        return (await Bun.file(path).exists()) ? ext : null;
+      });
+      const clientChecks = clientExtensions.map(async (ext) => {
+        const path = join(rootDir, "spec", "slots", `${route.id}${ext}`);
+        return (await Bun.file(path).exists()) ? ext : null;
+      });
+
+      const [contractExists, ...allResults] = await Promise.all([
         Bun.file(contractPath).exists(),
+        ...slotChecks,
+        ...clientChecks,
       ]);
 
-      if (slotExists) {
-        route.slotModule = `spec/slots/${route.id}.slot.ts`;
+      const slotResults = allResults.slice(0, slotExtensions.length);
+      const clientResults = allResults.slice(slotExtensions.length);
+
+      // Set slotModule for .slot.ts(x) files (server data loaders)
+      const matchedSlotExt = slotResults.find((ext) => ext !== null);
+      if (matchedSlotExt) {
+        route.slotModule = `spec/slots/${route.id}${matchedSlotExt}`;
       }
+
+      // Set clientModule for .client.ts(x) files (island hydration) — only if not already set
+      const matchedClientExt = clientResults.find((ext) => ext !== null);
+      if (matchedClientExt && !route.clientModule) {
+        route.clientModule = `spec/slots/${route.id}${matchedClientExt}`;
+        // Also set default hydration config if not present
+        if (!route.hydration) {
+          route.hydration = {
+            strategy: "island" as const,
+            priority: "visible" as const,
+            preload: false,
+          };
+        }
+      }
+
       if (contractExists) {
         route.contractModule = `spec/contracts/${route.id}.contract.ts`;
       }
@@ -189,10 +229,34 @@ export async function generateManifest(
   // Auto-linking: spec/slots/, spec/contracts/ 자동 연결
   await resolveAutoLinks(manifest, rootDir);
 
-  // .mandu/ 디렉토리에 매니페스트 저장
+  // 기존 매니페스트에서 사용자 설정 필드 보존 (clientModule, hydration 등)
   const outputPath = options.outputPath ?? ".mandu/routes.manifest.json";
   const outputFullPath = join(rootDir, outputPath);
   await mkdir(dirname(outputFullPath), { recursive: true });
+
+  try {
+    const existingRaw = await readFile(outputFullPath, "utf-8");
+    const existingManifest = JSON.parse(existingRaw) as RoutesManifest;
+    if (existingManifest.routes) {
+      const existingMap = new Map(
+        existingManifest.routes.map((r) => [r.id, r])
+      );
+      for (const route of manifest.routes) {
+        const prev = existingMap.get(route.id);
+        if (!prev) continue;
+        // 사용자가 설정한 clientModule/hydration 보존
+        if (prev.clientModule && !route.clientModule) {
+          route.clientModule = prev.clientModule;
+        }
+        if (prev.hydration && !route.hydration) {
+          route.hydration = prev.hydration;
+        }
+      }
+    }
+  } catch {
+    // 기존 매니페스트가 없으면 무시
+  }
+
   await writeFile(outputFullPath, JSON.stringify(manifest, null, 2), "utf-8");
 
   return {

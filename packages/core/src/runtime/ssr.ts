@@ -48,6 +48,8 @@ export interface SSROptions {
   routePattern?: string;
   /** CSS 파일 경로 (자동 주입, 기본: /.mandu/client/globals.css) */
   cssPath?: string | false;
+  /** Island 래핑이 이미 React 엘리먼트 레벨에서 완료됨 (중복 래핑 방지) */
+  islandPreWrapped?: boolean;
 }
 
 let projectRenderToString: ((element: ReactElement) => string) | null | undefined;
@@ -179,6 +181,7 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
     enableClientRouter = false,
     routePattern,
     cssPath,
+    islandPreWrapped,
   } = options;
 
   // CSS 링크 태그 생성
@@ -192,10 +195,11 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
   let content = renderToString(element);
 
   // Island 래퍼 적용 (hydration 필요 시)
+  // islandPreWrapped가 true이면 React 엘리먼트 레벨에서 이미 래핑됨 → HTML 래핑 건너뜀
   const needsHydration =
     hydration && hydration.strategy !== "none" && routeId && bundleManifest;
 
-  if (needsHydration) {
+  if (needsHydration && !islandPreWrapped) {
     // v0.8.0: bundleSrc를 data-mandu-src 속성으로 전달 (Runtime이 dynamic import로 로드)
     const bundle = bundleManifest.bundles[routeId];
     const bundleSrc = bundle?.js;

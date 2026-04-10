@@ -241,7 +241,7 @@ export class FSScanner {
       const pattern = segmentsToPattern(file.segments);
       const patternShape = getPatternShape(pattern);
       const routeId = generateRouteId(file.relativePath);
-      const modulePath = join(this.config.routesDir, file.relativePath);
+      const modulePath = join(this.config.routesDir, file.relativePath).replace(/\\/g, "/");
 
       // 중복 패턴 체크
       const existingRoute = patternMap.get(pattern);
@@ -288,7 +288,7 @@ export class FSScanner {
 
       if (islands?.[0]) {
         // 우선순위: 명시적 island 파일
-        clientModule = join(this.config.routesDir, islands[0].relativePath);
+        clientModule = join(this.config.routesDir, islands[0].relativePath).replace(/\\/g, "/");
 
         // SSR shell + island placeholder 패턴은 hydration mismatch 위험이 매우 높으므로 에러로 처리
         if (pageFileContent && this.hasHydrationShellMismatchRisk(pageFileContent, islands[0].relativePath)) {

@@ -74,18 +74,63 @@ export function getAllIslands(): Map<string, IslandComponent<any>> {
 }
 
 // ============================================================================
-// island() - 선언적 Island 생성
+// Client Island Types (setup/render 패턴)
 // ============================================================================
 
 /**
- * 선언적 Island 컴포넌트 생성
+ * Client Island 정의 타입 (setup/render 패턴)
+ * @template TServerData - SSR에서 전달받는 서버 데이터 타입
+ * @template TSetupResult - setup 함수가 반환하는 결과 타입
+ */
+export interface ClientIslandDefinition<TServerData, TSetupResult> {
+  setup: (serverData: TServerData) => TSetupResult;
+  render: (props: TSetupResult) => ReactNode;
+  errorBoundary?: (error: Error, reset: () => void) => ReactNode;
+  loading?: () => ReactNode;
+}
+
+/** Compiled Client Island */
+export interface CompiledClientIsland<TServerData, TSetupResult> {
+  definition: ClientIslandDefinition<TServerData, TSetupResult>;
+  __mandu_island: true;
+  __mandu_island_id?: string;
+}
+
+/** Type guard: is this a ClientIslandDefinition? */
+function isClientIslandDefinition(arg: unknown): arg is ClientIslandDefinition<unknown, unknown> {
+  return (
+    arg !== null &&
+    typeof arg === 'object' &&
+    'setup' in arg &&
+    'render' in arg &&
+    typeof (arg as any).setup === 'function' &&
+    typeof (arg as any).render === 'function'
+  );
+}
+
+// ============================================================================
+// island() - 선언적 Island 생성 + Client Island 패턴
+// ============================================================================
+
+/**
+ * Island 컴포넌트 생성 (두 가지 패턴 지원)
  *
  * @example
- * // 간단한 사용
+ * // 패턴 1: 선언적 (컴포넌트 래핑)
  * export default island('visible', ({ name }) => <div>{name}</div>);
  *
  * @example
- * // 옵션과 함께
+ * // 패턴 2: Setup/Render (클라이언트 하이드레이션)
+ * export default island<TodosData>({
+ *   setup: (serverData) => {
+ *     const [todos, setTodos] = useState(serverData.todos);
+ *     return { todos, setTodos };
+ *   },
+ *   render: ({ todos }) => <ul>{todos.map(t => <li key={t.id}>{t.title}</li>)}</ul>,
+ * });
+ *
+ * @example
+ * // 패턴 1: 옵션과 함께
  * export default island({
  *   hydrate: 'idle',
  *   fallback: <Skeleton />,
@@ -94,28 +139,50 @@ export function getAllIslands(): Map<string, IslandComponent<any>> {
  *   // ...
  * });
  */
+
+// Overload 1: Setup/Render client island pattern
+export function island<TServerData, TSetupResult = TServerData>(
+  definition: ClientIslandDefinition<TServerData, TSetupResult>
+): CompiledClientIsland<TServerData, TSetupResult>;
+
+// Overload 2: Declarative with strategy string
 export function island<P extends Record<string, unknown>>(
   strategy: IslandHydrationStrategy,
   Component: ComponentType<P>
 ): IslandComponent<P>;
 
+// Overload 3: Declarative with options
 export function island<P extends Record<string, unknown>>(
   options: IslandOptions<P>,
   Component: ComponentType<P>
 ): IslandComponent<P>;
 
-export function island<P extends Record<string, unknown>>(
-  strategyOrOptions: IslandHydrationStrategy | IslandOptions<P>,
-  Component: ComponentType<P>
-): IslandComponent<P> {
-  const options: IslandOptions<P> = typeof strategyOrOptions === 'string'
-    ? { hydrate: strategyOrOptions }
-    : strategyOrOptions;
+// Implementation
+export function island(
+  strategyOrOptionsOrDefinition: IslandHydrationStrategy | IslandOptions<any> | ClientIslandDefinition<any, any>,
+  Component?: ComponentType<any>
+): IslandComponent<any> | CompiledClientIsland<any, any> {
+  // Pattern 2: Setup/Render client island
+  if (Component === undefined && isClientIslandDefinition(strategyOrOptionsOrDefinition)) {
+    return {
+      definition: strategyOrOptionsOrDefinition,
+      __mandu_island: true,
+    };
+  }
+
+  // Pattern 1: Declarative island wrapping
+  if (!Component) {
+    throw new Error('[Mandu Island] Component is required for declarative island pattern');
+  }
+
+  const options: IslandOptions<any> = typeof strategyOrOptionsOrDefinition === 'string'
+    ? { hydrate: strategyOrOptionsOrDefinition }
+    : strategyOrOptionsOrDefinition as IslandOptions<any>;
 
   const name = options.name || `island_${++islandCounter}_${Component.name || 'Anonymous'}`;
 
   // Island 메타데이터 부착
-  const IslandWrapper = Component as IslandComponent<P>;
+  const IslandWrapper = Component as IslandComponent<any>;
   IslandWrapper.__island = true;
   IslandWrapper.__hydrate = options.hydrate;
   IslandWrapper.__media = options.media;

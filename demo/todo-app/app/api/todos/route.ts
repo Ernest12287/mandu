@@ -10,13 +10,18 @@ export default Mandu.filling()
     return ctx.ok({ todos, stats });
   })
   .post(async (ctx) => {
-    const body = await ctx.body<{ title: string }>();
+    const body = await ctx.body<{ title: string; priority?: "high" | "medium" | "low"; dueDate?: string; categoryId?: string }>();
 
     if (!body.title?.trim()) {
       return ctx.error("Title is required");
     }
 
-    const todo = todoService.create({ title: body.title });
+    const todo = todoService.create({
+      title: body.title,
+      priority: body.priority,
+      dueDate: body.dueDate ?? null,
+      categoryId: body.categoryId ?? null,
+    });
     return ctx.created({ todo });
   })
   .delete((ctx) => {

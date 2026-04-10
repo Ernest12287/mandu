@@ -26,6 +26,7 @@ export { projectTools, projectToolDefinitions } from "./project.js";
 export { ateTools, ateToolDefinitions } from "./ate.js";
 export { resourceTools, resourceToolDefinitions } from "./resource.js";
 export { componentTools, componentToolDefinitions } from "./component.js";
+export { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
 
 // 도구 모듈 import (등록용)
 import { specTools, specToolDefinitions } from "./spec.js";
@@ -43,6 +44,7 @@ import { projectTools, projectToolDefinitions } from "./project.js";
 import { ateTools, ateToolDefinitions } from "./ate.js";
 import { resourceTools, resourceToolDefinitions } from "./resource.js";
 import { componentTools, componentToolDefinitions } from "./component.js";
+import { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
 
 /**
  * 도구 모듈 정보
@@ -77,6 +79,7 @@ const TOOL_MODULES: ToolModule[] = [
   { category: "ate", definitions: ateToolDefinitions, handlers: ateTools as ToolModule["handlers"] },
   { category: "resource", definitions: resourceToolDefinitions, handlers: resourceTools },
   { category: "component", definitions: componentToolDefinitions, handlers: componentTools },
+  { category: "kitchen", definitions: kitchenToolDefinitions, handlers: kitchenTools },
 ];
 
 /**

@@ -254,6 +254,23 @@ export class ErrorCatcher {
 
     const hook = getOrCreateHook();
     hook.emit(createErrorEvent(error));
+
+    // Kitchen → MCP bridge: POST error to dev server for MCP tool access
+    this.reportToServer(error);
+  }
+
+  private reportToServer(error: NormalizedError): void {
+    try {
+      fetch("/__kitchen/api/errors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(error),
+      }).catch(() => {
+        // Silently fail — dev server may not be running
+      });
+    } catch {
+      // Ignore
+    }
   }
 
   // --------------------------------------------------------------------------

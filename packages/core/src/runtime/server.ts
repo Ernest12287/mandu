@@ -999,7 +999,25 @@ async function renderPageSSR(
       loaderData,
     });
 
-    // 레이아웃 체인 적용
+    // Island 래핑: 레이아웃 적용 전에 페이지 콘텐츠만 island div로 감쌈
+    // 이렇게 하면 레이아웃은 island 바깥에 위치하여 하이드레이션 시 레이아웃이 유지됨
+    const needsIslandWrap =
+      route.hydration &&
+      route.hydration.strategy !== "none" &&
+      settings.bundleManifest;
+
+    if (needsIslandWrap) {
+      const bundle = settings.bundleManifest?.bundles[route.id];
+      const bundleSrc = bundle?.js || "";
+      const priority = route.hydration!.priority || "visible";
+      app = React.createElement("div", {
+        "data-mandu-island": route.id,
+        "data-mandu-src": bundleSrc,
+        "data-mandu-priority": priority,
+      }, app);
+    }
+
+    // 레이아웃 체인 적용 (island 래핑 후 → 레이아웃은 island 바깥)
     if (route.layoutChain && route.layoutChain.length > 0) {
       app = await wrapWithLayouts(app, route.layoutChain, registry, params);
     }
@@ -1044,6 +1062,9 @@ async function renderPageSSR(
     }
 
     // 기존 renderToString 방식
+    // Note: hydration 래핑은 위에서 React 엘리먼트 레벨로 이미 처리됨
+    // renderToHTML에서 중복 래핑하지 않도록 hydration을 전달하되 strategy를 "none"으로 설정
+    // 단, hydration 스크립트(importmap, runtime 등)는 여전히 필요하므로 bundleManifest는 유지
     const ssrResponse = renderSSR(app, {
       title: `${route.id} - Mandu`,
       isDev: settings.isDev,
@@ -1055,6 +1076,7 @@ async function renderPageSSR(
       enableClientRouter: true,
       routePattern: route.pattern,
       cssPath: settings.cssPath,
+      islandPreWrapped: !!needsIslandWrap,
     });
     return ok(cookies ? cookies.applyToResponse(ssrResponse) : ssrResponse);
   } catch (error) {

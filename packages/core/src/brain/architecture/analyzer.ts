@@ -34,7 +34,7 @@ export const DEFAULT_ARCHITECTURE_CONFIG: ArchitectureConfig = {
     "spec/slots/": {
       pattern: "spec/slots/**",
       description: "Slot 파일 전용",
-      allowedFiles: ["*.slot.ts", "*.client.ts"],
+      allowedFiles: ["*.slot.ts", "*.slot.tsx", "*.client.ts", "*.client.tsx"],
     },
     "spec/contracts/": {
       pattern: "spec/contracts/**",
@@ -96,9 +96,9 @@ export const DEFAULT_ARCHITECTURE_CONFIG: ArchitectureConfig = {
   naming: [
     {
       folder: "spec/slots/",
-      filePattern: "^[a-z][a-z0-9-]*\\.(slot|client)\\.ts$",
-      description: "Slot 파일은 kebab-case.slot.ts 또는 kebab-case.client.ts",
-      examples: ["users-list.slot.ts", "counter.client.ts"],
+      filePattern: "^[a-z][a-z0-9-]*\\.(slot|client)\\.tsx?$",
+      description: "Slot 파일은 kebab-case.slot.ts(x) 또는 kebab-case.client.ts(x)",
+      examples: ["users-list.slot.ts", "counter.client.tsx"],
     },
     {
       folder: "spec/contracts/",

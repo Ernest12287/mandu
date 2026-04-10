@@ -1,0 +1,74 @@
+{
+  "project": "mandu-todo-app",
+  "lastUpdated": "2026-04-09T14:55:24.615Z",
+  "keyDecisions": [
+    {
+      "id": "ADR-001",
+      "title": "In-memory repository pattern for demo app",
+      "tags": [
+        "architecture",
+        "data",
+        "repository"
+      ],
+      "summary": "Use in-memory arrays with repository pattern (findAll, findById, create, update, delete) for both Todo and Category domains. Seed data is included for immediate demo experience."
+    },
+    {
+      "id": "ADR-002",
+      "title": "Island hydration for interactive components",
+      "tags": [
+        "architecture",
+        "hydration",
+        "island",
+        "frontend"
+      ],
+      "summary": "Use Mandu.island() pattern with data-island attributes for TodoList and CategoryManager. SSR provides initial HTML with data-props; islands hydrate on visibility for interactivity."
+    },
+    {
+      "id": "ADR-003",
+      "title": "Zod contracts for all API routes",
+      "tags": [
+        "api",
+        "contract",
+        "validation",
+        "zod"
+      ],
+      "summary": "Define Zod contracts for all 4 API routes (api-todos, api-todos-$id, api-categories, api-categories-$id). Shared schemas (TodoSchema, CategorySchema, PrioritySchema) defined per contract file."
+    },
+    {
+      "id": "ADR-004",
+      "title": "Note domain with Todo linkage",
+      "tags": [
+        "architecture",
+        "note",
+        "domain"
+      ],
+      "summary": "Create standalone Note domain (types, repository, service) with optional todoId foreign key. Pin feature for prioritizing important notes. Separate API routes and island component (NoteEditor)."
+    },
+    {
+      "id": "ADR-005",
+      "title": "Global search via aggregated service layer",
+      "tags": [
+        "search",
+        "api",
+        "architecture"
+      ],
+      "summary": "Create thin search.service.ts that delegates to existing todoService, noteService, categoryService. Single /api/search?q= endpoint returns grouped results. Client-side debounced input (300ms) for real"
+    }
+  ],
+  "tagCounts": {
+    "architecture": 4,
+    "data": 1,
+    "repository": 1,
+    "hydration": 1,
+    "island": 1,
+    "frontend": 1,
+    "api": 2,
+    "contract": 1,
+    "validation": 1,
+    "zod": 1,
+    "note": 1,
+    "domain": 1,
+    "search": 1
+  },
+  "rules": []
+}

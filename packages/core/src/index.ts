@@ -38,7 +38,7 @@ export { type Severity } from "./guard";
 import { ManduFilling, ManduContext, ManduFillingFactory, createSSEConnection } from "./filling";
 import { createContract, defineHandler, defineRoute, createClient, contractFetch, createClientContract, querySchema, bodySchema, apiError } from "./contract";
 import { defineContract, generateAllFromContract, generateOpenAPISpec } from "./contract/define";
-import { island, isIsland, type IslandComponent, type IslandHydrationStrategy } from "./island";
+import { island, isIsland, type IslandComponent, type IslandHydrationStrategy, type ClientIslandDefinition, type CompiledClientIsland } from "./island";
 import { intent, isIntent, getIntentDocs, generateOpenAPIFromIntent } from "./intent";
 import { initializeHook, reportError, ManduDevTools, getStateManager } from "./devtools";
 import type { ContractDefinition, ContractInstance, ContractSchema } from "./contract";

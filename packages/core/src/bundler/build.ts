@@ -66,7 +66,7 @@ function generateRuntimeSource(): string {
 
 // React 정적 import (Island와 같은 인스턴스 공유)
 import React, { useState, useEffect, Component } from 'react';
-import { hydrateRoot } from 'react-dom/client';
+import { hydrateRoot, createRoot } from 'react-dom/client';
 
 // Hydrated roots 추적 (unmount용) - 전역 초기화
 window.__MANDU_ROOTS__ = window.__MANDU_ROOTS__ || new Map();
@@ -205,7 +205,19 @@ async function loadAndHydrate(element, src) {
     // Dynamic import - 이 시점에 Island 모듈 로드
     const module = await import(src);
     const island = module.default;
-    const data = getServerData(id);
+    let data = getServerData(id);
+
+    // Fallback: read data-props from child element if __MANDU_DATA__ is empty
+    if (!data || Object.keys(data).length === 0) {
+      const propsEl = element.querySelector('[data-props]');
+      if (propsEl) {
+        try {
+          data = JSON.parse(propsEl.getAttribute('data-props'));
+        } catch (e) {
+          console.warn('[Mandu] Failed to parse data-props fallback:', e);
+        }
+      }
+    }
 
     // Mandu Island (preferred)
     if (island && island.__mandu_island === true) {
@@ -238,8 +250,9 @@ async function loadAndHydrate(element, src) {
         }, wrappedContent);
       }
 
-      // Hydrate (SSR DOM 재사용 + 이벤트 연결)
-      const root = hydrateRoot(element, React.createElement(IslandComponent));
+      // Mount island (createRoot for islands with different SSR fallback)
+      const root = createRoot(element);
+      root.render(React.createElement(IslandComponent));
       hydratedRoots.set(id, root);
 
       // 완료 표시
@@ -255,6 +268,24 @@ async function loadAndHydrate(element, src) {
         bubbles: true,
         detail: { id, data }
       }));
+
+      // Kitchen DevTools에 island 등록
+      if (window.__MANDU_DEVTOOLS_HOOK__) {
+        const hydrateTime = performance.now ? performance.now() : Date.now();
+        window.__MANDU_DEVTOOLS_HOOK__.emit({
+          type: 'island:register',
+          timestamp: Date.now(),
+          data: {
+            id,
+            name: id,
+            strategy: element.getAttribute('data-mandu-priority') || 'visible',
+            status: 'hydrated',
+            hydrateStartTime: hydrateTime - 10,
+            hydrateEndTime: hydrateTime,
+            propsSize: JSON.stringify(data).length,
+          },
+        });
+      }
 
       console.log('[Mandu] Hydrated:', id);
     }
@@ -1362,7 +1393,18 @@ export async function buildClientBundles(
       const result = await buildIsland(route, rootDir, outDir, options);
       outputs.push(result);
     } catch (error) {
-      errors.push(`[${route.id}] ${String(error)}`);
+      const errorStr = String(error);
+      // Detect common mistake: importing @mandujs/core (server module) in client island
+      if (errorStr.includes("AggregateError") || errorStr.includes("Could not resolve")) {
+        const clientModule = route.clientModule || "";
+        errors.push(
+          `[${route.id}] ${errorStr}\n` +
+          `  💡 Hint: If your island imports from "@mandujs/core", change it to "@mandujs/core/client".\n` +
+          `     Client islands cannot use server-side modules. File: ${clientModule}`
+        );
+      } else {
+        errors.push(`[${route.id}] ${errorStr}`);
+      }
     }
   }
 

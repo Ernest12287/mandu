@@ -1,17 +1,34 @@
 import { todoRepository } from "./todo.repository";
-import type { Todo, TodoFilter, CreateTodoInput, UpdateTodoInput } from "./todo.types";
+import type { Todo, TodoFilter, CreateTodoInput, UpdateTodoInput, Priority } from "./todo.types";
+
+const PRIORITY_ORDER: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+
+function sortTodos(todos: Todo[]): Todo[] {
+  return todos.sort((a, b) => {
+    const pa = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+    if (pa !== 0) return pa;
+    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+    if (a.dueDate) return -1;
+    if (b.dueDate) return 1;
+    return 0;
+  });
+}
 
 export const todoService = {
   list(filter: TodoFilter = "all"): Todo[] {
     const todos = todoRepository.findAll();
+    let filtered: Todo[];
     switch (filter) {
       case "active":
-        return todos.filter((t) => !t.completed);
+        filtered = todos.filter((t) => !t.completed);
+        break;
       case "completed":
-        return todos.filter((t) => t.completed);
+        filtered = todos.filter((t) => t.completed);
+        break;
       default:
-        return todos;
+        filtered = todos;
     }
+    return sortTodos(filtered);
   },
 
   getById(id: string): Todo | undefined {
@@ -19,7 +36,7 @@ export const todoService = {
   },
 
   create(input: CreateTodoInput): Todo {
-    return todoRepository.create(input.title.trim());
+    return todoRepository.create(input.title.trim(), input.priority, input.dueDate ?? null, input.categoryId ?? null);
   },
 
   update(id: string, input: UpdateTodoInput): Todo | undefined {

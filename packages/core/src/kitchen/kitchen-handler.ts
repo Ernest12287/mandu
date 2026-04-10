@@ -23,6 +23,33 @@ export interface KitchenOptions {
   guardConfig: GuardConfig | null;
 }
 
+/** In-memory error store for Kitchen → MCP bridge */
+interface KitchenError {
+  id: string;
+  type: string;
+  severity: string;
+  message: string;
+  stack?: string;
+  url?: string;
+  source?: string;
+  line?: number;
+  column?: number;
+  timestamp: number;
+}
+
+const MAX_STORED_ERRORS = 50;
+let storedErrors: KitchenError[] = [];
+
+/** Get stored errors (used by MCP tools) */
+export function getKitchenErrors(): KitchenError[] {
+  return storedErrors;
+}
+
+/** Clear stored errors */
+export function clearKitchenErrors(): void {
+  storedErrors = [];
+}
+
 export class KitchenHandler {
   private sse: ActivitySSEBroadcaster;
   private guardAPI: GuardAPI;
@@ -151,6 +178,36 @@ export class KitchenHandler {
         return Response.json({ error: "Decision not found" }, { status: 404 });
       }
       return Response.json({ removed: true });
+    }
+
+    // Error API (Kitchen → MCP bridge)
+    if (sub === "/api/errors" && req.method === "POST") {
+      try {
+        const body = await req.json() as KitchenError | KitchenError[];
+        const errors = Array.isArray(body) ? body : [body];
+        for (const error of errors) {
+          if (!error.message) continue;
+          error.timestamp = error.timestamp || Date.now();
+          error.id = error.id || `err_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          storedErrors.push(error);
+          if (storedErrors.length > MAX_STORED_ERRORS) {
+            storedErrors.shift();
+          }
+        }
+        return Response.json({ received: errors.length, total: storedErrors.length });
+      } catch {
+        return Response.json({ error: "Invalid error payload" }, { status: 400 });
+      }
+    }
+
+    if (sub === "/api/errors" && req.method === "GET") {
+      return Response.json({ errors: storedErrors, count: storedErrors.length });
+    }
+
+    if (sub === "/api/errors" && req.method === "DELETE") {
+      const count = storedErrors.length;
+      clearKitchenErrors();
+      return Response.json({ cleared: count });
     }
 
     // File API
