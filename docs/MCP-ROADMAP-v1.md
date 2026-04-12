@@ -310,6 +310,84 @@ allowed-tools:
 
 ---
 
+## Phase 7: Skills 연동 보강 (SKILLS-ROADMAP에서 도출)
+
+Skills 기획 과정에서 MCP에 추가/변경이 필요한 항목이 발견됨.
+
+### 7-1. Skills에서 참조하는데 MCP에 없는 도구
+
+| 도구 | 참조하는 스킬 | 현재 대안 | 필요 이유 |
+|------|-------------|----------|----------|
+| `mandu.feature.create` | mandu-create-feature | 6개 도구 수동 체이닝 | 스킬이 6단계를 조합하지만, 복합 도구가 있으면 1호출로 가능. 에이전트 라운드트립 감소 |
+| `mandu.island.add` | mandu-create-feature | mandu_add_component (일반용) | island 전용 스캐폴딩 (.island.tsx + .client.ts + hydration 설정) |
+| `mandu.diagnose` | mandu-debug | 7개 도구 병렬 호출 | 통합 진단 → 단일 응답. 에이전트 컨텍스트 절약 |
+| `mandu.ws.create` | mandu-create-feature (채팅 시나리오) | 수동 파일 생성 | WebSocket 라우트 스캐폴딩 + filling.ws() 보일러플레이트 |
+| `mandu.session.init` | mandu-create-feature (로그인 시나리오) | 수동 파일 생성 | createCookieSessionStorage 설정 자동화 |
+
+### 7-2. MCP Prompts ↔ Skills 역할 분리
+
+```
+MCP Prompts (범용 — Cursor, Windsurf, 모든 MCP 클라이언트):
+  - 도구 체이닝 순서만 제공
+  - 플랫폼 비종속
+  - 간결 (5-10줄)
+
+Claude Code Skills (Claude 전용):
+  - 상세한 분기 로직 (시나리오별 대응)
+  - 에러 처리 + 복구 전략
+  - Claude Code hooks/permissions 연동
+  - 상세 (100-500줄)
+```
+
+**동일 워크플로우에 대해 Prompt와 Skill 양쪽 모두 제공:**
+
+| 워크플로우 | MCP Prompt (범용) | Claude Skill (상세) |
+|-----------|-------------------|-------------------|
+| 기능 생성 | `new-feature` → 5줄 체이닝 가이드 | `mandu-create-feature` → 시나리오 분기 + 에러 처리 |
+| 디버깅 | `debug` → 수집→분석→수정 3단계 | `mandu-debug` → 8카테고리 × 각 수정 플로우 |
+| CRUD API | `add-crud` → 라우트+계약+생성 | `mandu-create-api` → normalize 모드 + 테스트 |
+
+### 7-3. 프로파일 ↔ Skills 연동
+
+```typescript
+// mandu.config.ts
+export default {
+  mcp: {
+    profile: "standard",   // 도구 40개 노출
+    skills: "all",         // 스킬은 프로파일과 무관하게 전체 사용 가능
+  },
+};
+```
+
+프로파일별 권장 스킬:
+| 프로파일 | 핵심 스킬 | 이유 |
+|---------|----------|------|
+| `minimal` (15도구) | explain, guard-guide, debug | 도구가 적으므로 가이드가 더 중요 |
+| `standard` (40도구) | create-feature, create-api, debug | 일반 개발 워크플로우 |
+| `full` (76도구) | create-feature, deploy, guard-guide | 전문가는 도구를 직접 쓰되 복잡 워크플로우만 스킬 활용 |
+
+### 7-4. 도구 응답에 Skills 힌트 추가
+
+MCP 도구 응답에 관련 스킬을 안내하면 에이전트가 자연스럽게 스킬을 로드:
+
+```typescript
+// mandu_guard_check 응답 예시
+{
+  violations: [...],
+  tip: "For detailed fix guidance, use the mandu-guard-guide skill",
+  relatedSkills: ["mandu-guard-guide", "mandu-debug"]
+}
+
+// mandu_add_route 응답 예시
+{
+  created: true,
+  tip: "Use mandu-create-feature skill for full feature scaffolding with contracts and islands",
+  relatedSkills: ["mandu-create-feature"]
+}
+```
+
+---
+
 ## 핵심 인사이트
 
 > **"새로운 AI 기능을 만드는 것이 아니라, 기존 76개 MCP 도구의 품질을 올리고 조합하는 것이 최대 ROI"**
@@ -327,3 +405,7 @@ allowed-tools:
 > **"MCP 도구는 기계용, Claude Code 스킬은 인지용으로 역할 분담해야"**
 >
 > — Claude Code Skills 전문가
+
+> **"Prompt(범용) + Skill(Claude 전용) 양쪽 모두 제공해야 모든 AI 클라이언트를 지원"**
+>
+> — Skills 기획에서 도출된 추가 인사이트
