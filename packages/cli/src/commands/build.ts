@@ -13,6 +13,8 @@ import {
   buildCSS,
   startServer,
   type RoutesManifest,
+  type BundleManifest,
+  type ServerOptions,
 } from "@mandujs/core";
 import { prerenderRoutes } from "@mandujs/core/bundler/prerender";
 import path from "path";
@@ -41,6 +43,8 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
     return false;
   }
   const buildConfig = config.build ?? {};
+  const serverConfig = config.server ?? {};
+  const adapter = config.adapter;
 
   // 1. Load route manifest (FS Routes first)
   let manifest: Awaited<ReturnType<typeof resolveManifest>>["manifest"];
@@ -82,47 +86,44 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
       (!route.hydration || route.hydration.strategy !== "none")
   );
 
-  if (hydratedRoutes.length === 0) {
-    console.log("\n📭 No routes require hydration.");
-    console.log("   (no clientModule or hydration.strategy: none)");
-
-    // Treat as success even if only CSS was built
-    if (hasTailwind) {
-      console.log(`\n✅ CSS build complete`);
-      console.log(`   CSS: .mandu/client/globals.css`);
-    }
-    return true;
-  }
-
-  console.log(`\n🏝️  Building ${hydratedRoutes.length} Island(s)...`);
-  for (const route of hydratedRoutes) {
-    const hydration = route.hydration || { strategy: "island", priority: "visible" };
-    console.log(`   - ${route.id} (${hydration.strategy}, ${hydration.priority || "visible"})`);
-  }
-
-  // 4. Bundle build
-  const startTime = performance.now();
+  const cssPath = hasTailwind ? "/.mandu/client/globals.css" : false;
+  let bundleManifest: BundleManifest | undefined;
   const resolvedBuildOptions: BuildOptions = {
     minify: options.minify ?? buildConfig.minify,
     sourcemap: options.sourcemap ?? buildConfig.sourcemap,
     outDir: options.outDir ?? buildConfig.outDir,
   };
-  const result = await buildClientBundles(manifest, cwd, resolvedBuildOptions);
 
-  // 5. Print results
-  console.log("");
-  printBundleStats(result);
+  if (hydratedRoutes.length === 0) {
+    console.log("\n📭 No routes require hydration.");
+    console.log("   (no clientModule or hydration.strategy: none)");
+  } else {
+    console.log(`\n🏝️  Building ${hydratedRoutes.length} Island(s)...`);
+    for (const route of hydratedRoutes) {
+      const hydration = route.hydration || { strategy: "island", priority: "visible" };
+      console.log(`   - ${route.id} (${hydration.strategy}, ${hydration.priority || "visible"})`);
+    }
 
-  if (!result.success) {
-    console.error("\n❌ Build failed");
-    return false;
-  }
+    // 4. Bundle build
+    const startTime = performance.now();
+    const result = await buildClientBundles(manifest, cwd, resolvedBuildOptions);
 
-  const elapsed = (performance.now() - startTime).toFixed(0);
-  console.log(`\n✅ Build complete (${elapsed}ms)`);
-  console.log(`   Output: .mandu/client/`);
-  if (hasTailwind) {
-    console.log(`   CSS: .mandu/client/globals.css`);
+    // 5. Print results
+    console.log("");
+    printBundleStats(result);
+
+    if (!result.success) {
+      console.error("\n❌ Build failed");
+      return false;
+    }
+
+    bundleManifest = result.manifest;
+    const elapsed = (performance.now() - startTime).toFixed(0);
+    console.log(`\n✅ Build complete (${elapsed}ms)`);
+    console.log(`   Output: .mandu/client/`);
+    if (hasTailwind) {
+      console.log(`   CSS: .mandu/client/globals.css`);
+    }
   }
 
   // 5.5. Prerendering (SSG) — 정적 페이지를 HTML로 사전 생성
@@ -138,16 +139,19 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
 
     try {
       // 임시 서버 시작 (SSR 렌더링용 — 외부 접근 불가하도록 port 0)
-      const cssPath = hasTailwind ? "/.mandu/client/globals.css" : false;
       await registerManifestHandlers(manifest, cwd, {
         importFn: (p: string) => import(p),
         registeredLayouts: new Set(),
       });
       const tempServer = startServer(manifest, {
         port: 0,
+        hostname: serverConfig.hostname,
         rootDir: cwd,
         isDev: false,
-        bundleManifest: result.manifest,
+        bundleManifest,
+        cors: serverConfig.cors,
+        streaming: serverConfig.streaming,
+        rateLimit: serverConfig.rateLimit,
         cssPath,
       });
 
@@ -181,6 +185,27 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
     } catch (error) {
       console.warn("   ⚠️  Prerendering skipped:", error instanceof Error ? error.message : String(error));
     }
+  }
+
+  if (adapter?.build) {
+    console.log(`\n🔌 Running adapter build: ${adapter.name}`);
+    const adapterServerOptions: ServerOptions = {
+      port: 0,
+      hostname: serverConfig.hostname,
+      rootDir: cwd,
+      isDev: false,
+      bundleManifest,
+      cors: serverConfig.cors,
+      streaming: serverConfig.streaming,
+      rateLimit: serverConfig.rateLimit,
+      cssPath,
+    };
+    await adapter.build({
+      manifest,
+      bundleManifest,
+      rootDir: cwd,
+      serverOptions: adapterServerOptions,
+    });
   }
 
   // 6. Watch mode

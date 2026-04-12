@@ -12,6 +12,12 @@ interface ImageOptions {
   width: number;
   quality: number;
   format: "webp" | "jpeg" | "png" | "avif";
+  sourceContentType?: string;
+}
+
+interface ProcessedImageResult {
+  data: Uint8Array;
+  contentType: string;
 }
 
 // ========== Cache ==========
@@ -77,8 +83,8 @@ export async function handleImageRequest(
       return new Response("Forbidden", { status: 403 });
     }
   } catch {
-    // realpath 실패 = 파일 없음 → 아래 exists 체크에서 404 반환
-    resolvedPath = filePath;
+    // realpath 실패 (broken symlink, 파일 없음) → 안전하게 404 반환
+    return new Response("Image not found", { status: 404 });
   }
   const file = Bun.file(resolvedPath);
 
@@ -88,20 +94,26 @@ export async function handleImageRequest(
 
   try {
     const original = await file.arrayBuffer();
-    const optimized = await processImage(new Uint8Array(original), { width, quality, format });
-
-    const contentType = `image/${format}`;
+    const processed = await processImage(new Uint8Array(original), {
+      width,
+      quality,
+      format,
+      sourceContentType: getMimeForExtension(src),
+    });
 
     // 캐시 저장 (LRU)
     if (imageCache.size >= MAX_IMAGE_CACHE) {
       const oldest = imageCache.keys().next().value;
       if (oldest !== undefined) imageCache.delete(oldest);
     }
-    imageCache.set(cacheKey, { data: optimized, contentType });
+    imageCache.set(cacheKey, {
+      data: processed.data,
+      contentType: processed.contentType,
+    });
 
-    return new Response(optimized as unknown as BodyInit, {
+    return new Response(processed.data as unknown as BodyInit, {
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": processed.contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
         "Vary": "Accept",
       },
@@ -147,7 +159,7 @@ function getMimeForExtension(src: string): string {
 async function processImage(
   data: Uint8Array,
   options: ImageOptions
-): Promise<Uint8Array> {
+): Promise<ProcessedImageResult> {
   // sharp 사용 시도 (선택적 의존성)
   try {
     const sharp = require("sharp") as any;
@@ -169,9 +181,15 @@ async function processImage(
     }
 
     const result = await pipeline.toBuffer();
-    return new Uint8Array(result);
+    return {
+      data: new Uint8Array(result),
+      contentType: `image/${options.format}`,
+    };
   } catch {
     // sharp 미설치 시 원본 반환
-    return data;
+    return {
+      data,
+      contentType: options.sourceContentType ?? "application/octet-stream",
+    };
   }
 }

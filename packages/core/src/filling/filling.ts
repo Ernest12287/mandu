@@ -470,8 +470,9 @@ export class ManduFilling<TLoaderData = unknown> {
     options?: ExecuteOptions & { deps?: FillingDeps }
   ): Promise<Response> {
     const deps = options?.deps ?? globalDeps.get();
-    const ctx = new ManduContext(request, params, deps);
-    const method = request.method.toUpperCase() as HttpMethod;
+    const normalizedRequest = await applyMethodOverride(request);
+    const ctx = new ManduContext(normalizedRequest, params, deps);
+    const method = normalizedRequest.method.toUpperCase() as HttpMethod;
 
     // Action 디스패치: POST/PUT/PATCH/DELETE + 등록된 action이 있을 때
     if (this.config.actions.size > 0 && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
@@ -658,6 +659,59 @@ export class ManduFilling<TLoaderData = unknown> {
   hasMethod(method: HttpMethod): boolean {
     return this.config.handlers.has(method);
   }
+}
+
+const OVERRIDABLE_METHODS = new Set<HttpMethod>(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
+
+async function applyMethodOverride(request: Request): Promise<Request> {
+  if (request.method.toUpperCase() !== "POST") {
+    return request;
+  }
+
+  const override = await detectMethodOverride(request);
+  if (!override || override === "POST") {
+    return request;
+  }
+
+  return new Request(request, { method: override });
+}
+
+async function detectMethodOverride(request: Request): Promise<HttpMethod | null> {
+  const headerOverride = normalizeOverrideMethod(request.headers.get("X-HTTP-Method-Override"));
+  if (headerOverride) return headerOverride;
+
+  const url = new URL(request.url);
+  const queryOverride = normalizeOverrideMethod(url.searchParams.get("_method"));
+  if (queryOverride) return queryOverride;
+
+  const contentType = request.headers.get("content-type") ?? "";
+  const cloned = request.clone();
+
+  try {
+    if (contentType.includes("application/json")) {
+      const body = await cloned.json() as { _method?: unknown };
+      return normalizeOverrideMethod(typeof body?._method === "string" ? body._method : null);
+    }
+
+    if (
+      contentType.includes("application/x-www-form-urlencoded") ||
+      contentType.includes("multipart/form-data")
+    ) {
+      const form = await cloned.formData();
+      const override = form.get("_method");
+      return normalizeOverrideMethod(typeof override === "string" ? override : null);
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function normalizeOverrideMethod(value: string | null): HttpMethod | null {
+  if (!value) return null;
+  const method = value.toUpperCase() as HttpMethod;
+  return OVERRIDABLE_METHODS.has(method) ? method : null;
 }
 
 /**

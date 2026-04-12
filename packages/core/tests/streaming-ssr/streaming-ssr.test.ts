@@ -14,10 +14,18 @@ import {
   defer,
   type StreamingMetrics,
 } from "../../src/runtime/streaming-ssr";
+import { useHead } from "../../src/client/use-head";
 
 // 테스트용 간단한 컴포넌트
 function SimpleComponent({ message }: { message: string }) {
   return React.createElement("div", { className: "simple" }, message);
+}
+
+function HeadComponent() {
+  useHead({
+    meta: [{ name: "description", content: "streamed-head" }],
+  });
+  return React.createElement("div", null, "Head content");
 }
 
 // 테스트용 Island 컴포넌트
@@ -168,6 +176,24 @@ describe("Streaming SSR", () => {
       const html = new TextDecoder().decode(Buffer.concat(chunks.map(c => Buffer.from(c))));
 
       expect(html).toContain("__MANDU_STREAMING_SHELL_READY__");
+    });
+
+    it("collects SSR head tags before the shell is emitted", async () => {
+      const stream = await renderToStream(React.createElement(HeadComponent), {
+        title: "Head Test",
+      });
+
+      const reader = stream.getReader();
+      const chunks: Uint8Array[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+
+      const html = new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+      expect(html).toContain('name="description"');
+      expect(html).toContain('content="streamed-head"');
     });
   });
 

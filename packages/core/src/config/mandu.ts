@@ -1,9 +1,11 @@
 import path from "path";
 import { readJsonFile } from "../utils/bun";
+import type { ManduAdapter } from "../runtime/adapter";
 
 export type GuardRuleSeverity = "error" | "warn" | "warning" | "off";
 
 export interface ManduConfig {
+  adapter?: ManduAdapter;
   server?: {
     port?: number;
     hostname?: string;

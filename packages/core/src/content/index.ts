@@ -157,8 +157,12 @@ export {
  * });
  * ```
  */
-import type { ContentConfig as ContentConfigType } from "./types";
+import type { CollectionConfig, ContentConfig as ContentConfigType } from "./types";
 
 export function defineContentConfig<T extends ContentConfigType>(config: T): T {
+  return config;
+}
+
+export function defineCollection<T extends CollectionConfig>(config: T): T {
   return config;
 }

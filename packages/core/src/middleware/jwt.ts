@@ -118,6 +118,11 @@ async function verifyJwtToken(
     throw new Error("Token expired");
   }
 
+  // nbf (not-before) 확인 — 아직 유효하지 않은 토큰 거부
+  if (payload.nbf && payload.nbf * 1000 > Date.now()) {
+    throw new Error("Token not yet valid");
+  }
+
   return payload;
 }
 

@@ -3,6 +3,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 import { CONFIG_FILES, coerceConfig } from "./mandu";
 import { readJsonFile } from "../utils/bun";
+import type { ManduAdapter } from "../runtime/adapter";
 
 /**
  * DNA-003: Strict mode schema helper
@@ -124,6 +125,18 @@ const SeoConfigSchema = z
   })
   .strict();
 
+const AdapterConfigSchema = z.custom<ManduAdapter | undefined>(
+  (value) =>
+    value === undefined ||
+    (typeof value === "object" &&
+      value !== null &&
+      typeof (value as { name?: unknown }).name === "string" &&
+      typeof (value as { createServer?: unknown }).createServer === "function"),
+  {
+    message: "adapter must be a ManduAdapter with name and createServer()",
+  }
+);
+
 /**
  * Mandu 설정 스키마 (DNA-003: strict mode)
  *
@@ -132,6 +145,7 @@ const SeoConfigSchema = z
  */
 export const ManduConfigSchema = z
   .object({
+    adapter: AdapterConfigSchema.optional(),
     server: ServerConfigSchema.default({}),
     guard: GuardConfigSchema.default({}),
     build: BuildConfigSchema.default({}),

@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   matchesMiddlewarePath,
   createMiddlewareContext,
+  getMiddlewareMatch,
   type MiddlewareConfig,
 } from "../../src/runtime/middleware";
 
@@ -49,6 +50,22 @@ describe("matchesMiddlewarePath", () => {
     const cfg: MiddlewareConfig = { exclude: ["/static/*"] };
     expect(matchesMiddlewarePath("/page", cfg)).toBe(true);
     expect(matchesMiddlewarePath("/static/logo.png", cfg)).toBe(false);
+  });
+
+  it("extracts wildcard params from matcher patterns", () => {
+    const match = getMiddlewareMatch("/dashboard/settings/profile", {
+      matcher: ["/dashboard/:path*"],
+    });
+    expect(match.matched).toBe(true);
+    expect(match.params).toEqual({ path: "settings/profile" });
+  });
+
+  it("extracts named params from exact matcher patterns", () => {
+    const match = getMiddlewareMatch("/users/42", {
+      matcher: ["/users/:id"],
+    });
+    expect(match.matched).toBe(true);
+    expect(match.params).toEqual({ id: "42" });
   });
 });
 
@@ -114,5 +131,12 @@ describe("createMiddlewareContext", () => {
     const rewritten = ctx.rewrite("/new-path");
     expect(new URL(rewritten.url).pathname).toBe("/new-path");
     expect(rewritten.method).toBe("GET");
+  });
+
+  it("preserves injected matcher params on the context", () => {
+    const ctx = createMiddlewareContext(makeReq("http://localhost:3000/users/42"), {
+      id: "42",
+    });
+    expect(ctx.params).toEqual({ id: "42" });
   });
 });

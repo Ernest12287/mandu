@@ -64,6 +64,18 @@ describe("testFilling", () => {
     const res = await testFilling(formFilling, { method: "POST", body: form });
     expect(res.status).toBe(200);
   });
+
+  it("supports POST form _method overrides for non-POST handlers", async () => {
+    const methodOverrideFilling = new ManduFilling().put((ctx) =>
+      ctx.ok({ method: ctx.method })
+    );
+    const form = new FormData();
+    form.append("_method", "PUT");
+
+    const res = await testFilling(methodOverrideFilling, { method: "POST", body: form });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ method: "PUT" });
+  });
 });
 
 describe("createTestRequest", () => {

@@ -51,16 +51,29 @@ export interface MiddlewareConfig {
 /**
  * MiddlewareContext 생성
  */
-export function createMiddlewareContext(request: Request): MiddlewareContext {
+interface MiddlewareMatchResult {
+  matched: boolean;
+  params: Record<string, string>;
+}
+
+export interface InternalMiddlewareContext extends MiddlewareContext {
+  getRewrittenRequest(): Request | null;
+}
+
+export function createMiddlewareContext(
+  request: Request,
+  params: Record<string, string> = {}
+): InternalMiddlewareContext {
   const url = new URL(request.url);
   const cookies = new CookieManager(request);
   const store = new Map<string, unknown>();
+  let rewrittenRequest: Request | null = null;
 
   return {
     request,
     url,
     cookies,
-    params: {},
+    params,
 
     redirect(target: string, status: 301 | 302 | 307 | 308 = 302): Response {
       return Response.redirect(new URL(target, url.origin).href, status);
@@ -72,11 +85,12 @@ export function createMiddlewareContext(request: Request): MiddlewareContext {
 
     rewrite(target: string): Request {
       const rewriteUrl = new URL(target, url.origin);
-      return new Request(rewriteUrl.href, {
+      rewrittenRequest = new Request(rewriteUrl.href, {
         method: request.method,
         headers: request.headers,
         body: request.clone().body, // 원본 request body 소비 방지
       });
+      return rewrittenRequest;
     },
 
     set(key: string, value: unknown): void {
@@ -85,6 +99,10 @@ export function createMiddlewareContext(request: Request): MiddlewareContext {
 
     get<T>(key: string): T | undefined {
       return store.get(key) as T | undefined;
+    },
+
+    getRewrittenRequest(): Request | null {
+      return rewrittenRequest;
     },
   };
 }
@@ -97,21 +115,35 @@ export function matchesMiddlewarePath(
   pathname: string,
   config: MiddlewareConfig | null
 ): boolean {
+  return getMiddlewareMatch(pathname, config).matched;
+}
+
+export function getMiddlewareMatch(
+  pathname: string,
+  config: MiddlewareConfig | null
+): MiddlewareMatchResult {
   // config 없으면 모든 경로에 적용
-  if (!config) return true;
+  if (!config) return { matched: true, params: {} };
 
   // exclude 패턴 먼저 확인
   if (config.exclude) {
     for (const pattern of config.exclude) {
-      if (matchPattern(pathname, pattern)) return false;
+      if (matchPattern(pathname, pattern)) return { matched: false, params: {} };
     }
   }
 
   // matcher가 없으면 모든 경로에 적용
-  if (!config.matcher || config.matcher.length === 0) return true;
+  if (!config.matcher || config.matcher.length === 0) return { matched: true, params: {} };
 
   // matcher 패턴 중 하나라도 일치하면 적용
-  return config.matcher.some(pattern => matchPattern(pathname, pattern));
+  for (const pattern of config.matcher) {
+    const params = matchPatternWithParams(pathname, pattern);
+    if (params) {
+      return { matched: true, params };
+    }
+  }
+
+  return { matched: false, params: {} };
 }
 
 /**
@@ -121,15 +153,46 @@ export function matchesMiddlewarePath(
  * - /about → 정확히 /about
  */
 function matchPattern(pathname: string, pattern: string): boolean {
+  return matchPatternWithParams(pathname, pattern) !== null;
+}
+
+function matchPatternWithParams(pathname: string, pattern: string): Record<string, string> | null {
   // 와일드카드 패턴: /api/* → /api, /api/anything 모두 매칭
   if (pattern.endsWith("*") || pattern.endsWith(":path*")) {
     const prefix = pattern.replace(/[:*]path\*$/, "").replace(/\*$/, "");
     // prefix 자체 또는 prefix 하위 경로 매칭
-    return pathname === prefix.replace(/\/$/, "") || pathname.startsWith(prefix);
+    const normalizedPrefix = prefix.replace(/\/$/, "");
+    // 정확히 prefix이거나, prefix/ 로 시작하는 경우만 매칭 (/api/* → /apikeys 매칭 방지)
+    if (pathname === normalizedPrefix || pathname.startsWith(normalizedPrefix + "/")) {
+      const wildcard = pathname.slice(normalizedPrefix.length).replace(/^\/+/, "");
+      if (pattern.endsWith(":path*")) {
+        return { path: wildcard };
+      }
+      return {};
+    }
+    return null;
   }
 
-  // 정확한 매칭
-  return pathname === pattern;
+  const pathSegments = pathname.split("/").filter(Boolean);
+  const patternSegments = pattern.split("/").filter(Boolean);
+  if (pathSegments.length !== patternSegments.length) return null;
+
+  const params: Record<string, string> = {};
+  for (let i = 0; i < patternSegments.length; i++) {
+    const patternSegment = patternSegments[i];
+    const pathSegment = pathSegments[i];
+
+    if (patternSegment.startsWith(":")) {
+      params[patternSegment.slice(1)] = pathSegment;
+      continue;
+    }
+
+    if (patternSegment !== pathSegment) {
+      return null;
+    }
+  }
+
+  return params;
 }
 
 /**

@@ -64,6 +64,7 @@ export function Form({
 }: FormProps) {
   const [state, setState] = useState<FormState>({ submitting: false, error: null });
   const submittingRef = useRef(false);
+  const formMethod = method === "post" ? "post" : "post";
 
   const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (!enhance) return;
@@ -95,8 +96,9 @@ export function Form({
   }, [action, actionName, enhance, method, onActionSuccess, onActionError]);
 
   return (
-    <form action={action} method={method} onSubmit={handleSubmit} {...rest}>
+    <form action={action} method={formMethod} onSubmit={handleSubmit} {...rest}>
       <input type="hidden" name="_action" value={actionName} />
+      {method !== "post" && <input type="hidden" name="_method" value={method.toUpperCase()} />}
       {typeof children === "function" ? children(state) : children}
     </form>
   );

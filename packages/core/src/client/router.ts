@@ -257,12 +257,27 @@ export async function navigate(
         defaultShouldRevalidate: true,
       });
       if (!shouldFetch) {
-        const historyState = { ...getRouterStateInternal().currentRoute };
+        const currentState = getRouterStateInternal();
+        const nextRoute = currentState.currentRoute
+          ? {
+              ...currentState.currentRoute,
+              params: extractParamsFromPath(currentState.currentRoute.pattern, url.pathname),
+            }
+          : null;
+        const historyState = nextRoute
+          ? { routeId: nextRoute.id, params: nextRoute.params }
+          : null;
         if (replace) {
           history.replaceState(historyState, "", to);
         } else {
           history.pushState(historyState, "", to);
         }
+        setRouterStateInternal({
+          ...currentState,
+          currentRoute: nextRoute,
+          actionData: undefined,
+          navigation: { state: "idle" },
+        });
         notifyListeners();
         if (scroll) window.scrollTo(0, 0);
         return;
@@ -550,11 +565,13 @@ export async function submitAction(
     if (controller.signal.aborted) return { ok: false };
 
     // Revalidation: 서버가 loader를 재실행해서 fresh data를 보내줬으면 갱신
+    const nextActionData = result._revalidated ? result.actionData : result;
+
     if (result._revalidated && result.loaderData !== undefined) {
       setRouterStateInternal({
         ...getRouterStateInternal(),
         loaderData: result.loaderData,
-        actionData: result,
+        actionData: nextActionData,
         navigation: { state: "idle" },
       });
 
@@ -565,17 +582,17 @@ export async function submitAction(
     } else {
       setRouterStateInternal({
         ...getRouterStateInternal(),
-        actionData: result,
+        actionData: nextActionData,
         navigation: { state: "idle" },
       });
     }
 
-    notifyListeners();
-    return {
-      ok: response.ok,
-      actionData: result,
-      loaderData: result._revalidated ? result.loaderData as unknown : undefined,
-    };
+      notifyListeners();
+      return {
+        ok: response.ok,
+        actionData: nextActionData,
+        loaderData: result._revalidated ? result.loaderData as unknown : undefined,
+      };
   } catch (error) {
     if (controller.signal.aborted) return { ok: false };
 

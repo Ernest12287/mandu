@@ -70,9 +70,22 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(sorted);
 }
 
-function buildCacheKey(url: string, query?: Record<string, string | number>): string {
-  const params = query ? "?" + stableStringify(query) : "";
-  return `${url}${params}`;
+export function buildFetchCacheKey(
+  url: string,
+  options: {
+    queryKey?: string;
+    method?: string;
+    headersKey?: string;
+    bodyKey?: string;
+  } = {}
+): string {
+  return [
+    (options.method ?? "GET").toUpperCase(),
+    url,
+    options.queryKey ?? "",
+    options.headersKey ?? "",
+    options.bodyKey ?? "",
+  ].join("::");
 }
 
 function buildUrl(url: string, query?: Record<string, string | number>): string {
@@ -131,7 +144,12 @@ export function useFetch<T = unknown>(
   const stableHeaders = prevHeadersRef.current === headersStr ? prevHeadersRef.current : (prevHeadersRef.current = headersStr);
   const stableBody = prevBodyRef.current === bodyStr ? prevBodyRef.current : (prevBodyRef.current = bodyStr);
 
-  const cacheKey = `${url}?${stableQuery}`;
+  const cacheKey = buildFetchCacheKey(url, {
+    queryKey: stableQuery,
+    method,
+    headersKey: stableHeaders,
+    bodyKey: stableBody,
+  });
 
   // URL/query 변경 감지
   const prevCacheKeyRef = useRef(cacheKey);
@@ -161,7 +179,7 @@ export function useFetch<T = unknown>(
       }
     }
     setData(null);
-  }, [cacheKey]);
+  }, [cacheKey, cacheTime, transform]);
 
   const fetchData = useCallback(async () => {
     abortRef.current?.abort();
@@ -204,7 +222,7 @@ export function useFetch<T = unknown>(
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [url, method, stableQuery, stableHeaders, stableBody, cacheTime, cacheKey]);
+  }, [url, method, stableQuery, stableHeaders, stableBody, cacheTime, cacheKey, transform]);
 
   useEffect(() => {
     if (!immediate) return;

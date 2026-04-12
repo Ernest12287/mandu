@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mandu": {
+      "command": "bunx",
+      "args": ["@mandujs/mcp"],
+      "cwd": "."
+    }
+  }
+}

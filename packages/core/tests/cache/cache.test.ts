@@ -84,6 +84,17 @@ describe("MemoryCacheStore", () => {
     expect(store.get("home:/other")).not.toBeNull();
   });
 
+  it("deleteByPath removes every query variant for the pathname", () => {
+    store.set("home:/about?page=1", entry());
+    store.set("home:/about?page=2", entry());
+    store.set("home:/other?page=1", entry());
+
+    store.deleteByPath("/about");
+    expect(store.get("home:/about?page=1")).toBeNull();
+    expect(store.get("home:/about?page=2")).toBeNull();
+    expect(store.get("home:/other?page=1")).not.toBeNull();
+  });
+
   it("clear empties everything", () => {
     store.set("a", entry(["t"]));
     store.set("b", entry(["t"]));
@@ -144,8 +155,10 @@ describe("revalidatePath / revalidateTag with globalCache", () => {
 
   it("revalidatePath deletes matching entries", () => {
     store.set("r:/users", entry());
+    store.set("r:/users?page=2", entry());
     revalidatePath("/users");
     expect(store.get("r:/users")).toBeNull();
+    expect(store.get("r:/users?page=2")).toBeNull();
   });
 
   it("revalidateTag deletes matching entries", () => {

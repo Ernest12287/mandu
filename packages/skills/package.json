@@ -1,0 +1,52 @@
+{
+  "name": "@mandujs/skills",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Claude Code skills and plugin for Mandu framework",
+  "license": "MPL-2.0",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./init-integration": "./src/init-integration.ts"
+  },
+  "bin": {
+    "mandu-skills": "./src/cli.ts"
+  },
+  "files": [
+    "src/**/*",
+    "skills/**/*",
+    "templates/**/*",
+    ".claude-plugin/**/*",
+    "README.md"
+  ],
+  "keywords": [
+    "mandu",
+    "claude-code",
+    "skills",
+    "plugin",
+    "ai",
+    "agent",
+    "architecture",
+    "guard"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/konamgil/mandu.git",
+    "directory": "packages/skills"
+  },
+  "author": "konamgil",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "peerDependencies": {
+    "@mandujs/core": ">=0.19.0"
+  },
+  "peerDependenciesMeta": {
+    "@mandujs/core": {
+      "optional": true
+    }
+  }
+}

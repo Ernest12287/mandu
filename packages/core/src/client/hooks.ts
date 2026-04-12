@@ -332,10 +332,11 @@ export function useMandu() {
   const navigateFn = useNavigate();
   const submitFn = useSubmit();
 
-  // URL은 라우트 변경 시에만 재생성 (매 렌더마다 new URL 방지)
+  // URL은 라우터 상태가 실제로 바뀔 때만 재생성한다.
+  // query-only navigation도 반영되도록 상태 전체를 의존성으로 사용한다.
   const url = useMemo(
     () => typeof window !== "undefined" ? new URL(window.location.href) : null,
-    [state.currentRoute?.id, state.currentRoute?.params]
+    [state]
   );
 
   return {

@@ -102,11 +102,10 @@ export class MemoryCacheStore implements CacheStore {
   }
 
   deleteByPath(pathname: string): void {
-    // 캐시 키 형식: "routeId:pathname" — pathname 부분이 일치하는 모든 키 삭제
+    // 캐시 키 형식: "routeId:pathname?query" — pathname 부분이 일치하는 모든 키 삭제
     const keysToDelete: string[] = [];
     for (const key of this.cache.keys()) {
-      const colonIdx = key.indexOf(":");
-      const keyPath = colonIdx >= 0 ? key.slice(colonIdx + 1) : key;
+      const keyPath = getCachePathname(key);
       if (keyPath === pathname) {
         keysToDelete.push(key);
       }
@@ -143,6 +142,17 @@ export class MemoryCacheStore implements CacheStore {
     for (const tag of entry.tags) {
       this.tagIndex.get(tag)?.delete(key);
     }
+  }
+}
+
+function getCachePathname(key: string): string {
+  const colonIdx = key.indexOf(":");
+  const rawPath = colonIdx >= 0 ? key.slice(colonIdx + 1) : key;
+  try {
+    return new URL(rawPath, "http://mandu.local").pathname;
+  } catch {
+    const queryIdx = rawPath.indexOf("?");
+    return queryIdx >= 0 ? rawPath.slice(0, queryIdx) : rawPath;
   }
 }
 

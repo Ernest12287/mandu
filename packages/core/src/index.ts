@@ -33,6 +33,7 @@ export { formatViolation } from "./guard";
 export { type HttpMethod } from "./filling";
 export { type GuardViolation } from "./guard";
 export { type Severity } from "./guard";
+export { Image, type ImageProps } from "./components/Image";
 
 // Consolidated Mandu namespace
 import { ManduFilling, ManduContext, ManduFillingFactory, createSSEConnection } from "./filling";

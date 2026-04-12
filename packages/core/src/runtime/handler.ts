@@ -9,8 +9,9 @@ import type { ServerRegistry } from "./server";
 import type {
   MiddlewareFn,
   MiddlewareConfig,
+  InternalMiddlewareContext,
 } from "./middleware";
-import { createMiddlewareContext, matchesMiddlewarePath } from "./middleware";
+import { createMiddlewareContext, getMiddlewareMatch } from "./middleware";
 import { type CorsOptions, isCorsRequest, applyCorsToResponse } from "./cors";
 
 export interface FetchHandlerOptions {
@@ -33,11 +34,13 @@ export function createFetchHandler(options: FetchHandlerOptions): (req: Request)
     // 글로벌 미들웨어 실행 (라우트 매칭 전)
     if (middlewareFn) {
       const url = new URL(req.url);
-      if (matchesMiddlewarePath(url.pathname, middlewareConfig)) {
-        const mwCtx = createMiddlewareContext(req);
+      const middlewareMatch = getMiddlewareMatch(url.pathname, middlewareConfig);
+      if (middlewareMatch.matched) {
+        const mwCtx = createMiddlewareContext(req, middlewareMatch.params);
         try {
           const response = await middlewareFn(mwCtx, async () => {
-            return handleRequest(req, router, registry);
+            const rewrittenReq = (mwCtx as InternalMiddlewareContext).getRewrittenRequest();
+            return handleRequest(rewrittenReq ?? req, router, registry);
           });
 
           if (corsOptions && isCorsRequest(req)) {

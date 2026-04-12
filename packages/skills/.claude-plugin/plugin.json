@@ -1,0 +1,85 @@
+{
+  "name": "mandu-skills",
+  "description": "Claude Code plugin for Mandu Framework - architecture skills, guard hooks, MCP integration, and scaffolding workflows for agent-native fullstack development.",
+  "version": "1.0.0",
+  "author": "konamgil",
+  "homepage": "https://github.com/konamgil/mandu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/konamgil/mandu.git",
+    "directory": "packages/skills"
+  },
+  "license": "MPL-2.0",
+  "skills": [
+    {
+      "name": "mandu-create-feature",
+      "path": "../skills/mandu-create-feature/SKILL.md",
+      "description": "Feature scaffolding - pages, API routes, Islands via MCP negotiate/generate pipeline"
+    },
+    {
+      "name": "mandu-create-api",
+      "path": "../skills/mandu-create-api/SKILL.md",
+      "description": "REST API generation - CRUD endpoints, auth, file upload with contracts and tests"
+    },
+    {
+      "name": "mandu-debug",
+      "path": "../skills/mandu-debug/SKILL.md",
+      "description": "Error diagnosis and repair - build failures, white screens, Island issues, API errors"
+    },
+    {
+      "name": "mandu-explain",
+      "path": "../skills/mandu-explain/SKILL.md",
+      "description": "Mandu concept reference - Island, Filling, Guard, Contract, Slot, SSR, ISR explanations"
+    },
+    {
+      "name": "mandu-guard-guide",
+      "path": "../skills/mandu-guard-guide/SKILL.md",
+      "description": "Guard architecture guide - presets, violation fixes, layer rules"
+    },
+    {
+      "name": "mandu-deploy",
+      "path": "../skills/mandu-deploy/SKILL.md",
+      "description": "Production deployment pipeline - Docker, CI/CD, nginx configuration"
+    },
+    {
+      "name": "mandu-slot",
+      "path": "../skills/mandu-slot/SKILL.md",
+      "description": "Filling API reference - ctx methods, lifecycle hooks, middleware chains"
+    },
+    {
+      "name": "mandu-fs-routes",
+      "path": "../skills/mandu-fs-routes/SKILL.md",
+      "description": "File-system routing - pages, API routes, layouts, dynamic params"
+    },
+    {
+      "name": "mandu-hydration",
+      "path": "../skills/mandu-hydration/SKILL.md",
+      "description": "Island hydration - partial hydration, client hooks, import rules"
+    }
+  ],
+  "templates": {
+    ".mcp.json": "../templates/.mcp.json",
+    ".claude/settings.json": "../templates/.claude/settings.json"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "description": "Validate architecture guard rules before file modifications"
+      }
+    ]
+  },
+  "requires": {
+    "mcpServers": ["mandu"]
+  },
+  "keywords": [
+    "mandu",
+    "framework",
+    "fullstack",
+    "bun",
+    "typescript",
+    "react",
+    "island-architecture",
+    "agent-native"
+  ]
+}

@@ -16,6 +16,8 @@ import {
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 
@@ -37,6 +39,12 @@ import { mcpHookRegistry, registerDefaultMcpHooks, type McpToolContext } from ".
 
 // DNA-006: 설정 핫 리로드
 import { startMcpConfigWatcher, type McpConfigWatcher } from "./hooks/config-watcher.js";
+
+// Prompts
+import { manduPrompts, getPromptResult } from "./prompts.js";
+
+// New top-level resources
+import { manduResourceDefinitions, manduResourceHandlers } from "./new-resources.js";
 
 // 기존 컴포넌트
 import { resourceHandlers, resourceDefinitions } from "./resources/handlers.js";
@@ -76,6 +84,7 @@ export class ManduMcpServer {
         capabilities: {
           tools: {},
           resources: {},
+          prompts: {},
           logging: {},
         },
       }
@@ -100,6 +109,7 @@ export class ManduMcpServer {
     // 핸들러 등록
     this.registerToolHandlers();
     this.registerResourceHandlers();
+    this.registerPromptHandlers();
   }
 
   /**
@@ -125,20 +135,74 @@ export class ManduMcpServer {
   }
 
   /**
+   * Prompt handler registration
+   */
+  private registerPromptHandlers(): void {
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      return { prompts: manduPrompts };
+    });
+
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      const result = getPromptResult(name, args ?? {});
+
+      if (!result) {
+        return {
+          messages: [
+            {
+              role: "user" as const,
+              content: {
+                type: "text" as const,
+                text: `Unknown prompt: ${name}. Available prompts: ${manduPrompts.map((p) => p.name).join(", ")}`,
+              },
+            },
+          ],
+        };
+      }
+
+      return result;
+    });
+  }
+
+  /**
    * 리소스 핸들러 등록 (기존 유지)
    */
   private registerResourceHandlers(): void {
     const handlers = resourceHandlers(this.projectRoot);
+    const newHandlers = manduResourceHandlers(this.projectRoot);
+
+    // Merge resource definitions (new top-level + existing)
+    const allResources = [...manduResourceDefinitions, ...resourceDefinitions];
 
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      return {
-        resources: resourceDefinitions,
-      };
+      return { resources: allResources };
     });
 
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const { uri } = request.params;
 
+      // Check new top-level resource handlers first
+      const newHandler = newHandlers[uri];
+      if (newHandler) {
+        try {
+          const result = await newHandler();
+          return { contents: [result] };
+        } catch (error) {
+          return {
+            contents: [
+              {
+                uri,
+                mimeType: "application/json",
+                text: JSON.stringify({
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              },
+            ],
+          };
+        }
+      }
+
+      // Fall through to existing resource handlers
       const handler = handlers[uri];
       if (!handler) {
         // 동적 리소스 패턴 매칭

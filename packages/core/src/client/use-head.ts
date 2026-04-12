@@ -39,7 +39,6 @@ export interface SeoMetaConfig {
 
 /** SSR 렌더링 중 수집된 head 태그 */
 let ssrHeadTags: string[] = [];
-let isSSR = typeof window === "undefined";
 
 /** SSR 렌더링 전 초기화 */
 export function resetSSRHead(): void {
@@ -52,7 +51,7 @@ export function getSSRHeadTags(): string {
 }
 
 function pushSSRTag(html: string): void {
-  if (isSSR) {
+  if (typeof window === "undefined") {
     ssrHeadTags.push(html);
   }
 }

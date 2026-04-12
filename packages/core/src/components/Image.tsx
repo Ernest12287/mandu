@@ -79,13 +79,38 @@ export function Image({
 }: ImageProps) {
   const optimizedSrc = buildImageUrl(src, width, quality);
   const srcSet = buildSrcSet(src, widths, quality);
+  const blurPlaceholderSrc = buildImageUrl(src, Math.min(width, 32), Math.max(10, Math.min(quality, 30)));
 
   const imgStyle: React.CSSProperties = {
+    display: "block",
     aspectRatio: `${width}/${height}`,
     maxWidth: "100%",
     height: "auto",
+    position: placeholder === "blur" ? "relative" : undefined,
+    zIndex: placeholder === "blur" ? 1 : undefined,
     ...style,
   };
+
+  const wrapperStyle: React.CSSProperties | undefined = placeholder === "blur"
+    ? {
+        position: "relative",
+        display: "inline-block",
+        overflow: "hidden",
+        maxWidth: "100%",
+      }
+    : undefined;
+
+  const blurPlaceholderStyle: React.CSSProperties | undefined = placeholder === "blur"
+    ? {
+        position: "absolute",
+        inset: 0,
+        backgroundImage: `url("${blurPlaceholderSrc}")`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        filter: "blur(16px)",
+        transform: "scale(1.05)",
+      }
+    : undefined;
 
   return (
     <>
@@ -100,19 +125,38 @@ export function Image({
           fetchPriority: "high",
         })
       )}
-      <img
-        src={optimizedSrc}
-        srcSet={srcSet}
-        sizes={sizes ?? `${width}px`}
-        alt={alt}
-        width={width}
-        height={height}
-        loading={priority ? "eager" : "lazy"}
-        decoding={priority ? "sync" : "async"}
-        fetchPriority={priority ? "high" : undefined}
-        style={imgStyle}
-        {...rest}
-      />
+      {placeholder === "blur" ? (
+        <span style={wrapperStyle}>
+          <span aria-hidden="true" style={blurPlaceholderStyle} />
+          <img
+            src={optimizedSrc}
+            srcSet={srcSet}
+            sizes={sizes ?? `${width}px`}
+            alt={alt}
+            width={width}
+            height={height}
+            loading={priority ? "eager" : "lazy"}
+            decoding={priority ? "sync" : "async"}
+            fetchPriority={priority ? "high" : undefined}
+            style={imgStyle}
+            {...rest}
+          />
+        </span>
+      ) : (
+        <img
+          src={optimizedSrc}
+          srcSet={srcSet}
+          sizes={sizes ?? `${width}px`}
+          alt={alt}
+          width={width}
+          height={height}
+          loading={priority ? "eager" : "lazy"}
+          decoding={priority ? "sync" : "async"}
+          fetchPriority={priority ? "high" : undefined}
+          style={imgStyle}
+          {...rest}
+        />
+      )}
     </>
   );
 }

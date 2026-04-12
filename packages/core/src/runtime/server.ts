@@ -1,7 +1,7 @@
 import type { Server } from "bun";
 import type { RoutesManifest, RouteSpec, HydrationConfig } from "../spec/schema";
 import type { BundleManifest } from "../bundler/types";
-import type { ManduFilling } from "../filling/filling";
+import type { ManduFilling, RenderMode } from "../filling/filling";
 import { ManduContext, type CookieManager } from "../filling/context";
 import { Router } from "./router";
 import { renderSSR, renderStreamingResponse } from "./ssr";
@@ -429,6 +429,7 @@ export class ServerRegistry {
   readonly apiHandlers: Map<string, ApiHandler> = new Map();
   readonly pageLoaders: Map<string, PageLoader> = new Map();
   readonly pageHandlers: Map<string, PageHandler> = new Map();
+  readonly pageFillings: Map<string, ManduFilling<unknown>> = new Map();
   readonly routeComponents: Map<string, RouteComponent> = new Map();
   /** Layout 컴포넌트 캐시 (모듈 경로 → 컴포넌트) */
   readonly layoutComponents: Map<string, LayoutComponent> = new Map();
@@ -448,6 +449,8 @@ export class ServerRegistry {
   kitchen: KitchenHandler | null = null;
   /** 라우트별 캐시 옵션 (filling.loader()의 cacheOptions에서 등록) */
   readonly cacheOptions: Map<string, { revalidate?: number; tags?: string[] }> = new Map();
+  /** 라우트별 렌더 모드 */
+  readonly renderModes: Map<string, RenderMode> = new Map();
   /** Layout slot 파일 경로 캐시 (모듈 경로 → slot 경로 | null) */
   readonly layoutSlotPaths: Map<string, string | null> = new Map();
   /** WebSocket 핸들러 (라우트 ID → WSHandlers) */
@@ -975,14 +978,7 @@ async function loadPageData(
   if (pageHandler) {
     let cookies: CookieManager | undefined;
     try {
-      const registration = await pageHandler();
-      const component = registration.component as RouteComponent;
-      registry.registerRouteComponent(route.id, component);
-
-      // Filling의 캐시 옵션 등록 (ISR/SWR용)
-      if (registration.filling?.getCacheOptions?.()) {
-        registry.cacheOptions.set(route.id, registration.filling.getCacheOptions()!);
-      }
+      const registration = await ensurePageRouteMetadata(route.id, registry, pageHandler);
 
       // Filling의 loader 실행
       if (registration.filling?.hasLoader()) {
@@ -1297,13 +1293,15 @@ async function handlePageRoute(
 ): Promise<Result<Response>> {
   const settings = registry.settings;
   const cache = settings.cacheStore;
+  await ensurePageRouteMetadata(route.id, registry);
+  const renderMode = getRenderModeForRoute(route.id, registry);
 
   // _data 요청 (SPA 네비게이션)은 캐시하지 않음
   const isDataRequest = url.searchParams.has("_data");
 
   // ISR/SWR 캐시 확인 (SSR 렌더링 요청에만 적용)
-  if (cache && !isDataRequest) {
-    const cacheKey = `${route.id}:${url.pathname}`;
+  if (cache && !isDataRequest && renderMode !== "dynamic") {
+    const cacheKey = buildRouteCacheKey(route.id, url);
     const lookup = lookupCache(cache, cacheKey);
 
     if (lookup.status === "HIT" && lookup.entry) {
@@ -1357,13 +1355,13 @@ async function handlePageRoute(
   const ssrResult = await renderPageSSR(route, params, loaderData, req.url, registry, cookies, layoutData);
 
   // 4. 캐시 저장 (revalidate 설정이 있는 경우 — non-blocking)
-  if (cache && ssrResult.ok) {
+  if (cache && ssrResult.ok && renderMode !== "dynamic") {
     const cacheOptions = getCacheOptionsForRoute(route.id, registry);
     if (cacheOptions?.revalidate && cacheOptions.revalidate > 0) {
       const cloned = ssrResult.value.clone();
       const status = ssrResult.value.status;
       const headers = Object.fromEntries(ssrResult.value.headers.entries());
-      const cacheKey = `${route.id}:${url.pathname}`;
+      const cacheKey = buildRouteCacheKey(route.id, url);
       // streaming 응답도 블로킹하지 않도록 백그라운드에서 캐시 저장
       cloned.text().then((html) => {
         cache.set(cacheKey, createCacheEntry(
@@ -1427,6 +1425,53 @@ function getCacheOptionsForRoute(
   // filling의 getCacheOptions()를 호출하려면 filling 인스턴스에 접근해야 하지만
   // pageHandler 실행 없이는 접근 불가 → 등록 시점에 캐시 옵션을 별도 저장
   return registry.cacheOptions?.get(routeId) ?? null;
+}
+
+function getRenderModeForRoute(routeId: string, registry: ServerRegistry): RenderMode {
+  return registry.renderModes.get(routeId) ?? "dynamic";
+}
+
+async function ensurePageRouteMetadata(
+  routeId: string,
+  registry: ServerRegistry,
+  pageHandler?: PageHandler
+): Promise<PageRegistration> {
+  const handler = pageHandler ?? registry.pageHandlers.get(routeId);
+  if (!handler) {
+    throw new Error(`Page handler not found for route: ${routeId}`);
+  }
+
+  const existingComponent = registry.routeComponents.get(routeId);
+  const existingFilling = registry.pageFillings.get(routeId);
+  if (existingComponent && existingFilling) {
+    return { component: existingComponent, filling: existingFilling };
+  }
+
+  const registration = await handler();
+  const component = registration.component as RouteComponent;
+  registry.registerRouteComponent(routeId, component);
+
+  if (registration.filling) {
+    registry.pageFillings.set(routeId, registration.filling);
+    const cacheOptions = registration.filling.getCacheOptions?.();
+    if (cacheOptions) {
+      registry.cacheOptions.set(routeId, cacheOptions);
+    }
+    registry.renderModes.set(routeId, registration.filling.getRenderMode());
+  }
+
+  return registration;
+}
+
+function buildRouteCacheKey(routeId: string, url: URL): string {
+  const entries = [...url.searchParams.entries()].sort(([aKey, aValue], [bKey, bValue]) => {
+    if (aKey === bKey) {
+      return aValue.localeCompare(bValue);
+    }
+    return aKey.localeCompare(bKey);
+  });
+  const search = entries.length > 0 ? `?${new URLSearchParams(entries).toString()}` : "";
+  return `${routeId}:${url.pathname}${search}`;
 }
 
 // ---------- Main Request Dispatcher ----------

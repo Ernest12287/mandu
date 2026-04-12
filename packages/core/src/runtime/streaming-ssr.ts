@@ -20,6 +20,7 @@ import { injectSEOIntoOptions, resolveSEO, type SEOOptions } from "../seo/integr
 import { PORTS, TIMEOUTS } from "../constants";
 import { escapeHtmlAttr, escapeHtmlText, escapeJsonForInlineScript, escapeJsString } from "./escape";
 import { REACT_INTERNALS_SHIM_SCRIPT } from "./shims";
+import { getRenderToString } from "./react-renderer";
 
 // ========== Types ==========
 
@@ -704,11 +705,15 @@ export async function renderToStream(
   }
 
   const encoder = new TextEncoder();
-  const htmlShell = generateHTMLShell(options);
+  const collectedHeadTags = collectStreamingHeadTags(element);
+  const resolvedOptions = collectedHeadTags
+    ? { ...options, headTags: [options.headTags, collectedHeadTags].filter(Boolean).join("\n") }
+    : options;
+  const htmlShell = generateHTMLShell(resolvedOptions);
   // _skipHtmlClose가 true이면 </body></html> 생략 (deferred 스크립트 삽입용)
-  const htmlTail = options._skipHtmlClose
-    ? generateHTMLTailContent(options)
-    : generateHTMLTail(options);
+  const htmlTail = resolvedOptions._skipHtmlClose
+    ? generateHTMLTailContent(resolvedOptions)
+    : generateHTMLTail(resolvedOptions);
 
   let shellSent = false;
   let timedOut = false;
@@ -897,6 +902,21 @@ export async function renderToStream(
       } catch {}
     },
   });
+}
+
+function collectStreamingHeadTags(element: ReactElement): string {
+  try {
+    const mod = require("../client/use-head") as {
+      resetSSRHead?: () => void;
+      getSSRHeadTags?: () => string;
+    };
+    mod.resetSSRHead?.();
+    const renderToString = getRenderToString();
+    renderToString(element);
+    return mod.getSSRHeadTags?.() ?? "";
+  } catch {
+    return "";
+  }
 }
 
 /**

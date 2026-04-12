@@ -9,6 +9,11 @@ import {
   writeLockfile,
   LOCKFILE_PATH,
 } from "@mandujs/core";
+import {
+  setupClaudeSkills,
+  getSkillCount,
+  type SetupResult as SkillsSetupResult,
+} from "@mandujs/skills/init-integration";
 
 export type CSSFramework = "tailwind" | "panda" | "none";
 export type UILibrary = "shadcn" | "ark" | "none";
@@ -340,6 +345,7 @@ export async function init(options: InitOptions = {}): Promise<boolean> {
   // Run structured steps with progress
   let mcpResult: McpConfigResult;
   let lockfileResult: LockfileResult;
+  let skillsResult: SkillsSetupResult;
 
   try {
     await runSteps([
@@ -375,6 +381,12 @@ export async function init(options: InitOptions = {}): Promise<boolean> {
         label: "MCP configuration",
         fn: async () => {
           mcpResult = await setupMcpConfig(targetDir);
+        },
+      },
+      {
+        label: "Claude Code skills",
+        fn: async () => {
+          skillsResult = await setupClaudeSkills(targetDir);
         },
       },
       {
@@ -465,6 +477,20 @@ export async function init(options: InitOptions = {}): Promise<boolean> {
   logMcpConfigStatus(".claude.json", mcpResult!.claudeJson, "Claude MCP local scope");
   logMcpConfigStatus(".gemini/settings.json", mcpResult!.geminiJson, "Gemini CLI auto-connect");
   console.log(`   AGENTS.md → Agent guide (specifies Bun usage)`);
+
+  // Claude Code skills info
+  console.log(`\n🧠 Claude Code skills:`);
+  if (skillsResult!.skillsInstalled > 0) {
+    console.log(`   ${skillsResult!.skillsInstalled}/${getSkillCount()} skills installed to .claude/skills/`);
+  }
+  if (skillsResult!.settingsCreated) {
+    console.log(`   .claude/settings.json created (hooks + permissions)`);
+  }
+  if (skillsResult!.errors.length > 0) {
+    for (const err of skillsResult!.errors) {
+      console.log(`   ${theme.warn("⚠")} ${err}`);
+    }
+  }
 
   // Lockfile info
   console.log(`\n🔒 Config integrity:`);
