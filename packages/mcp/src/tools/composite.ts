@@ -110,6 +110,9 @@ export const compositeToolDefinitions: Tool[] = [
     description:
       "Pre-deployment validation: runs guard, contract, and manifest checks in parallel. " +
       "Returns a structured readiness report with pass/fail per check and any blockers.",
+    annotations: {
+      readOnlyHint: true,
+    },
     inputSchema: {
       type: "object",
       properties: {
@@ -122,6 +125,9 @@ export const compositeToolDefinitions: Tool[] = [
     description:
       "Cache management operations. 'stats' reads cache info from Kitchen endpoint. " +
       "'clear' explains that runtime cache requires server restart or revalidatePath/Tag.",
+    annotations: {
+      readOnlyHint: false,
+    },
     inputSchema: {
       type: "object",
       properties: {
