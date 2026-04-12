@@ -4,6 +4,7 @@ export { ATEFileError, ensureDir, readJson, writeJson, fileExists, getAtePaths }
 
 export { extract } from "./extractor";
 export { generateAndWriteScenarios } from "./scenario";
+export type { ScenarioKind, GeneratedScenario, ScenarioBundle } from "./scenario";
 export { generatePlaywrightSpecs } from "./codegen";
 export { runPlaywright } from "./runner";
 export { composeSummary, writeSummary, generateReport } from "./report";
@@ -20,6 +21,8 @@ export type {
   FailureCategory,
 } from "./heal";
 export { computeImpact } from "./impact";
+export { generateUnitSpec, generateUnitSpecs } from "./unit-codegen";
+export type { UnitCodegenResult } from "./unit-codegen";
 export * from "./selector-map";
 export { parseTrace, generateAlternativeSelectors } from "./trace-parser";
 export type { TraceAction, FailedLocator, TraceParseResult } from "./trace-parser";
@@ -27,7 +30,7 @@ export type { TraceAction, FailedLocator, TraceParseResult } from "./trace-parse
 // Oracle and domain detection
 export { detectDomain, detectDomainFromRoute, detectDomainFromSource } from "./domain-detector";
 export type { AppDomain, DomainDetectionResult } from "./domain-detector";
-export { generateL1Assertions, upgradeL0ToL1, getAssertionCount, createDefaultOracle } from "./oracle";
+export { generateL1Assertions, generateL2Assertions, generateL3Assertions, upgradeL0ToL1, getAssertionCount, createDefaultOracle } from "./oracle";
 export type { OracleResult } from "./oracle";
 
 import type { ExtractInput, GenerateInput, RunInput, ImpactInput, HealInput, OracleLevel } from "./types";

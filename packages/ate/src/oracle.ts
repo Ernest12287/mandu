@@ -1,4 +1,4 @@
-import type { OracleLevel } from "./types";
+import type { InteractionNode, OracleLevel } from "./types";
 import { detectDomain, type AppDomain } from "./domain-detector";
 
 export interface OracleResult {
@@ -149,4 +149,88 @@ export function upgradeL0ToL1(testCode: string, routePath: string, sourceCode?: 
 export function getAssertionCount(domain: AppDomain, routePath: string): number {
   const assertions = generateL1Assertions(domain, routePath);
   return assertions.filter((a) => a.includes("expect(")).length;
+}
+
+/**
+ * Generate L2 assertions: contract schema validation and SSR data verification
+ */
+export function generateL2Assertions(node: InteractionNode): string[] {
+  if (node.kind !== "route") return [];
+  const assertions: string[] = [];
+  const isApi = node.path.startsWith("/api/") || (node.methods && node.methods.length > 0);
+
+  if (isApi) {
+    assertions.push(`// L2: API contract validation`);
+    assertions.push(`const response = await request.get("${node.path}");`);
+    assertions.push(`expect(response.status()).toBeLessThan(500);`);
+    assertions.push(`const contentType = response.headers()["content-type"] ?? "";`);
+    assertions.push(`expect(contentType).toContain("application/json");`);
+    assertions.push(`const responseBody = await response.json();`);
+    assertions.push(`expect(responseBody).toBeDefined();`);
+    // Edge case: malformed body on POST endpoints
+    if (node.methods?.includes("POST") || node.methods?.includes("PUT")) {
+      assertions.push(`// Edge case: reject empty body on mutation endpoint`);
+      assertions.push(`const badResponse = await request.${node.methods.includes("POST") ? "post" : "put"}("${node.path}", { data: {} });`);
+      assertions.push(`expect(badResponse.status()).toBeGreaterThanOrEqual(400);`);
+      assertions.push(`expect(badResponse.status()).toBeLessThan(500);`);
+    }
+  } else {
+    // Page route: verify SSR data injection
+    assertions.push(`// L2: SSR data injection verification`);
+    assertions.push(`const manduDataEl = page.locator("#__MANDU_DATA__");`);
+    assertions.push(`const dataCount = await manduDataEl.count();`);
+    assertions.push(`if (dataCount > 0) {`);
+    assertions.push(`  const raw = await manduDataEl.textContent();`);
+    assertions.push(`  expect(() => JSON.parse(raw!)).not.toThrow();`);
+    assertions.push(`}`);
+  }
+
+  return assertions;
+}
+
+/**
+ * Generate L3 assertions: behavioral verification (state changes, island hydration, navigation)
+ */
+export function generateL3Assertions(node: InteractionNode, edges: { kind: string; to?: string }[]): string[] {
+  if (node.kind !== "route") return [];
+  const assertions: string[] = [];
+  const isApi = node.path.startsWith("/api/") || (node.methods && node.methods.length > 0);
+
+  if (isApi && node.methods?.includes("POST")) {
+    assertions.push(`// L3: POST state change verification`);
+    assertions.push(`const beforeRes = await request.get("${node.path}");`);
+    assertions.push(`const beforeStatus = beforeRes.status();`);
+    assertions.push(`if (beforeStatus < 400) {`);
+    assertions.push(`  const beforeBody = await beforeRes.json();`);
+    assertions.push(`  const beforeCount = Array.isArray(beforeBody) ? beforeBody.length : 0;`);
+    assertions.push(`  await request.post("${node.path}", { data: { _ate: true } });`);
+    assertions.push(`  const afterBody = await (await request.get("${node.path}")).json();`);
+    assertions.push(`  const afterCount = Array.isArray(afterBody) ? afterBody.length : 0;`);
+    assertions.push(`  expect(afterCount).toBeGreaterThanOrEqual(beforeCount);`);
+    assertions.push(`}`);
+  }
+
+  if (!isApi && node.hasIsland) {
+    assertions.push(`// L3: Island hydration verification`);
+    assertions.push(`const islands = page.locator("[data-mandu-island]");`);
+    assertions.push(`const islandCount = await islands.count();`);
+    assertions.push(`if (islandCount > 0) {`);
+    assertions.push(`  await expect(islands.first()).toBeVisible();`);
+    assertions.push(`  // Verify island has been hydrated (script loaded)`);
+    assertions.push(`  const hydrated = await page.evaluate(() => typeof window.__MANDU_ISLANDS__ === "object");`);
+    assertions.push(`  expect(hydrated).toBe(true);`);
+    assertions.push(`}`);
+  }
+
+  // Navigation flow: verify that outgoing links resolve to valid pages
+  const navTargets = edges.filter(e => e.kind === "navigate" && e.to).slice(0, 3);
+  if (!isApi && navTargets.length > 0) {
+    assertions.push(`// L3: Navigation flow verification`);
+    for (const nav of navTargets) {
+      assertions.push(`const navRes_${nav.to!.replace(/[^a-zA-Z0-9]/g, "_")} = await request.get("${nav.to}");`);
+      assertions.push(`expect(navRes_${nav.to!.replace(/[^a-zA-Z0-9]/g, "_")}.status()).toBeLessThan(500);`);
+    }
+  }
+
+  return assertions;
 }

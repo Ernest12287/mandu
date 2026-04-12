@@ -2,16 +2,21 @@ import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { getAtePaths, ensureDir, readJson, writeJson } from "./fs";
 import type { ScenarioBundle } from "./scenario";
-import type { OracleLevel } from "./types";
+import type { InteractionEdge, InteractionGraph, InteractionNode, OracleLevel } from "./types";
 import { readSelectorMap, buildPlaywrightLocatorChain } from "./selector-map";
-import { generateL1Assertions } from "./oracle";
+import { generateL1Assertions, generateL2Assertions, generateL3Assertions } from "./oracle";
 import { detectDomain } from "./domain-detector";
 
 function specHeader(): string {
   return `import { test, expect } from "@playwright/test";\n\n`;
 }
 
-function oracleTemplate(level: OracleLevel, routePath: string): { setup: string; assertions: string } {
+function oracleTemplate(
+  level: OracleLevel,
+  routePath: string,
+  node?: InteractionNode,
+  edges?: InteractionEdge[],
+): { setup: string; assertions: string } {
   const setup: string[] = [];
   const assertions: string[] = [];
 
@@ -22,17 +27,16 @@ function oracleTemplate(level: OracleLevel, routePath: string): { setup: string;
   setup.push(`page.on("pageerror", (err) => errors.push(String(err)));`);
 
   if (level === "L1" || level === "L2" || level === "L3") {
-    // Use domain-aware L1 assertions
     const domain = detectDomain(routePath).domain;
     const l1Assertions = generateL1Assertions(domain, routePath);
     assertions.push(...l1Assertions);
   }
-  if (level === "L2" || level === "L3") {
-    assertions.push(`// L2: behavior signals (placeholder - extend per app)`);
-    assertions.push(`await expect(page).toHaveURL(/.*/);`);
+  if ((level === "L2" || level === "L3") && node) {
+    assertions.push(...generateL2Assertions(node));
   }
-  if (level === "L3") {
-    assertions.push(`// L3: domain hints (placeholder)`);
+  if (level === "L3" && node) {
+    const nodeEdges = (edges ?? []).filter(e => "from" in e && e.from === (node.kind === "route" ? node.path : ""));
+    assertions.push(...generateL3Assertions(node, nodeEdges));
   }
 
   assertions.push(`expect(errors, "console/page errors").toEqual([]);`);
@@ -54,6 +58,14 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
   if (!bundle.scenarios || bundle.scenarios.length === 0) {
     warnings.push("경고: 생성할 시나리오가 없습니다");
     return { files: [], warnings };
+  }
+
+  // Load interaction graph for L2/L3 node metadata
+  let graph: InteractionGraph | undefined;
+  try {
+    graph = readJson<InteractionGraph>(paths.interactionGraphPath);
+  } catch {
+    // Graph is optional; L2/L3 will degrade gracefully without node metadata
   }
 
   let selectorMap;
@@ -83,9 +95,10 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
       if (s.kind === "api-smoke") {
         // API route: fetch-based test
         const methods = s.methods ?? ["GET"];
+        const apiNode = graph?.nodes.find(n => n.kind === "route" && n.path === s.route);
         const testCases = methods.map((method) => {
           return [
-            `  test(${JSON.stringify(`${method} ${s.route}`)}, async ({ baseURL }) => {`,
+            `  test(${JSON.stringify(`${method} ${s.route}`)}, async ({ request, baseURL }) => {`,
             `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route)};`,
             `    const res = await fetch(url, { method: ${JSON.stringify(method)} });`,
             `    expect(res.status).toBeLessThan(500);`,
@@ -95,16 +108,110 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           ].filter(Boolean).join("\n");
         });
 
+        // L2/L3 assertions for API routes
+        const apiOracleTests: string[] = [];
+        if ((s.oracleLevel === "L2" || s.oracleLevel === "L3") && apiNode) {
+          const l2 = generateL2Assertions(apiNode);
+          if (l2.length > 0) {
+            apiOracleTests.push([
+              `  test(${JSON.stringify(`L2 contract: ${s.route}`)}, async ({ request }) => {`,
+              ...l2.map(line => `    ${line}`),
+              `  });`,
+            ].join("\n"));
+          }
+        }
+        if (s.oracleLevel === "L3" && apiNode) {
+          const l3 = generateL3Assertions(apiNode, graph?.edges ?? []);
+          if (l3.length > 0) {
+            apiOracleTests.push([
+              `  test(${JSON.stringify(`L3 behavior: ${s.route}`)}, async ({ request }) => {`,
+              ...l3.map(line => `    ${line}`),
+              `  });`,
+            ].join("\n"));
+          }
+        }
+
         code = [
           specHeader(),
           `test.describe(${JSON.stringify(s.id)}, () => {`,
           ...testCases,
+          ...apiOracleTests,
+          `});`,
+          "",
+        ].join("\n");
+      } else if (s.kind === "ssr-verify") {
+        // SSR output verification
+        const routeUrl = s.route === "/" ? "/" : s.route;
+        const lines: string[] = [
+          specHeader(),
+          `test.describe(${JSON.stringify(s.id)}, () => {`,
+          `  test(${JSON.stringify(`ssr-verify ${s.route}`)}, async ({ page, baseURL }) => {`,
+          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(routeUrl)};`,
+          `    await page.goto(url);`,
+          `    const html = await page.content();`,
+          `    expect(html).toContain("<!DOCTYPE html>");`,
+          `    expect(html).toContain("<html");`,
+        ];
+        if (!s.hasIsland) {
+          lines.push(`    expect(html).not.toContain("data-mandu-island");`);
+        }
+        lines.push(`  });`, `});`, "");
+        code = lines.join("\n");
+      } else if (s.kind === "island-hydration") {
+        // Island hydration verification
+        const routeUrl = s.route === "/" ? "/" : s.route;
+        code = [
+          specHeader(),
+          `test.describe(${JSON.stringify(s.id)}, () => {`,
+          `  test(${JSON.stringify(`island-hydration ${s.route}`)}, async ({ page, baseURL }) => {`,
+          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(routeUrl)};`,
+          `    await page.goto(url);`,
+          `    await page.waitForSelector("[data-mandu-island]", { timeout: 5000 });`,
+          `    const count = await page.locator("[data-mandu-island]").count();`,
+          `    expect(count).toBeGreaterThan(0);`,
+          `  });`,
+          `});`,
+          "",
+        ].join("\n");
+      } else if (s.kind === "sse-stream") {
+        // SSE streaming test
+        code = [
+          specHeader(),
+          `test.describe(${JSON.stringify(s.id)}, () => {`,
+          `  test(${JSON.stringify(`sse-stream ${s.route}`)}, async ({ baseURL }) => {`,
+          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route)};`,
+          `    const res = await fetch(url, { headers: { Accept: "text/event-stream" } });`,
+          `    expect(res.status).toBeLessThan(500);`,
+          `    const ct = res.headers.get("content-type") ?? "";`,
+          `    expect(ct).toContain("text/event-stream");`,
+          `    const body = await res.text();`,
+          `    expect(body.length).toBeGreaterThan(0);`,
+          `  });`,
+          `});`,
+          "",
+        ].join("\n");
+      } else if (s.kind === "form-action") {
+        // Form action test (POST with _action)
+        code = [
+          specHeader(),
+          `test.describe(${JSON.stringify(s.id)}, () => {`,
+          `  test(${JSON.stringify(`form-action ${s.route}`)}, async ({ baseURL }) => {`,
+          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route)};`,
+          `    const res = await fetch(url, {`,
+          `      method: "POST",`,
+          `      headers: { "Content-Type": "application/x-www-form-urlencoded" },`,
+          `      body: "_action=default",`,
+          `    });`,
+          `    expect(res.status).toBeLessThan(500);`,
+          `    expect(res.headers.get("content-type")).toBeTruthy();`,
+          `  });`,
           `});`,
           "",
         ].join("\n");
       } else {
-        // Page route: browser-based test
-        const oracle = oracleTemplate(s.oracleLevel, s.route);
+        // Page route: browser-based test (route-smoke)
+        const graphNode = graph?.nodes.find(n => n.kind === "route" && n.path === s.route);
+        const oracle = oracleTemplate(s.oracleLevel, s.route, graphNode, graph?.edges);
 
         // Generate selector examples if selector map exists
         let selectorExamples = "";
@@ -117,7 +224,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
         code = [
           specHeader(),
           `test.describe(${JSON.stringify(s.id)}, () => {`,
-          `  test(${JSON.stringify(`smoke ${s.route}`)}, async ({ page, baseURL }) => {`,
+          `  test(${JSON.stringify(`smoke ${s.route}`)}, async ({ page, request, baseURL }) => {`,
           `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route === "/" ? "/" : s.route)};`,
           `    ${oracle.setup.split("\n").join("\n    ")}`,
           `    await page.goto(url);`,

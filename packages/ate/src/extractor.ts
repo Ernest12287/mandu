@@ -1,5 +1,5 @@
 import fg from "fast-glob";
-import { relative, join } from "node:path";
+import { relative, join, dirname } from "node:path";
 import { createEmptyGraph, addEdge, addNode } from "./ir";
 import { getAtePaths, writeJson } from "./fs";
 import type { ExtractInput, InteractionGraph } from "./types";
@@ -89,6 +89,8 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
 
       // API route: extract HTTP methods from exports (GET, POST, PUT, PATCH, DELETE)
       let methods: string[] = [];
+      let hasSse = false;
+      let hasAction = false;
       if (isApiRoute) {
         const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
         const exportDecls = sourceFile.getExportedDeclarations();
@@ -98,7 +100,19 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
           }
         }
         if (methods.length === 0) methods = ["GET"]; // default
+
+        // Detect SSE and _action patterns from source text
+        const sourceText = sourceFile.getFullText();
+        hasSse = /ctx\.sse|text\/event-stream|EventSource|new\s+ReadableStream/.test(sourceText);
+        hasAction = methods.includes("POST") && /_action/.test(sourceText);
       }
+
+      // Detect companion island and contract files
+      const routeDir = dirname(filePath);
+      const hasIsland = [".island.tsx", ".island.ts", ".client.tsx", ".client.ts"]
+        .some(ext => fg.sync(`*${ext}`, { cwd: routeDir, onlyFiles: true }).length > 0);
+      const hasContract = [".contract.ts", ".contract.tsx"]
+        .some(ext => fg.sync(`*${ext}`, { cwd: routeDir, onlyFiles: true }).length > 0);
 
       addNode(graph, {
         kind: "route",
@@ -106,6 +120,10 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
         file: relNormalized,
         path: routePath === "" ? "/" : routePath,
         ...(isApiRoute ? { methods } : {}),
+        ...(hasIsland ? { hasIsland: true } : {}),
+        ...(hasContract ? { hasContract: true } : {}),
+        ...(hasSse ? { hasSse: true } : {}),
+        ...(hasAction ? { hasAction: true } : {}),
       });
 
       // API route에는 JSX/navigation이 없으므로 건너뜀

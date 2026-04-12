@@ -1,10 +1,11 @@
-export type DevShortcutAction = "open" | "restart" | "clear" | "quit" | "ignore";
+export type DevShortcutAction = "open" | "restart" | "clear" | "quit" | "monitor" | "ignore";
 
 export interface DevShortcutContext {
   clearScreen: () => void;
   openBrowser: () => void;
   restartServer: () => void | Promise<void>;
   quit: () => void;
+  toggleMonitor?: () => void;
 }
 
 export interface DevServerSummary {
@@ -38,7 +39,7 @@ export function renderDevReadySummary(summary: DevServerSummary): string {
     ),
     "",
     "Shortcuts",
-    "  o open browser   r restart server   c clear screen   q quit",
+    "  o open   r restart   m monitor   c clear   q quit",
   ];
 
   return lines.join("\n");
@@ -52,6 +53,8 @@ export function interpretDevShortcut(input: string): DevShortcutAction {
       return "restart";
     case "c":
       return "clear";
+    case "m":
+      return "monitor";
     case "q":
       return "quit";
     default:
@@ -74,6 +77,9 @@ export async function handleDevShortcutInput(
       return action;
     case "clear":
       context.clearScreen();
+      return action;
+    case "monitor":
+      context.toggleMonitor?.();
       return action;
     case "quit":
       context.quit();

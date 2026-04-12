@@ -25,13 +25,15 @@ describe("dev shortcut helpers", () => {
     expect(summary).toContain("State");
     expect(summary).toContain("Routes    12 pages, 5 API, 3 island bundles");
     expect(summary).toContain("Shortcuts");
-    expect(summary).toContain("o open browser");
+    expect(summary).toContain("o open");
+    expect(summary).toContain("m monitor");
   });
 
   it("maps shortcut keys to actions", () => {
     expect(interpretDevShortcut("o")).toBe("open");
     expect(interpretDevShortcut("r")).toBe("restart");
     expect(interpretDevShortcut("c")).toBe("clear");
+    expect(interpretDevShortcut("m")).toBe("monitor");
     expect(interpretDevShortcut("q")).toBe("quit");
     expect(interpretDevShortcut("x")).toBe("ignore");
   });

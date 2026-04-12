@@ -22,6 +22,7 @@ export * from "./island";
 export * from "./intent";
 export * from "./devtools";
 export * from "./paths";
+export * from "./observability";
 export * from "./resource";
 export * from "./types";
 export * from "./kitchen";

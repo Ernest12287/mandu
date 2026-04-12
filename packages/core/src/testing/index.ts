@@ -5,6 +5,7 @@
 
 import { ManduContext } from "../filling/context";
 import type { ManduFilling } from "../filling/filling";
+import type { RouteSpec, RoutesManifest } from "../spec/schema";
 
 // ========== Types ==========
 
@@ -141,4 +142,48 @@ export function createTestContext(
 ): ManduContext {
   const request = createTestRequest(path, options);
   return new ManduContext(request, options.params);
+}
+
+// ========== Test Factories ==========
+
+/**
+ * Create a RoutesManifest from partial route definitions.
+ * Fills in sensible defaults so tests only specify the fields they care about.
+ *
+ * @example
+ * ```typescript
+ * const manifest = createTestManifest([
+ *   { id: "home", kind: "page", pattern: "/" },
+ *   { id: "api-users", kind: "api", pattern: "/api/users" },
+ * ]);
+ * ```
+ */
+export function createTestManifest(routes: Partial<RouteSpec>[]): RoutesManifest {
+  return {
+    version: 1,
+    routes: routes.map((r, i) => ({
+      id: r.id ?? `test-route-${i}`,
+      kind: r.kind ?? "page",
+      pattern: r.pattern ?? `/test-${i}`,
+      module: r.module ?? `app/test-${i}/page.tsx`,
+      componentModule:
+        (r.kind ?? "page") === "page"
+          ? (r.componentModule ?? r.module ?? `app/test-${i}/page.tsx`)
+          : undefined,
+      ...r,
+    })) as RouteSpec[],
+  };
+}
+
+/**
+ * Create a minimal island descriptor for testing hydration logic.
+ *
+ * @example
+ * ```typescript
+ * const island = createTestIsland("counter", "interaction");
+ * expect(island.__hydrate).toBe("interaction");
+ * ```
+ */
+export function createTestIsland(name: string, strategy: string = "visible") {
+  return { __island: true, __hydrate: strategy, __name: name };
 }

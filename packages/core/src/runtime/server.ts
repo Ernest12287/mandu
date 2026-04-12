@@ -39,7 +39,7 @@ import {
   isCorsRequest,
 } from "./cors";
 import { validateImportPath } from "./security";
-import { KITCHEN_PREFIX, KitchenHandler } from "../kitchen/kitchen-handler";
+import { KITCHEN_PREFIX, KitchenHandler, recordRequest } from "../kitchen/kitchen-handler";
 import {
   type MiddlewareFn,
   type MiddlewareConfig,
@@ -1015,10 +1015,34 @@ async function handleInternalCacheControlRequest(
 }
 
 async function handleRequest(req: Request, router: Router, registry: ServerRegistry): Promise<Response> {
+  const requestStart = Date.now();
   const result = await handleRequestInternal(req, router, registry);
 
   if (!result.ok) {
-    return errorToResponse(result.error, registry.settings.isDev);
+    const errorResponse = errorToResponse(result.error, registry.settings.isDev);
+    if (registry.settings.isDev) {
+      const url = new URL(req.url);
+      const p = url.pathname;
+      if (!p.startsWith("/.mandu/") && !p.startsWith("/__kitchen")) {
+        const elapsed = Date.now() - requestStart;
+        console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${p} ${errorResponse.status} ${elapsed}ms`);
+        recordRequest({ id: crypto.randomUUID(), method: req.method, path: p, status: errorResponse.status, duration: elapsed, timestamp: Date.now() });
+      }
+    }
+    return errorResponse;
+  }
+
+  if (registry.settings.isDev) {
+    const url = new URL(req.url);
+    const p = url.pathname;
+    if (!p.startsWith("/.mandu/") && !p.startsWith("/__kitchen")) {
+      const elapsed = Date.now() - requestStart;
+      const status = result.value.status;
+      const cacheHdr = result.value.headers.get("X-Mandu-Cache") ?? "";
+      const cacheTag = cacheHdr ? ` ${cacheHdr}` : "";
+      console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${p} ${status} ${elapsed}ms${cacheTag}`);
+      recordRequest({ id: crypto.randomUUID(), method: req.method, path: p, status, duration: elapsed, timestamp: Date.now(), cacheStatus: cacheHdr || undefined });
+    }
   }
 
   return result.value;

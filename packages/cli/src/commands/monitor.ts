@@ -6,11 +6,17 @@ import { resolveOutputFormat } from "../util/output";
 
 type MonitorOutput = "console" | "json";
 
+export type EventType = "http" | "mcp" | "guard" | "build" | "error" | "cache";
+export type SeverityLevel = "info" | "warn" | "error";
+
 export interface MonitorOptions {
   follow?: boolean;
   summary?: boolean;
   since?: string;
   file?: string;
+  type?: EventType;
+  severity?: SeverityLevel;
+  stats?: boolean;
 }
 
 interface MonitorEvent {
@@ -44,6 +50,16 @@ function parseDuration(value?: string): number | undefined {
     default:
       return undefined;
   }
+}
+
+const SEVERITY_LEVELS: Record<string, number> = { info: 0, warn: 1, error: 2 };
+
+function shouldShow(event: MonitorEvent, opts: MonitorOptions): boolean {
+  if (opts.type && !event.type?.startsWith(opts.type)) return false;
+  if (opts.severity) {
+    if ((SEVERITY_LEVELS[event.severity ?? "info"] ?? 0) < (SEVERITY_LEVELS[opts.severity] ?? 0)) return false;
+  }
+  return true;
 }
 
 function formatTime(ts?: string): string {
@@ -193,10 +209,45 @@ function printSummaryConsole(summary: {
   }
 }
 
+async function readStats(filePath: string, sinceMs: number) {
+  const lines = (await fs.readFile(filePath, "utf-8")).split("\n").filter(Boolean);
+  const cutoff = Date.now() - sinceMs;
+  const s = { http: [0, 0, 0], mcp: [0, 0, 0], guard: 0, cacheHit: 0, cacheMiss: 0, build: [0, 0] };
+  for (const line of lines) {
+    try {
+      const ev = JSON.parse(line) as MonitorEvent;
+      if (!ev.ts || new Date(ev.ts).getTime() < cutoff) continue;
+      const t = ev.type ?? "", dur = (ev.data?.durationMs as number) ?? 0;
+      if (t.startsWith("http")) { s.http[0]++; s.http[1] += dur; if (ev.severity === "error") s.http[2]++; }
+      else if (t.startsWith("mcp") || t.startsWith("tool.")) { s.mcp[0]++; s.mcp[1] += dur; if (t === "tool.error" || ev.severity === "error") s.mcp[2]++; }
+      else if (t.startsWith("guard")) s.guard++;
+      else if (t.startsWith("cache")) { if (ev.data?.hit) s.cacheHit++; else s.cacheMiss++; }
+      else if (t.startsWith("build")) { s.build[0]++; s.build[1] += dur; }
+    } catch { /* skip */ }
+  }
+  const avg = (tot: number, n: number) => n > 0 ? Math.round(tot / n) : 0;
+  const ct = s.cacheHit + s.cacheMiss;
+  return { windowMs: sinceMs, http: { requests: s.http[0], avgMs: avg(s.http[1], s.http[0]), errors: s.http[2] },
+    mcp: { calls: s.mcp[0], avgMs: avg(s.mcp[1], s.mcp[0]), failures: s.mcp[2] }, guard: { violations: s.guard },
+    cache: { hits: s.cacheHit, misses: s.cacheMiss, hitRate: ct > 0 ? `${Math.round((s.cacheHit / ct) * 100)}%` : "N/A" },
+    build: { rebuilds: s.build[0], avgMs: avg(s.build[1], s.build[0]) } };
+}
+
+function printStats(st: Awaited<ReturnType<typeof readStats>>): void {
+  const mins = Math.round(st.windowMs / 60000);
+  console.log(`\nActivity Summary (last ${mins} minute${mins !== 1 ? "s" : ""})\n`);
+  console.log(`  HTTP:    ${st.http.requests} requests, avg ${st.http.avgMs}ms, ${st.http.errors} errors`);
+  console.log(`  MCP:     ${st.mcp.calls} tool calls, avg ${st.mcp.avgMs}ms, ${st.mcp.failures} failures`);
+  console.log(`  Guard:   ${st.guard.violations} violation${st.guard.violations !== 1 ? "s" : ""}`);
+  console.log(`  Cache:   ${st.cache.hitRate} hit rate (${st.cache.hits}/${st.cache.hits + st.cache.misses} entries)`);
+  console.log(`  Build:   ${st.build.rebuilds} rebuild${st.build.rebuilds !== 1 ? "s" : ""}, avg ${st.build.avgMs}ms\n`);
+}
+
 function outputChunk(
   chunk: string,
   isJson: boolean,
-  output: MonitorOutput
+  output: MonitorOutput,
+  filters?: MonitorOptions
 ): void {
   if (!isJson || output === "json") {
     process.stdout.write(chunk);
@@ -207,6 +258,7 @@ function outputChunk(
   for (const line of lines) {
     try {
       const event = JSON.parse(line) as MonitorEvent;
+      if (filters && !shouldShow(event, filters)) continue;
       const formatted = formatEventForConsole(event);
       process.stdout.write(`${formatted}\n`);
     } catch {
@@ -219,7 +271,8 @@ async function followFile(
   filePath: string,
   isJson: boolean,
   output: MonitorOutput,
-  startAtEnd: boolean
+  startAtEnd: boolean,
+  filters?: MonitorOptions
 ): Promise<void> {
   let position = 0;
   let buffer = "";
@@ -254,7 +307,7 @@ async function followFile(
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       if (lines.length > 0) {
-        outputChunk(lines.join("\n"), isJson, output);
+        outputChunk(lines.join("\n"), isJson, output, filters);
       }
     }
   );
@@ -274,11 +327,26 @@ export async function monitor(options: MonitorOptions = {}): Promise<boolean> {
   const isJson = filePath.endsWith(".jsonl");
   const follow = options.follow !== false;
 
+  const windowMs = parseDuration(options.since) ?? 5 * 60 * 1000;
+
+  if (options.stats) {
+    if (!isJson) {
+      console.error("Stats require JSON logs (activity.jsonl)");
+      return false;
+    }
+    const st = await readStats(filePath, windowMs);
+    if (output === "json") {
+      console.log(JSON.stringify(st, null, 2));
+    } else {
+      printStats(st);
+    }
+    return true;
+  }
+
   if (options.summary) {
     if (!isJson) {
-      console.error("⚠️  Summary is only available for JSON logs (activity.jsonl)");
+      console.error("Summary is only available for JSON logs (activity.jsonl)");
     } else {
-      const windowMs = parseDuration(options.since) ?? 5 * 60 * 1000;
       const summary = await readSummary(filePath, windowMs);
       if (output === "json") {
         console.log(JSON.stringify(summary, null, 2));
@@ -291,10 +359,10 @@ export async function monitor(options: MonitorOptions = {}): Promise<boolean> {
 
   if (!follow) {
     const content = await fs.readFile(filePath, "utf-8");
-    outputChunk(content, isJson, output);
+    outputChunk(content, isJson, output, options);
     return true;
   }
 
-  await followFile(filePath, isJson, output, true);
+  await followFile(filePath, isJson, output, true, options);
   return new Promise(() => {});
 }

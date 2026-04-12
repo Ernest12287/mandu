@@ -17,6 +17,7 @@ import {
   isTailwindProject,
   startCSSWatch,
   runHook,
+  FileTailer,
   type RoutesManifest,
   type GuardConfig,
   type Violation,
@@ -520,6 +521,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     shortcutCleanup = attachDevShortcuts({
       openUrl,
       readySummary,
+      rootDir,
       restart: restartDevServer,
       cleanup,
     });
@@ -532,6 +534,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 function attachDevShortcuts(options: {
   openUrl: string;
   readySummary: string;
+  rootDir: string;
   restart: () => Promise<void>;
   cleanup: () => void;
 }): (() => void) | null {
@@ -543,6 +546,36 @@ function attachDevShortcuts(options: {
   stdin.setRawMode?.(true);
   stdin.resume();
   stdin.setEncoding("utf8");
+
+  // MCP activity monitor state
+  let mcpMonitorActive = false;
+  let mcpTailer: InstanceType<typeof FileTailer> | null = null;
+
+  const toggleMonitor = () => {
+    mcpMonitorActive = !mcpMonitorActive;
+    if (mcpMonitorActive) {
+      console.log("MCP activity: ON");
+      if (!mcpTailer) {
+        const logPath = path.join(options.rootDir, ".mandu", "activity.jsonl");
+        mcpTailer = new FileTailer(logPath, { startAtEnd: true, pollIntervalMs: 500 });
+        mcpTailer.on("line", (line: string) => {
+          if (!mcpMonitorActive) return;
+          try {
+            const evt = JSON.parse(line);
+            const tool = evt.tool || evt.type || "unknown";
+            const status = evt.status || "";
+            const ts = new Date().toLocaleTimeString();
+            console.log(`[${ts}] MCP ${tool} ${status}`);
+          } catch {
+            console.log(`[MCP] ${line.slice(0, 120)}`);
+          }
+        });
+        mcpTailer.start();
+      }
+    } else {
+      console.log("MCP activity: OFF");
+    }
+  };
 
   const onData = async (chunk: string) => {
     if (chunk === "\u0003") {
@@ -557,6 +590,7 @@ function attachDevShortcuts(options: {
       },
       openBrowser: () => openBrowser(options.openUrl),
       restartServer: options.restart,
+      toggleMonitor,
       quit: options.cleanup,
     });
   };
@@ -566,5 +600,6 @@ function attachDevShortcuts(options: {
   return () => {
     stdin.off("data", onData);
     stdin.setRawMode?.(false);
+    mcpTailer?.stop();
   };
 }

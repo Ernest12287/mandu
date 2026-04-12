@@ -7,6 +7,7 @@
 
 import type { RoutesManifest } from "../spec/schema";
 import type { GuardConfig } from "../guard/types";
+import { getGlobalCache, getCacheStoreStats } from "../runtime/cache";
 import { ActivitySSEBroadcaster } from "./stream/activity-sse";
 import { GuardAPI } from "./api/guard-api";
 import { handleRoutesRequest } from "./api/routes-api";
@@ -14,6 +15,8 @@ import { FileAPI } from "./api/file-api";
 import { GuardDecisionManager } from "./api/guard-decisions";
 import { ContractPlaygroundAPI } from "./api/contract-api";
 import { renderKitchenHTML } from "./kitchen-ui";
+import fs from "fs/promises";
+import path from "path";
 
 export const KITCHEN_PREFIX = "/__kitchen";
 
@@ -50,6 +53,30 @@ export function clearKitchenErrors(): void {
   storedErrors = [];
 }
 
+// ========== Request Ring Buffer ==========
+
+export interface RequestEntry {
+  id: string;
+  method: string;
+  path: string;
+  status: number;
+  duration: number;
+  timestamp: number;
+  cacheStatus?: string;
+}
+
+const MAX_REQUESTS = 100;
+const recentRequests: RequestEntry[] = [];
+
+export function recordRequest(entry: RequestEntry): void {
+  recentRequests.push(entry);
+  if (recentRequests.length > MAX_REQUESTS) recentRequests.shift();
+}
+
+export function getRecentRequests(): RequestEntry[] {
+  return [...recentRequests].reverse();
+}
+
 export class KitchenHandler {
   private sse: ActivitySSEBroadcaster;
   private guardAPI: GuardAPI;
@@ -67,8 +94,23 @@ export class KitchenHandler {
     this.contractAPI = new ContractPlaygroundAPI(options.manifest, options.rootDir);
   }
 
-  start(): void {
+  async start(): Promise<void> {
     this.sse.start();
+    await this.loadPersistedErrors();
+  }
+
+  /** Load errors persisted from previous sessions */
+  private async loadPersistedErrors(): Promise<void> {
+    const errorsPath = path.join(this.options.rootDir, ".mandu", "errors.jsonl");
+    try {
+      const content = await fs.readFile(errorsPath, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      for (const line of lines.slice(-MAX_STORED_ERRORS)) {
+        try {
+          storedErrors.push(JSON.parse(line));
+        } catch { /* skip malformed lines */ }
+      }
+    } catch { /* file doesn't exist yet — fine */ }
   }
 
   stop(): void {
@@ -180,6 +222,27 @@ export class KitchenHandler {
       return Response.json({ removed: true });
     }
 
+    // Requests API — recent HTTP request log
+    if (sub === "/api/requests" && req.method === "GET") {
+      return Response.json({ requests: getRecentRequests() });
+    }
+
+    // Activity API — recent MCP tool calls from activity.jsonl
+    if (sub === "/api/activity" && req.method === "GET") {
+      const events = await this.readRecentActivity();
+      return Response.json({ events });
+    }
+
+    // Cache API — cache store stats
+    if (sub === "/api/cache" && req.method === "GET") {
+      const store = getGlobalCache();
+      return Response.json({
+        enabled: !!store,
+        size: store?.size ?? 0,
+        stats: getCacheStoreStats(store),
+      });
+    }
+
     // Error API (Kitchen → MCP bridge)
     if (sub === "/api/errors" && req.method === "POST") {
       try {
@@ -193,6 +256,10 @@ export class KitchenHandler {
           if (storedErrors.length > MAX_STORED_ERRORS) {
             storedErrors.shift();
           }
+          // Persist to disk
+          const errorLine = JSON.stringify(error) + "\n";
+          const errorsPath = path.join(this.options.rootDir, ".mandu", "errors.jsonl");
+          fs.appendFile(errorsPath, errorLine).catch(() => {});
         }
         return Response.json({ received: errors.length, total: storedErrors.length });
       } catch {
@@ -252,5 +319,17 @@ export class KitchenHandler {
       { error: "Not found", path: pathname },
       { status: 404 },
     );
+  }
+
+  /** Read last 50 entries from .mandu/activity.jsonl */
+  private async readRecentActivity(): Promise<unknown[]> {
+    const logPath = path.join(this.options.rootDir, ".mandu", "activity.jsonl");
+    try {
+      const content = await fs.readFile(logPath, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      return lines.slice(-50).reverse().map((line) => {
+        try { return JSON.parse(line); } catch { return null; }
+      }).filter(Boolean);
+    } catch { return []; }
   }
 }

@@ -126,6 +126,7 @@ export async function runFullPipeline(options: AutoPipelineOptions): Promise<Aut
         repoRoot: options.repoRoot,
         baseURL: options.baseURL,
         ci: options.ci,
+        onlyRoutes: impactResult?.selectedRoutes,
       });
       runId = runResult.runId;
       exitCode = runResult.exitCode;

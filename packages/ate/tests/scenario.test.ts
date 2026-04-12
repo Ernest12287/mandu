@@ -35,15 +35,20 @@ describe("scenario", () => {
     // Assert
     expect(bundle.schemaVersion).toBe(1);
     expect(bundle.oracleLevel).toBe("L1");
-    expect(bundle.scenarios).toHaveLength(2);
+    // 2 page routes: each produces route-smoke + ssr-verify = 4 total
+    expect(bundle.scenarios).toHaveLength(4);
 
-    const homeScenario = bundle.scenarios.find((s) => s.route === "/");
+    const homeScenario = bundle.scenarios.find((s) => s.route === "/" && s.kind === "route-smoke");
     expect(homeScenario).toBeDefined();
     expect(homeScenario?.kind).toBe("route-smoke");
     expect(homeScenario?.id).toBe("route:/");
     expect(homeScenario?.oracleLevel).toBe("L1");
 
-    const aboutScenario = bundle.scenarios.find((s) => s.route === "/about");
+    const homeSsr = bundle.scenarios.find((s) => s.route === "/" && s.kind === "ssr-verify");
+    expect(homeSsr).toBeDefined();
+    expect(homeSsr?.id).toBe("/--ssr-verify");
+
+    const aboutScenario = bundle.scenarios.find((s) => s.route === "/about" && s.kind === "route-smoke");
     expect(aboutScenario).toBeDefined();
     expect(aboutScenario?.id).toBe("route:/about");
   });
@@ -109,9 +114,11 @@ describe("scenario", () => {
     // Execute
     const bundle = generateScenariosFromGraph(graph, "L1");
 
-    // Assert - only 1 scenario for route node
-    expect(bundle.scenarios).toHaveLength(1);
+    // Assert - route node produces route-smoke + ssr-verify; modal/action nodes produce nothing
+    expect(bundle.scenarios).toHaveLength(2);
     expect(bundle.scenarios[0].route).toBe("/");
+    expect(bundle.scenarios[0].kind).toBe("route-smoke");
+    expect(bundle.scenarios[1].kind).toBe("ssr-verify");
   });
 
   test("should generate correct scenario IDs", () => {
@@ -123,9 +130,10 @@ describe("scenario", () => {
     // Execute
     const bundle = generateScenariosFromGraph(graph, "L1");
 
-    // Assert
-    expect(bundle.scenarios[0].id).toBe("route:/");
-    expect(bundle.scenarios[1].id).toBe("route:/admin/users");
+    // Assert - each page route gets route-smoke then ssr-verify
+    const smokeIds = bundle.scenarios.filter(s => s.kind === "route-smoke").map(s => s.id);
+    expect(smokeIds).toContain("route:/");
+    expect(smokeIds).toContain("route:/admin/users");
   });
 
   test("should set generatedAt timestamp", () => {
@@ -161,12 +169,12 @@ describe("scenario", () => {
     // Execute
     const result = generateAndWriteScenarios(repoRoot, "L1");
 
-    // Assert
-    expect(result.count).toBe(1);
+    // Assert - 1 page route produces route-smoke + ssr-verify = 2
+    expect(result.count).toBe(2);
     expect(result.scenariosPath).toContain("scenarios");
 
     const writtenBundle: ScenarioBundle = readJson(result.scenariosPath);
-    expect(writtenBundle.scenarios).toHaveLength(1);
+    expect(writtenBundle.scenarios).toHaveLength(2);
     expect(writtenBundle.oracleLevel).toBe("L1");
   });
 
@@ -186,9 +194,12 @@ describe("scenario", () => {
     // Execute
     const bundle = generateScenariosFromGraph(graph, "L1");
 
-    // Assert
-    expect(bundle.scenarios).toHaveLength(100);
-    expect(bundle.scenarios.every((s) => s.kind === "route-smoke")).toBe(true);
+    // Assert - 100 page routes: each gets route-smoke + ssr-verify = 200
+    expect(bundle.scenarios).toHaveLength(200);
+    const smokeScenarios = bundle.scenarios.filter(s => s.kind === "route-smoke");
+    const ssrScenarios = bundle.scenarios.filter(s => s.kind === "ssr-verify");
+    expect(smokeScenarios).toHaveLength(100);
+    expect(ssrScenarios).toHaveLength(100);
   });
 
   test("should preserve route path in scenario", () => {

@@ -395,7 +395,7 @@ registerCommand({
 
 registerCommand({
   id: "monitor",
-  description: "MCP Activity Monitor",
+  description: "MCP Activity Monitor (--type, --severity, --stats)",
   async run(ctx) {
     const { monitor } = await import("./monitor");
     return monitor({
@@ -403,6 +403,9 @@ registerCommand({
       since: ctx.options.since,
       follow: ctx.options.follow === "false" ? false : true,
       file: ctx.options.file,
+      type: ctx.options.type as import("./monitor").EventType | undefined,
+      severity: ctx.options.severity as import("./monitor").SeverityLevel | undefined,
+      stats: ctx.options.stats === "true",
     });
   },
 });

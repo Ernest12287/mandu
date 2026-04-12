@@ -1,11 +1,14 @@
 import type { InteractionGraph, OracleLevel } from "./types";
 import { getAtePaths, readJson, writeJson } from "./fs";
 
+export type ScenarioKind = "route-smoke" | "api-smoke" | "ssr-verify" | "island-hydration" | "sse-stream" | "form-action";
+
 export interface GeneratedScenario {
   id: string;
-  kind: "route-smoke" | "api-smoke";
+  kind: ScenarioKind;
   route: string;
   methods?: string[];
+  hasIsland?: boolean;
   oracleLevel: OracleLevel;
 }
 
@@ -29,22 +32,70 @@ export function generateScenariosFromGraph(graph: InteractionGraph, oracleLevel:
     throw new Error("빈 interaction graph입니다 (nodes가 없습니다)");
   }
 
-  const routes = graph.nodes.filter((n) => n.kind === "route") as Array<{ kind: "route"; id: string; path: string; methods?: string[] }>;
+  const routes = graph.nodes.filter((n) => n.kind === "route") as Array<{ kind: "route"; id: string; path: string; methods?: string[]; hasIsland?: boolean; hasSse?: boolean; hasAction?: boolean }>;
 
   if (routes.length === 0) {
     console.warn("[ATE] 경고: route가 없습니다. 빈 시나리오 번들을 생성합니다.");
   }
 
-  const scenarios: GeneratedScenario[] = routes.map((r) => {
+  const scenarios: GeneratedScenario[] = [];
+
+  for (const r of routes) {
     const isApi = r.path.startsWith("/api/") || (r.methods && r.methods.length > 0);
-    return {
+
+    // Baseline smoke test for every route
+    scenarios.push({
       id: `${isApi ? "api" : "route"}:${r.id}`,
       kind: isApi ? "api-smoke" : "route-smoke",
       route: r.id,
       ...(isApi && r.methods ? { methods: r.methods } : {}),
       oracleLevel,
-    };
-  });
+    });
+
+    if (!isApi) {
+      // SSR verification for all page routes
+      scenarios.push({
+        id: `${r.id}--ssr-verify`,
+        kind: "ssr-verify",
+        route: r.id,
+        hasIsland: !!r.hasIsland,
+        oracleLevel,
+      });
+
+      // Island hydration for pages with islands
+      if (r.hasIsland) {
+        scenarios.push({
+          id: `${r.id}--island-hydration`,
+          kind: "island-hydration",
+          route: r.id,
+          oracleLevel,
+        });
+      }
+    }
+
+    if (isApi) {
+      // SSE stream test for API routes with SSE
+      if (r.hasSse) {
+        scenarios.push({
+          id: `${r.id}--sse-stream`,
+          kind: "sse-stream",
+          route: r.id,
+          oracleLevel,
+        });
+      }
+
+      // Form action test for API routes with POST + _action
+      if (r.hasAction) {
+        scenarios.push({
+          id: `${r.id}--form-action`,
+          kind: "form-action",
+          route: r.id,
+          methods: r.methods,
+          oracleLevel,
+        });
+      }
+    }
+  }
 
   return {
     schemaVersion: 1,

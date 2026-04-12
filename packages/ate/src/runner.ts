@@ -56,6 +56,14 @@ export async function runPlaywright(input: RunInput): Promise<RunResult> {
     "tests/e2e/playwright.config.ts",
   ];
 
+  // Route filtering: pass --grep to Playwright so only matching specs run
+  if (input.onlyRoutes && input.onlyRoutes.length > 0) {
+    const grepPattern = input.onlyRoutes
+      .map((r) => r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    args.push("--grep", grepPattern);
+  }
+
   const env = {
     ...process.env,
     CI: input.ci ? "true" : process.env.CI,
