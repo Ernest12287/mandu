@@ -9,6 +9,9 @@ import {
   runFullPipeline,
   analyzeFeedback,
   applyHeal,
+  smartSelectRoutes,
+  detectCoverageGaps,
+  precommitCheck,
 } from "@mandujs/ate";
 import type { OracleLevel } from "@mandujs/ate";
 
@@ -387,6 +390,82 @@ export function ateTools(projectRoot: string) {
         ok: result.success,
         ...result,
       };
+    },
+  };
+}
+
+// ─── Phase 5: AI Agent Integration Tools ───
+
+export const atePhase5ToolDefinitions: Tool[] = [
+  {
+    name: "mandu.test.smart",
+    annotations: { readOnlyHint: true },
+    description:
+      "Intelligently select which routes to test based on git diff analysis. " +
+      "Prioritizes contract changes (HIGH), guard violations (HIGH), API routes (MEDIUM), and shared code (LOW). " +
+      "Returns a sorted list of routes with reasoning for each selection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repoRoot: { type: "string", description: "Absolute path to the Mandu project root" },
+        changedFiles: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of changed file paths. If not provided, uses git diff HEAD.",
+        },
+        maxRoutes: { type: "number", description: "Maximum routes to select (default: 10)" },
+      },
+      required: ["repoRoot"],
+    },
+  },
+  {
+    name: "mandu.test.coverage",
+    annotations: { readOnlyHint: true },
+    description:
+      "Detect missing test coverage in the interaction graph. " +
+      "Finds route transitions, API calls, form actions, and island interactions that have no corresponding test. " +
+      "Returns gaps with suggested test scenarios and overall coverage percentage.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repoRoot: { type: "string", description: "Absolute path to the Mandu project root" },
+      },
+      required: ["repoRoot"],
+    },
+  },
+  {
+    name: "mandu.test.precommit",
+    annotations: { readOnlyHint: true },
+    description:
+      "Pre-commit check: analyze staged files to determine if tests should be run before committing. " +
+      "Returns whether testing is recommended and which routes are affected.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repoRoot: { type: "string", description: "Absolute path to the Mandu project root" },
+      },
+      required: ["repoRoot"],
+    },
+  },
+];
+
+export function createAtePhase5Handlers() {
+  return {
+    "mandu.test.smart": async (args: Record<string, unknown>) => {
+      const { repoRoot, changedFiles, maxRoutes } = args as {
+        repoRoot: string;
+        changedFiles?: string[];
+        maxRoutes?: number;
+      };
+      return smartSelectRoutes({ repoRoot, changedFiles, maxRoutes });
+    },
+    "mandu.test.coverage": async (args: Record<string, unknown>) => {
+      const { repoRoot } = args as { repoRoot: string };
+      return detectCoverageGaps(repoRoot);
+    },
+    "mandu.test.precommit": async (args: Record<string, unknown>) => {
+      const { repoRoot } = args as { repoRoot: string };
+      return precommitCheck(repoRoot);
     },
   };
 }

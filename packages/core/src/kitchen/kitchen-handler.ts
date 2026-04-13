@@ -15,6 +15,7 @@ import { FileAPI } from "./api/file-api";
 import { GuardDecisionManager } from "./api/guard-decisions";
 import { ContractPlaygroundAPI } from "./api/contract-api";
 import { renderKitchenHTML } from "./kitchen-ui";
+import { eventBus } from "../observability/event-bus";
 import fs from "fs/promises";
 import path from "path";
 
@@ -75,6 +76,21 @@ export function recordRequest(entry: RequestEntry): void {
 
 export function getRecentRequests(): RequestEntry[] {
   return [...recentRequests].reverse();
+}
+
+/** Parse a window string like "5m", "30s", "1h" into milliseconds. */
+function parseWindow(input: string): number {
+  const match = /^(\d+)\s*(ms|s|m|h)?$/.exec(input.trim());
+  if (!match) return 5 * 60 * 1000;
+  const value = parseInt(match[1], 10);
+  const unit = match[2] || "m";
+  switch (unit) {
+    case "ms": return value;
+    case "s": return value * 1000;
+    case "m": return value * 60 * 1000;
+    case "h": return value * 60 * 60 * 1000;
+    default: return 5 * 60 * 1000;
+  }
 }
 
 export class KitchenHandler {
@@ -222,24 +238,85 @@ export class KitchenHandler {
       return Response.json({ removed: true });
     }
 
-    // Requests API — recent HTTP request log
+    // Requests API — recent HTTP events from eventBus (fallback: ring buffer)
     if (sub === "/api/requests" && req.method === "GET") {
-      return Response.json({ requests: getRecentRequests() });
+      const url = new URL(req.url);
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
+      const busEvents = eventBus.getRecent(limit, { type: "http" });
+      if (busEvents.length > 0) {
+        return Response.json({ requests: busEvents.slice().reverse() });
+      }
+      return Response.json({ requests: getRecentRequests().slice(0, limit) });
     }
 
-    // Activity API — recent MCP tool calls from activity.jsonl
+    // Correlation API — all events linked to a correlationId
+    if (sub === "/api/correlation" && req.method === "GET") {
+      const url = new URL(req.url);
+      const cid = url.searchParams.get("id") || "";
+      if (!cid) return Response.json({ events: [] });
+      const all = eventBus.getRecent(500);
+      const events = all.filter((e) => e.correlationId === cid);
+      return Response.json({ events });
+    }
+
+    // Activity API — recent MCP events from eventBus (fallback: activity.jsonl)
     if (sub === "/api/activity" && req.method === "GET") {
+      const url = new URL(req.url);
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
+      const busEvents = eventBus.getRecent(limit, { type: "mcp" });
+      if (busEvents.length > 0) {
+        return Response.json({ events: busEvents.slice().reverse() });
+      }
       const events = await this.readRecentActivity();
       return Response.json({ events });
     }
 
     // Cache API — cache store stats
-    if (sub === "/api/cache" && req.method === "GET") {
+    if ((sub === "/api/cache" || sub === "/api/cache-stats") && req.method === "GET") {
       const store = getGlobalCache();
       return Response.json({
         enabled: !!store,
         size: store?.size ?? 0,
         stats: getCacheStoreStats(store),
+      });
+    }
+
+    // Metrics API — rolling-window eventBus stats
+    if (sub === "/api/metrics" && req.method === "GET") {
+      const url = new URL(req.url);
+      const windowParam = url.searchParams.get("window") || "5m";
+      const windowMs = parseWindow(windowParam);
+      const stats = eventBus.getStats(windowMs);
+      const httpEvents = eventBus.getRecent(500, { type: "http" })
+        .filter((e) => e.timestamp >= Date.now() - windowMs);
+      const durations = httpEvents
+        .map((e) => e.duration)
+        .filter((d): d is number => typeof d === "number")
+        .sort((a, b) => a - b);
+      const percentile = (p: number) => {
+        if (!durations.length) return 0;
+        const idx = Math.min(durations.length - 1, Math.floor((p / 100) * durations.length));
+        return durations[idx];
+      };
+      const totalEvents = Object.values(stats).reduce((sum, s) => sum + s.count, 0);
+      const totalErrors = Object.values(stats).reduce((sum, s) => sum + s.errors, 0);
+      return Response.json({
+        window: windowParam,
+        windowMs,
+        stats,
+        http: {
+          count: httpEvents.length,
+          p50: percentile(50),
+          p95: percentile(95),
+          p99: percentile(99),
+        },
+        mcp: {
+          count: stats.mcp.count,
+          errors: stats.mcp.errors,
+          avgDuration: stats.mcp.avgDuration,
+        },
+        errorRate: totalEvents > 0 ? totalErrors / totalEvents : 0,
+        totalEvents,
       });
     }
 

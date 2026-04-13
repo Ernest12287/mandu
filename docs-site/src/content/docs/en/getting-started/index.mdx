@@ -1,0 +1,107 @@
+---
+title: 5-Minute Quickstart
+description: Install the Mandu framework and build your first app. From project creation to build and deploy in under 5 minutes.
+---
+
+Mandu is a full-stack TypeScript framework built on the Bun runtime. It provides contract-first APIs, Islands Architecture, and AI-native MCP integration.
+
+## Prerequisites
+
+Mandu requires [Bun](https://bun.sh) to be installed.
+
+```bash
+# Install Bun (macOS / Linux)
+curl -fsSL https://bun.sh/install | bash
+
+# Windows
+powershell -c "irm bun.sh/install.ps1 | iex"
+
+# Verify installation
+bun --version
+```
+
+## 1. Create a Project
+
+```bash
+bun create mandu my-app
+cd my-app
+```
+
+The generated project structure looks like this:
+
+```
+my-app/
+├── app/
+│   ├── page.tsx          # Main page
+│   ├── layout.tsx        # Layout (body wrapper)
+│   └── globals.css       # Global styles
+├── src/
+│   ├── client/           # Client code
+│   └── server/           # Server code
+├── mandu.config.ts       # Framework configuration
+└── package.json
+```
+
+## 2. Start the Dev Server
+
+```bash
+bun run dev
+```
+
+The dev server starts at `http://localhost:3333`. File changes are reflected instantly via HMR.
+
+## 3. Create a Page
+
+Open and edit `app/page.tsx`:
+
+```tsx
+// app/page.tsx
+export default function Home() {
+  return (
+    <div>
+      <h1>My First Mandu App</h1>
+      <p>Building something delicious with Bun.</p>
+    </div>
+  );
+}
+```
+
+File-based routing is built in. Creating `app/about/page.tsx` automatically generates the `/about` route.
+
+## 4. Add an Interactive Island
+
+By default, all components are server-rendered with zero JavaScript sent to the client. Only declare Islands where client interactivity is needed.
+
+```tsx
+// app/counter.island.tsx
+import { island } from "@mandujs/core";
+import { useState } from "react";
+
+export default island("visible", ({ start = 0 }: { start?: number }) => {
+  const [count, setCount] = useState(start);
+  return (
+    <button onClick={() => setCount((c) => c + 1)}>
+      Clicks: {count}
+    </button>
+  );
+});
+```
+
+## 5. Build
+
+```bash
+bun run mandu build
+```
+
+## 6. Run in Production
+
+```bash
+bun run mandu start
+```
+
+## Next Steps
+
+- [Island Architecture](/en/core-concepts/island-architecture/) -- Learn about 5 hydration strategies
+- [Filling API](/en/core-concepts/filling-api/) -- Write server logic
+- [Guard System](/en/core-concepts/guard-system/) -- Set up architecture rules
+- [Building a CRUD API](/en/guides/crud-api/) -- Hands-on guide

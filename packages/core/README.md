@@ -162,7 +162,7 @@ watcher.start();
 listPresets().forEach(p => console.log(p.name, p.description));
 ```
 
-### Presets
+### Presets (6)
 
 | Preset | Layers | Use Case |
 |--------|--------|----------|
@@ -171,6 +171,7 @@ listPresets().forEach(p => console.log(p.name, p.description));
 | `clean` | api, application, domain, infra, shared | Backend |
 | `hexagonal` | adapters, ports, application, domain | DDD |
 | `atomic` | pages, templates, organisms, molecules, atoms | UI |
+| `cqrs` | commands, queries, events, dto, application, domain | Event-sourced apps |
 
 ### AST-based Analysis
 

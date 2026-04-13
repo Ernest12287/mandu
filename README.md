@@ -14,9 +14,12 @@
   <a href="https://www.npmjs.com/package/@mandujs/cli"><img src="https://img.shields.io/npm/v/@mandujs/cli?label=cli" alt="npm cli" /></a>
   <a href="https://www.npmjs.com/package/@mandujs/mcp"><img src="https://img.shields.io/npm/v/@mandujs/mcp?label=mcp" alt="npm mcp" /></a>
   <a href="https://www.npmjs.com/package/@mandujs/ate"><img src="https://img.shields.io/npm/v/@mandujs/ate?label=ate" alt="npm ate" /></a>
+  <a href="https://www.npmjs.com/package/@mandujs/skills"><img src="https://img.shields.io/npm/v/@mandujs/skills?label=skills" alt="npm skills" /></a>
   <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun" alt="Bun" />
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6?logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/frontend-React-61dafb?logo=react" alt="React" />
+  <img src="https://img.shields.io/badge/tests-1728%20pass-success" alt="tests" />
+  <img src="https://img.shields.io/badge/license-MPL--2.0-blue" alt="license" />
 </p>
 
 <p align="center">
@@ -313,22 +316,73 @@ Current AI coding has a fundamental problem: the more agents code, the more arch
 
 ## Key Features
 
+### 🏗️ Architecture & Routing
+
 | Feature | Description |
 |---------|-------------|
-| **FS Routes** | File-system based routing - `app/users/page.tsx` → `/users` |
-| **Mandu Guard** | Real-time architecture checker with 5 presets (FSD, Clean, Hexagonal, Atomic, Mandu) |
+| **FS Routes** | File-system based routing — `app/users/page.tsx` → `/users` |
+| **Mandu Guard** | Real-time architecture checker with **6 presets** (FSD, Clean, Hexagonal, Atomic, **CQRS**, Mandu) |
 | **Self-Healing Guard** | Detect violations AND provide actionable fix suggestions with auto-fix |
-| **Slot System** | Isolated areas where agents safely write business logic |
-| **Semantic Slots** | Purpose & constraints for AI-generated code validation |
 | **Decision Memory** | ADR storage for AI to reference past architecture decisions |
 | **Architecture Negotiation** | AI-Framework dialog before implementation |
-| **Island Hydration** | Selective client-side JavaScript for performance |
-| **Contract API** | Type-safe API contracts with Zod schema validation |
+| **Slot System** | Isolated areas where agents safely write business logic |
+| **Semantic Slots** | Purpose & constraints validation for AI-generated code |
+
+### ⚡ Runtime & Performance
+
+| Feature | Description |
+|---------|-------------|
+| **Filling API** | 8-stage lifecycle (loader → guard → action → render) with fluent chaining |
+| **Island Architecture** | **5 hydration strategies**: `load`, `idle`, `visible`, `media`, `never` — Zero-JS by default |
+| **ISR/SWR Cache** | Built-in incremental regeneration with `revalidatePath` / `revalidateTag` |
+| **PPR (Partial Prerendering)** | Cached shell + fresh dynamic data |
+| **Streaming SSR** | React 19 streaming with deferred data |
+| **Per-Island Code Splitting** | Independent JS bundles per island file |
+| **WebSocket** | Built-in `filling.ws()` chaining handlers |
+| **Session Management** | Cookie-based with HMAC signing + secret rotation |
+| **Image Handler** | Built-in `/_mandu/image` with optimization |
+| **Middleware** | CORS, JWT, compress, logger, timeout — all built-in |
+| **Form (Progressive Enhancement)** | `<Form>` works without JS, enhanced when JS loads |
+| **View Transitions API** | Smooth navigation transitions with state preservation |
+
+### 🔒 Type Safety & Contracts
+
+| Feature | Description |
+|---------|-------------|
+| **Contract API** | One Zod schema → type inference + runtime validation + OpenAPI 3.0 |
+| **Client/Server Type Inference** | End-to-end type safety from Contract to client fetch |
 | **SEO Module** | Next.js Metadata API compatible, sitemap/robots generation, JSON-LD helpers |
-| **MCP Server** | 44+ tools for AI agents to directly manipulate the framework (incl. 9 ATE tools) |
-| **ATE (Automation Test Engine)** | AI-driven E2E testing: Extract routes → Generate tests → Auto-heal failures |
-| **HMR Support** | Hot Module Replacement for rapid development |
+
+### 🤖 AI-Native Integration
+
+| Feature | Description |
+|---------|-------------|
+| **MCP Server** | **85+ tools, 4 resources, 3 prompts** for AI agents to directly manipulate the framework |
+| **Claude Code Skills** | **9 SKILL.md plugins** (`@mandujs/skills`) for guided AI workflows |
 | **Transaction API** | Atomic changes with snapshot-based rollback |
+| **Activity Log Observability** | EventBus + correlation ID tracking + SQLite store + OpenTelemetry export |
+| **`mandu://activity` resource** | AI agents can query observability data directly |
+
+### 🧪 Testing & Quality
+
+| Feature | Description |
+|---------|-------------|
+| **ATE (Automation Test Engine)** | AI-driven E2E testing — Extract → Generate → Run → Heal |
+| **Smart Test Selection** | Git-diff based intelligent route selection with priority scoring |
+| **Coverage Gap Detection** | Find untested route transitions, API calls, form actions |
+| **Pre-commit Hook** | Auto-detect changes that need testing before commit |
+| **Self-Healing Tests** | 7-category failure classification + history-based confidence boost |
+| **L0/L1/L2/L3 Oracle Levels** | Smoke → structural → contract → behavioral assertions |
+
+### 🔥 Developer Experience
+
+| Feature | Description |
+|---------|-------------|
+| **HMR Support** | Hot reload for SSR pages, API routes, CSS, and islands |
+| **Kitchen DevTools** | Built-in dashboard at `/__kitchen` with 7 tabs (Errors, Network, Islands, Requests, MCP, Cache, Metrics) |
+| **`mandu monitor` CLI** | EventBus-based observability stream with filtering and stats |
+| **Tailwind v4 Auto-build** | Self-managed CSS watcher (no `--watch` needed) |
+| **Lockfile Validation** | Config integrity check before dev/build |
 
 ---
 
@@ -354,19 +408,48 @@ bunx mandu build
 
 ### CLI Commands
 
+**Project Lifecycle**
 | Command | Description |
 |---------|-------------|
-| `mandu init` | Create new project |
-| `mandu dev` | Start dev server (FS Routes + Guard auto-enabled) |
+| `mandu init [name]` | Create new project (with templates: default, realtime-chat) |
+| `mandu dev` | Start dev server (FS Routes + Guard + HMR auto-enabled) |
+| `mandu dev:safe` | Start dev with lockfile pre-validation |
 | `mandu build` | Build for production |
 | `mandu start` | Start production server |
 | `mandu check` | Run integrated routes + architecture + config checks |
-| `mandu guard arch` | Run architecture check |
-| `mandu routes list` | Show all routes |
 | `mandu lock` | Generate/refresh lockfile for config integrity |
+
+**Architecture & Quality**
+| Command | Description |
+|---------|-------------|
+| `mandu guard arch` | Run architecture check |
+| `mandu guard arch --watch` | Real-time architecture violation detection |
+| `mandu guard heal` | Apply auto-fix suggestions to violations |
+| `mandu routes list` | Show all routes |
+| `mandu manifest validate` | Validate route manifest schema |
+
+**Observability**
+| Command | Description |
+|---------|-------------|
+| `mandu monitor` | Live event stream from dev server (HTTP/MCP/Guard/Build) |
+| `mandu monitor --type mcp` | Filter by event type |
+| `mandu monitor --severity error` | Filter by severity |
+| `mandu monitor --trace <id>` | Show all events for a correlation ID |
+| `mandu monitor --stats --since 5m` | Aggregated stats over time window |
+
+**Testing (ATE)**
+| Command | Description |
+|---------|-------------|
 | `mandu add test` | Setup ATE (Automation Test Engine) |
 | `mandu test:auto` | Run automated E2E tests |
-| `mandu test:heal` | Auto-heal failed tests |
+| `mandu test:auto --ci` | CI mode (exit 1 on failure) |
+| `mandu test:heal` | Auto-heal failed tests with confidence scoring |
+
+**MCP & Skills**
+| Command | Description |
+|---------|-------------|
+| `bunx mandu-mcp` | Start MCP server (manual mode) |
+| `bunx @mandujs/skills` | Install Claude Code skills |
 
 ---
 
@@ -461,15 +544,16 @@ app/
 
 Real-time architecture enforcement with preset support.
 
-### Architecture Presets
+### Architecture Presets (6)
 
 | Preset | Description | Use Case |
 |--------|-------------|----------|
 | `mandu` | FSD + Clean Architecture hybrid (default) | Fullstack projects |
 | `fsd` | Feature-Sliced Design | Frontend-focused |
 | `clean` | Clean Architecture | Backend-focused |
-| `hexagonal` | Hexagonal/Ports & Adapters | Domain-driven |
+| `hexagonal` | Hexagonal / Ports & Adapters | Domain-driven |
 | `atomic` | Atomic Design | UI component libraries |
+| `cqrs` | Command Query Responsibility Segregation | Event-sourced apps |
 
 ### Usage
 
@@ -550,49 +634,63 @@ export default Mandu.filling()
 
 ---
 
-## Island Hydration
+## Island Architecture
 
-Selective client-side JavaScript for optimal performance:
+**Zero-JS by default.** Ship interactive components only where needed, with **5 hydration strategies**.
+
+### Hydration Strategies (5)
+
+| Strategy | When JS Loads | Use Case |
+|----------|---------------|----------|
+| `load` | Immediately on page load | Critical interactive UI (chat, forms) |
+| `idle` | During browser idle (`requestIdleCallback`) | Non-critical widgets |
+| `visible` | When element enters viewport (default) | Below-the-fold components |
+| `media` | When CSS media query matches | Mobile-only or desktop-only widgets |
+| `never` | Never hydrated (pure SSR HTML) | Static content |
+
+### Declarative Pattern
 
 ```tsx
-// spec/slots/counter.client.tsx
-import { useState } from "react";
+// app/page.tsx
+import { island } from "@mandujs/core";
+import Counter from "@/client/widgets/counter";
 
-export default function Counter({ initial = 0 }) {
-  const [count, setCount] = useState(initial);
+const VisibleCounter = island("visible", Counter);
 
+export default function Home() {
   return (
-    <div>
-      <p>{count}</p>
-      <button onClick={() => setCount(c => c + 1)}>+</button>
-    </div>
+    <main>
+      <h1>Welcome</h1>
+      <VisibleCounter initial={0} />
+    </main>
   );
 }
 ```
 
-Configure in route:
-```json
-{
-  "id": "counter",
-  "hydration": {
-    "strategy": "island",
-    "priority": "visible"
-  }
-}
+### Client Island Pattern
+
+```tsx
+// app/widgets/counter.client.tsx — must import from "@mandujs/core/client"
+import { island } from "@mandujs/core/client";
+import { useState } from "react";
+
+export default island<{ initial: number }>({
+  setup: ({ props }) => ({ count: props.initial }),
+  render: ({ data }) => {
+    const [count, setCount] = useState(data.count);
+    return (
+      <div>
+        <p>{count}</p>
+        <button onClick={() => setCount(c => c + 1)}>+</button>
+      </div>
+    );
+  },
+});
 ```
 
-| Strategy | Description |
-|----------|-------------|
-| `none` | Pure static HTML |
-| `island` | Partial hydration (default) |
-| `full` | Full page hydration |
+### Per-Island Code Splitting
 
-| Priority | When JS Loads |
-|----------|---------------|
-| `immediate` | On page load |
-| `visible` | When in viewport |
-| `idle` | During browser idle |
-| `interaction` | On user interaction |
+Each island file is bundled independently. The browser only downloads the JS for islands actually used on the current page.
 
 ---
 
@@ -628,6 +726,281 @@ const result = await client.GET({ query: { id: "123" } });
 ```
 
 ---
+
+## Filling API
+
+8-stage lifecycle for route handlers with fluent chaining.
+
+```typescript
+// app/api/todos/route.ts
+import { Mandu } from "@mandujs/core";
+import { db } from "@/server/infra/db";
+import { jwtMiddleware, corsMiddleware } from "@mandujs/core/middleware";
+
+export default Mandu.filling()
+  // 1. Middleware (composable)
+  .use(corsMiddleware({ origin: "*" }))
+  .use(jwtMiddleware({ secret: process.env.JWT_SECRET! }))
+
+  // 2. Guard (early return on failure)
+  .guard((ctx) => {
+    if (!ctx.user) return ctx.unauthorized("Login required");
+  })
+
+  // 3. Loader (cached with ISR)
+  .loader(async (ctx) => {
+    return { todos: await db.todos.list(ctx.user.id) };
+  }, { revalidate: 30, tags: ["todos"] })
+
+  // 4. Named actions (auto-revalidate after mutation)
+  .action("create", async (ctx) => {
+    const { title } = await ctx.body<{ title: string }>();
+    const todo = await db.todos.create(ctx.user.id, title);
+    return ctx.created({ todo });
+  })
+
+  .action("delete", async (ctx) => {
+    const { id } = ctx.params;
+    await db.todos.delete(id);
+    return ctx.noContent();
+  })
+
+  // 5. Render mode
+  .render("isr", { revalidate: 60 });
+```
+
+### Lifecycle Stages
+
+1. **Middleware** — composable plugins (cors, jwt, compress, logger, timeout)
+2. **Guard** — early return for auth/permissions
+3. **Loader** — fetch data (cached with ISR/SWR/PPR)
+4. **Actions** — named mutation handlers with auto-revalidation
+5. **Layout chain** — nested route data loading (parallel)
+6. **Render** — SSR with hydration strategy
+7. **Response** — apply cookies, headers, mapResponse hooks
+8. **Cache** — store result by route + query
+
+### Render Modes
+
+| Mode | Behavior |
+|------|----------|
+| `dynamic` | Always SSR fresh (default) |
+| `isr` | Cache full HTML, regenerate on stale + tag invalidation |
+| `swr` | Serve stale, regenerate in background |
+| `ppr` | Cache shell, fresh dynamic data per request |
+
+---
+
+## Middleware
+
+Built-in middleware plugins. All return `MiddlewarePlugin` (`beforeHandle` + `afterHandle` + `mapResponse`).
+
+```typescript
+import { Mandu } from "@mandujs/core";
+import {
+  corsMiddleware,
+  jwtMiddleware,
+  compressMiddleware,
+  loggerMiddleware,
+  timeoutMiddleware,
+} from "@mandujs/core/middleware";
+
+export default Mandu.filling()
+  .use(corsMiddleware({ origin: ["https://example.com"], credentials: true }))
+  .use(jwtMiddleware({ secret: process.env.JWT_SECRET!, algorithms: ["HS256"] }))
+  .use(compressMiddleware({ threshold: 1024 }))
+  .use(loggerMiddleware())
+  .use(timeoutMiddleware({ ms: 30_000 }))
+  .loader(async (ctx) => ({ user: ctx.user })); // ctx.user typed by jwtMiddleware
+```
+
+| Middleware | Features |
+|------------|----------|
+| `corsMiddleware` | Origin allowlist, credentials, preflight |
+| `jwtMiddleware` | HS256/HS384/HS512, algorithm allowlist, nbf validation, 8KB token limit |
+| `compressMiddleware` | gzip/deflate with threshold |
+| `loggerMiddleware` | Structured request logging |
+| `timeoutMiddleware` | Per-request timeout with abort |
+
+---
+
+## Session Management
+
+Cookie-based sessions with HMAC signing and secret rotation.
+
+```typescript
+import { createCookieSessionStorage } from "@mandujs/core";
+
+const sessionStorage = createCookieSessionStorage({
+  cookie: {
+    name: "_mandu_session",
+    secrets: [process.env.SESSION_SECRET!, process.env.OLD_SECRET], // rotation
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    httpOnly: true,
+    maxAge: 60 * 60 * 24 * 7, // 7 days
+  },
+});
+
+// In a route
+export default Mandu.filling()
+  .loader(async (ctx) => {
+    const session = await sessionStorage.getSession(ctx.request.headers.get("cookie"));
+    const user = session.get("user");
+    return { user };
+  })
+  .action("login", async (ctx) => {
+    const session = await sessionStorage.getSession(ctx.request.headers.get("cookie"));
+    session.set("user", { id: 1, name: "Alice" });
+    session.flash("message", "Welcome back!"); // one-time message
+
+    return ctx.ok({ ok: true }, {
+      headers: { "Set-Cookie": await sessionStorage.commitSession(session) },
+    });
+  });
+```
+
+---
+
+## Cache (ISR / SWR / PPR)
+
+Built-in incremental static regeneration with tag-based invalidation.
+
+```typescript
+import { Mandu, revalidatePath, revalidateTag } from "@mandujs/core";
+
+// Cache for 60s, tag with "posts"
+export default Mandu.filling()
+  .loader(async () => ({ posts: await db.posts.list() }), {
+    revalidate: 60,
+    tags: ["posts"],
+  });
+
+// Invalidate from a mutation handler
+export async function POST() {
+  await db.posts.create({ ... });
+  revalidateTag("posts");        // invalidate all tagged caches
+  revalidatePath("/blog");       // invalidate specific path
+  return new Response(null, { status: 201 });
+}
+```
+
+| Mode | Behavior |
+|------|----------|
+| **ISR** | Cache full HTML; regenerate on stale or tag invalidation |
+| **SWR** | Serve stale immediately, regenerate in background |
+| **PPR** | Cache shell only (HTML structure), fetch fresh data per request |
+
+---
+
+## Observability
+
+EventBus-based observability with **6 phases** of features. Every HTTP request, MCP tool call, Guard violation, and build event flows through a unified bus.
+
+### EventBus
+
+```typescript
+import { eventBus } from "@mandujs/core/observability";
+
+// Subscribe to all events
+const unsubscribe = eventBus.on("*", (event) => {
+  console.log(event.type, event.message, event.duration);
+});
+
+// Subscribe to specific type
+eventBus.on("http", (event) => {
+  if (event.severity === "error") {
+    console.error("HTTP error:", event.message);
+  }
+});
+
+// Emit custom events
+eventBus.emit({
+  type: "build",
+  severity: "info",
+  source: "my-plugin",
+  message: "Custom build step completed",
+  duration: 120,
+});
+```
+
+### Correlation ID Tracking
+
+Every HTTP request gets a `correlationId` (from `x-mandu-request-id` header or auto-generated UUID). All events triggered by that request share the same ID, enabling distributed tracing.
+
+### `mandu monitor` CLI
+
+```bash
+# Live event stream
+mandu monitor
+
+# Filter by type
+mandu monitor --type mcp
+
+# Filter by severity
+mandu monitor --severity error
+
+# Trace a specific request
+mandu monitor --trace req-abc-123
+
+# Aggregated stats over 5 minutes
+mandu monitor --stats --since 5m
+```
+
+### Kitchen DevTools Tabs (7)
+
+Visit `http://localhost:3333/__kitchen` to see:
+
+| Tab | Description |
+|-----|-------------|
+| **Errors** | Persistent error log (`.mandu/errors.jsonl`) with stack traces |
+| **Network** | Fetch/XHR proxied requests (with response bodies) |
+| **Islands** | Active island bundles and hydration status |
+| **Requests** | HTTP request log with **correlation-linked detail view** |
+| **MCP** | MCP tool call timeline grouped by correlation ID |
+| **Cache** | ISR/SWR cache stats (entries, hit rate, stale, tags) |
+| **Metrics** | TTFB p50/p95/p99, MCP avg duration, error rate |
+
+### SQLite Persistent Store
+
+```typescript
+import {
+  startSqliteStore,
+  queryEvents,
+  queryStats,
+  exportJsonl,
+  exportOtlp,
+} from "@mandujs/core/observability";
+
+// Auto-started by `mandu dev` (configurable via dev.observability)
+await startSqliteStore(rootDir); // → .mandu/observability.db
+
+// Query historical events
+const events = queryEvents({
+  type: "http",
+  severity: "error",
+  sinceMs: Date.now() - 60_000,
+  limit: 100,
+});
+
+// Aggregated stats over time window
+const stats = queryStats(5 * 60 * 1000); // last 5 minutes
+
+// Export for external tools
+const jsonl = exportJsonl({ type: "http" });
+const otlp = exportOtlp({}); // OpenTelemetry-compatible
+```
+
+### MCP Resource for AI Agents
+
+```
+mandu://activity → Recent 20 events + 5-minute stats
+```
+
+AI agents can query observability data directly via MCP without parsing log files.
+
+---
+
 ## ATE (Automation Test Engine)
 
 AI-driven end-to-end testing automation with self-healing capabilities.
@@ -636,9 +1009,11 @@ AI-driven end-to-end testing automation with self-healing capabilities.
 
 ATE automatically:
 1. **Extracts** your app's interaction graph from source code (AST-based)
-2. **Generates** Playwright test specs with domain-aware assertions
-3. **Runs** E2E tests with detailed reporting
-4. **Heals** failures by analyzing Playwright traces and suggesting fixes
+2. **Generates** Playwright test specs with domain-aware assertions (4 scenario kinds: ssr-verify, island-hydration, sse-stream, form-action)
+3. **Runs** E2E tests with detailed reporting and `--grep` filtering
+4. **Heals** failures with **7-category classification** and history-based confidence scoring
+5. **Smart-selects** routes to test based on git diff (Phase 5)
+6. **Detects coverage gaps** in the interaction graph (Phase 5)
 
 ### Quick Start
 
@@ -657,19 +1032,25 @@ bunx mandu test:heal
 
 | Feature | Description |
 |---------|-------------|
-| **AST-based Extraction** | Analyzes TypeScript/React code to find routes and navigation |
+| **AST-based Extraction** | Analyzes TypeScript/React code to find routes, contracts, islands, SSE, actions |
 | **Domain Detection** | Auto-detects domain type (ecommerce, blog, dashboard, auth, generic) |
-| **Oracle Levels** | L0 (console errors), L1 (structure), L2 (behavior), L3 (domain hints) |
+| **Oracle Levels (4)** | L0 smoke → L1 structural → L2 contract schema → L3 behavioral assertions |
+| **Mandu Scenario Kinds** | `ssr-verify`, `island-hydration`, `sse-stream`, `form-action` |
 | **Selector Fallback** | 4-tier fallback chain: mandu-id → text → class → role → xpath |
 | **Trace Parser** | Analyzes Playwright traces to identify failure causes |
 | **Impact Analysis** | Git diff-based subset testing (only test affected routes) |
-| **Auto-Healing** | Generates git-apply compatible diffs for test repairs |
-| **MCP Integration** | 9 MCP tools for AI agents to run/heal tests automatically |
+| **Smart Test Selection** *(Phase 5)* | Priority scoring: contract→HIGH, guard→HIGH, route→MEDIUM, shared→LOW |
+| **Coverage Gap Detection** *(Phase 5)* | Find untested route transitions, API calls, form actions, island interactions |
+| **Pre-commit Hook** *(Phase 5)* | Auto-detect staged changes that need testing |
+| **Auto-Healing** | 7-category classification (selector-stale, api-shape-changed, race-condition, timeout, etc.) |
+| **Heal History Learning** | Past success rate boosts auto-apply confidence (≥80% → +2 priority) |
+| **testFilling Unit Tests** | Generate Bun unit tests in addition to Playwright E2E |
+| **MCP Integration** | **12 MCP tools** (9 ATE + 3 Phase 5) for AI agents |
 
 ### MCP Tools (for AI Agents)
 
 ```typescript
-// Full pipeline automation
+// Pipeline automation
 mandu.ate.auto_pipeline    // Extract → Generate → Run → Report → Heal
 
 // Individual steps
@@ -681,8 +1062,13 @@ mandu.ate.heal             // Generate heal suggestions
 mandu.ate.impact           // Calculate affected routes
 
 // Feedback loop
-mandu.ate.feedback         // Analyze failures + prioritize fixes
+mandu.ate.feedback         // Analyze failures with 7-category classification
 mandu.ate.apply_heal       // Apply heal diffs safely (with backup)
+
+// Phase 5: Intelligent test selection (NEW)
+mandu.test.smart           // Smart route selection from git diff
+mandu.test.coverage        // Detect coverage gaps in interaction graph
+mandu.test.precommit       // Pre-commit hook: should we test before committing?
 ```
 
 ### Example: Auto-Pipeline
@@ -734,7 +1120,7 @@ jobs:
 
 ## MCP Server (AI Integration)
 
-Mandu includes a full MCP server for AI agent integration.
+Mandu includes a full MCP (Model Context Protocol) server with **85+ tools, 4 resources, and 3 prompts** for AI agent integration.
 
 ### Setup
 
@@ -744,36 +1130,84 @@ Mandu includes a full MCP server for AI agent integration.
   "mcpServers": {
     "mandu": {
       "command": "bunx",
-      "args": ["@mandujs/mcp"],
+      "args": ["mandu-mcp"],
       "cwd": "/path/to/project"
     }
   }
 }
 ```
 
-### Tools (44+)
+> **Note**: Use `mandu-mcp` (not `@mandujs/mcp`) to avoid conflicts with Python's `mcp` CLI on PATH (#174).
 
-| Category | Tools |
-|----------|-------|
-| **Routes** | `mandu_list_routes`, `mandu_get_route`, `mandu_add_route`, `mandu_delete_route`, `mandu_validate_manifest` |
-| **Guard** | `mandu_guard_check`, `mandu_guard_heal`, `mandu_explain_rule` |
-| **Decision Memory** | `mandu_search_decisions`, `mandu_save_decision`, `mandu_check_consistency`, `mandu_get_architecture` |
-| **Semantic Slots** | `mandu_validate_slot`, `mandu_validate_slots` |
-| **Negotiation** | `mandu_negotiate`, `mandu_generate_scaffold`, `mandu_analyze_structure` |
-| **Generate** | `mandu_generate` |
-| **Transaction** | `mandu_begin`, `mandu_commit`, `mandu_rollback` |
-| **Slot** | `mandu_read_slot`, `mandu_write_slot` |
-| **Hydration** | `mandu_build`, `mandu_list_islands`, `mandu_set_hydration` |
-| **SEO** | `mandu_preview_seo`, `mandu_generate_sitemap_preview`, `mandu_generate_robots_preview`, `mandu_create_jsonld`, `mandu_write_seo_file`, `mandu_seo_analyze` |
-| **Brain** | `mandu_doctor`, `mandu_watch_start` |
+### Tool Categories (85+)
+
+| Category | Tools | Examples |
+|----------|-------|----------|
+| **Project** | 4 | `mandu.project.init`, `mandu.dev.start`, `mandu.dev.stop` |
+| **Routes** | 5 | `mandu.route.list`, `mandu.route.add`, `mandu.route.delete`, `mandu.route.get`, `mandu.manifest.validate` |
+| **Generate** | 2 | `mandu.generate`, `mandu.generate.status` |
+| **Guard** | 4 | `mandu.guard.check`, `mandu.guard.analyze`, `mandu.guard.heal`, `mandu.guard.explain` |
+| **Decisions** | 4 | `mandu.decision.save`, `mandu.decision.check`, `mandu.decision.list`, `mandu.decision.architecture` |
+| **Negotiate** | 3 | `mandu.negotiate`, `mandu.negotiate.analyze`, `mandu.negotiate.scaffold` |
+| **Slot** | 3 | `mandu.slot.read`, `mandu.slot.validate`, `mandu.slot.constraints` |
+| **Hydration** | 4 | `mandu.island.add`, `mandu.island.list`, `mandu.hydration.set`, `mandu.hydration.addClientSlot` |
+| **Contract** | 7 | `mandu.contract.create`, `mandu.contract.validate`, `mandu.contract.openapi`, `mandu.contract.sync`, etc. |
+| **Resource** | 5 | `mandu.resource.create`, `mandu.resource.list`, `mandu.resource.get`, `mandu.resource.addField`, `mandu.resource.removeField` |
+| **Brain** | 4 | `mandu.brain.doctor`, `mandu.brain.architecture`, `mandu.brain.checkImport`, `mandu.brain.checkLocation` |
+| **Runtime** | 5 | `mandu.runtime.config`, `mandu.runtime.contractOptions`, `mandu.runtime.loggerConfig`, etc. |
+| **SEO** | 6 | `mandu.seo.analyze`, `mandu.seo.jsonld`, `mandu.seo.sitemap`, `mandu.seo.robots`, `mandu.seo.preview`, `mandu.seo.write` |
+| **History** | 3 | `mandu.history.snapshot`, `mandu.history.list`, `mandu.history.prune` |
+| **Transaction** | 4 | `mandu.tx.begin`, `mandu.tx.commit`, `mandu.tx.rollback`, `mandu.tx.status` |
+| **Watch** | 3 | `mandu.watch.start`, `mandu.watch.stop`, `mandu.watch.status` |
+| **Kitchen** | 1 | `mandu.kitchen.errors` |
+| **ATE** | 9 | `mandu.ate.extract`, `mandu.ate.generate`, `mandu.ate.run`, `mandu.ate.report`, `mandu.ate.heal`, `mandu.ate.impact`, `mandu.ate.auto_pipeline`, `mandu.ate.feedback`, `mandu.ate.apply_heal` |
+| **Test (Phase 5)** | 4 | `mandu.test.smart`, `mandu.test.coverage`, `mandu.test.precommit`, `mandu.test.route` |
+| **Composite** | 7 | `mandu.feature.create`, `mandu.diagnose`, `mandu.middleware.add`, `mandu.deploy.check`, `mandu.cache.manage`, etc. |
+| **Build** | 2 | `mandu.build`, `mandu.build.status` |
+| **Component** | 1 | `mandu.component.add` |
+
+All tools use **dot notation** (`mandu.guard.check`) with backward-compatible underscore aliases (`mandu_guard_check`).
 
 ### Resources
 
 | URI | Description |
 |-----|-------------|
-| `mandu://spec/manifest` | Current routes manifest |
-| `mandu://watch/warnings` | Architecture violation warnings |
-| `mandu://transaction/active` | Active transaction state |
+| `mandu://routes` | Current routes manifest |
+| `mandu://config` | Parsed `mandu.config.ts` settings |
+| `mandu://errors` | Recent build and runtime errors |
+| `mandu://activity` | **NEW**: Recent observability events + 5-minute stats from EventBus |
+
+### Profiles
+
+Filter tools by profile via `MANDU_MCP_PROFILE` env var:
+
+| Profile | Tools | Use Case |
+|---------|-------|----------|
+| `minimal` | ~15 | Read-only operations, safe for autonomous agents |
+| `standard` | ~50 | Default — most common operations |
+| `full` | 85+ | All tools including destructive operations |
+
+---
+
+## Skills (Claude Code Plugin)
+
+Mandu ships with **9 SKILL.md plugins** for Claude Code at `@mandujs/skills`.
+
+```bash
+bunx @mandujs/skills install
+```
+
+| Skill | Purpose |
+|-------|---------|
+| `create-feature` | Guided feature scaffolding with Guard validation |
+| `create-api` | API route + Contract + Filling generation |
+| `debug` | Root cause analysis with Mandu observability |
+| `explain` | Code explanation with framework context |
+| `guard-guide` | Architecture preset selection guide |
+| `deploy` | Production deployment checklist |
+| `slot` | Slot file authoring with semantic constraints |
+| `fs-routes` | FS Routes patterns and conventions |
+| `hydration` | Island hydration strategy selection |
 
 ---
 
@@ -795,15 +1229,18 @@ my-app/
 └── package.json
 ```
 
-### Framework
+### Framework Monorepo
 
 ```
 mandu/
 ├── packages/
-│   ├── core/       # @mandujs/core - Runtime, Guard, Router, Bundler
-│   ├── cli/        # @mandujs/cli - CLI commands
-│   └── mcp/        # @mandujs/mcp - MCP server for AI agents
-└── tests/
+│   ├── core/       # @mandujs/core - Runtime, Guard, Router, Bundler, Observability
+│   ├── cli/        # @mandujs/cli - 38+ CLI commands
+│   ├── mcp/        # @mandujs/mcp - MCP server (85+ tools, 4 resources, 3 prompts)
+│   ├── ate/        # @mandujs/ate - Automation Test Engine (Phase 1-6)
+│   └── skills/     # @mandujs/skills - Claude Code skills plugin
+├── docs-site/      # Astro Starlight documentation site
+└── docs/           # Roadmaps, RFCs, architecture decisions
 ```
 
 ---
@@ -812,117 +1249,188 @@ mandu/
 
 | Area | Technology |
 |------|------------|
-| Runtime | Bun |
-| Language | TypeScript |
-| Frontend | React |
-| Rendering | Streaming SSR |
-| Validation | Zod |
-| AI Protocol | MCP |
+| **Runtime** | Bun 1.0+ (`bun:sqlite`, `Bun.spawn`, `Bun.serve`) |
+| **Language** | TypeScript 5.x |
+| **Frontend** | React 19 (Streaming SSR, Suspense, useTransition) |
+| **Validation** | Zod (Contract API) |
+| **Testing** | Bun Test + Playwright (via ATE) |
+| **AI Protocol** | MCP (Model Context Protocol) |
+| **Build** | Bun bundler + Tailwind CSS v4 (Oxide) |
+| **Storage** | bun:sqlite (observability), JSONL (errors, activity) |
 
 ---
 
 ## Roadmap
 
-### v0.10.x (Current)
+### v0.20.x (Current — Released)
 
 **Core Runtime**
-- [x] Middleware compose & lifecycle hooks
-- [x] Streaming SSR
-- [x] Filling API (guard, hooks, middleware)
-- [x] Runtime logger & trace system
+- [x] Filling API with 8-stage lifecycle + named actions + auto-revalidation
+- [x] Streaming SSR with React 19
+- [x] Middleware composition (cors, jwt, compress, logger, timeout)
+- [x] Runtime logger with structured output
+- [x] Cookie-based session storage with HMAC signing + secret rotation
+- [x] WebSocket via `filling.ws()` chaining
+- [x] Image handler (`/_mandu/image`)
+- [x] Form Progressive Enhancement
+- [x] View Transitions API integration
 
-**Routing**
+**Routing & Layout**
 - [x] FS Routes (scanner, patterns, generator, watcher)
-- [x] Layout system (layoutChain, loading, error)
-- [x] Advanced routes (catch-all, optional params)
-- [x] Client-side router (Link, NavLink, hooks)
+- [x] Nested layout chain with parallel data loading
+- [x] Advanced routes (catch-all, optional params, route groups)
+- [x] Client-side router (Link, NavLink, hooks, prefetch)
+- [x] Race-condition-free navigation with AbortController
 
-**Architecture**
-- [x] Mandu Guard with 5 presets (mandu, fsd, clean, hexagonal, atomic)
+**Architecture (Guard)**
+- [x] **6 presets** (mandu, fsd, clean, hexagonal, atomic, **cqrs**)
 - [x] AST-based import analysis
-- [x] Statistics & trend tracking
-- [x] Real-time violation detection
+- [x] Real-time violation detection with file watcher
+- [x] Self-Healing Guard with auto-fix suggestions
+- [x] Decision Memory (ADR storage + consistency checking)
+- [x] Semantic Slots (purpose & constraint validation)
+- [x] Architecture Negotiation (AI-Framework pre-implementation dialog)
 
-**API & Types**
-- [x] Contract API with Zod
-- [x] Type-safe handlers & clients
-- [x] OpenAPI 3.0 generator
-- [x] Schema normalization
+**Cache & Performance**
+- [x] **ISR** (Incremental Static Regeneration) with tag invalidation
+- [x] **SWR** (stale-while-revalidate) with background regeneration
+- [x] **PPR** (Partial Prerendering) — cached shell + fresh data
+- [x] `revalidatePath` / `revalidateTag` global API
+- [x] LRU memory cache with tag index
+- [x] ETag + 304 Not Modified for static files
 
 **Hydration**
-- [x] Island hydration (visible, idle, interaction)
-- [x] Partials & slots
-- [x] Error boundary & loading states
-- [x] HMR support
+- [x] **5 island strategies** (load, idle, visible, media, never)
+- [x] Per-island code splitting (independent JS bundles)
+- [x] Declarative + client island patterns
+- [x] React Internals shim for Bun compatibility
+- [x] HMR support for SSR pages, API routes, CSS, islands
 
-**SEO (Search Engine Optimization)**
+**Type Safety & Contracts**
+- [x] Contract API with Zod
+- [x] Type-safe handlers & clients with end-to-end inference
+- [x] OpenAPI 3.0 generator
+- [x] Schema normalization (strip/strict/passthrough)
+- [x] `defineContract` low-level API
+
+**SEO**
 - [x] Next.js Metadata API compatible types
 - [x] Layout chain metadata merging
 - [x] Open Graph & Twitter Cards
 - [x] JSON-LD structured data (12 helpers)
 - [x] Sitemap.xml & robots.txt generation
-- [x] Google SEO optimization (viewport, theme-color, resource hints)
-- [x] SSR integration
+- [x] SSR integration with `<head>` injection
 
-**AI Integration (RFC-001: From Guard to Guide)** 🆕
-- [x] MCP server (35+ tools, 7 resources)
+**AI Integration (RFC-001: From Guard to Guide)**
+- [x] **MCP server: 85+ tools, 4 resources, 3 prompts**
+- [x] Tool profiles (minimal/standard/full) via `MANDU_MCP_PROFILE`
 - [x] Brain (Doctor, Watcher, Architecture analyzer)
-- [x] Transaction API with snapshots
-- [x] Real-time push notifications
-- [x] **Decision Memory** - ADR storage & consistency checking
-- [x] **Semantic Slots** - Purpose & constraint validation for AI code
-- [x] **Architecture Negotiation** - AI-Framework pre-implementation dialog
-- [x] **Self-Healing Guard** - Auto-fix suggestions with explanations
+- [x] Transaction API with snapshots (`tx-lock` for multi-agent safety)
+- [x] **9 Claude Code skills** (`@mandujs/skills` plugin)
+
+**ATE (Automation Test Engine)**
+- [x] **Phase 1-3**: Extract → Generate → Run → Report → Heal pipeline
+- [x] **Phase 1**: L0/L1/L2/L3 Oracle levels
+- [x] **Phase 2**: Mandu scenario kinds (ssr-verify, island-hydration, sse-stream, form-action)
+- [x] **Phase 3**: testFilling unit codegen + `--grep` filtering
+- [x] **Phase 4**: Heal 7-category classification + history-based confidence
+- [x] **Phase 5.1**: Smart test selection (git diff → priority scoring)
+- [x] **Phase 5.2**: Coverage gap detection
+- [x] **Phase 5.3**: Pre-commit hook helper
+- [x] **Phase 6.1**: SSR rendering tests (36 tests)
+- [x] 12 MCP tools (9 ATE + 3 Phase 5)
+
+**Activity Log & Observability (NEW)**
+- [x] **Phase 1**: EventBus core + correlation ID + Logger/MCP adapters
+- [x] **Phase 2**: dev terminal 1-line logs + `m` key MCP toggle
+- [x] **Phase 3**: Monitor CLI with filtering, stats, SSE streaming
+- [x] **Phase 4**: Kitchen DevTools 5 new tabs (Requests, MCP, Cache, Metrics, Errors persistence)
+- [x] **Phase 5**: AI agent observability (sessionId tracking, `mandu://activity` resource)
+- [x] **Phase 6**: SQLite persistent store + time-series queries + JSONL/OTLP export
 
 **Security**
-- [x] Path traversal prevention
+- [x] Path traversal prevention (realpath verification)
 - [x] Port validation
 - [x] LFI vulnerability protection
-- [x] ReDoS defense in custom rules
+- [x] Null byte attack detection
+- [x] JWT algorithm allowlist + nbf validation + 8KB token limit
+- [x] HMAC session signing with secret rotation
+- [x] Rate limiting (per-IP + per-route)
 
-### v0.11.x (Next)
+**Developer Experience**
+- [x] HMR for SSR-only pages (no islands required)
+- [x] API route hot-reload (route.ts changes auto-reload)
+- [x] Tailwind v4 self-managed CSS watcher
+- [x] Improved error messages (10 critical paths)
+- [x] `.well-known/` directory serving (RFC 8615)
+- [x] Cache-Control headers in dev mode
+- [x] `<link>` tag auto-hoisting (body → head)
 
-**Data Layer** *(Astro-inspired)*
-- [ ] Loader API with LoaderContext (store, meta, logger, watcher)
-- [ ] File Loader & API Loader implementations
-- [ ] DataStore & MetaStore with digest tracking
-- [ ] Cache Store adapter (Redis, in-memory)
-- [ ] ISR (Incremental Static Regeneration)
+### v0.21.x (Next)
 
-**Realtime** *(Phoenix-inspired)*
-- [ ] WebSocket Channels (join/handle_in/handle_out pattern)
-- [ ] Channel/Socket separation model
-- [ ] Serializer-based message protocol
-- [ ] Server-sent events (SSE)
+**ATE Advanced**
+- [ ] L2 Oracle deep contract validation (Zod schema parsing + edge case generation)
+- [ ] L3 Oracle behavioral verification (LLM-based state change assertions)
+- [ ] ATE Watch mode (`mandu test --watch`)
+- [ ] Accessibility (a11y) testing with `@axe-core/playwright`
+- [ ] devtools/brain/watcher test coverage (currently 0)
+- [ ] CI E2E job + codecov integration
 
 **Build & Integration** *(Astro/Fresh-inspired)*
 - [ ] Build Hooks (start/setup/done lifecycle)
 - [ ] Plugin API for build extensions
 - [ ] Integration hooks with timeout warnings & dedicated logger
 - [ ] Bundle analyzer with size reporting
+- [ ] `bun --hot` server module integration
 
-**Observability**
-- [ ] Performance benchmarks (routing, SSR, hydration)
-- [ ] TTFB & TTI measurement
-- [ ] Automated perf test suite
+**Data Layer** *(Astro-inspired)*
+- [ ] Loader API with LoaderContext (store, meta, logger, watcher)
+- [ ] File Loader & API Loader implementations
+- [ ] Cache Store adapter (Redis, KV)
+- [ ] Content collections with type-safe queries
 
-### v0.13.x (Future)
+### v0.22.x (Future)
 
 **AOT Optimization** *(Elysia-inspired)*
 - [ ] AOT Handler Generation (runtime precompile)
-- [ ] Sucrose-style context inference for minimal runtime
+- [ ] Context inference for minimal runtime overhead
 - [ ] JIT/AOT mode selection (`mandu build --aot`)
 
 **Advanced Hydration** *(Qwik/Fresh-inspired)*
+- [ ] React Fast Refresh integration (state-preserving HMR)
 - [ ] Client Reviver (DOM marker-based restoration)
 - [ ] Resumable POC / QRL-lite (lazy event handler loading)
 - [ ] Serializer Registry (pluggable type serializers)
-- [ ] Progressive Hydration improvements
+
+**Realtime** *(Phoenix-inspired)*
+- [ ] WebSocket Channels (join/handle_in/handle_out pattern)
+- [ ] Channel/Socket separation model
+- [ ] Presence tracking
+- [ ] Pub/Sub with adapters
 
 **Developer Experience**
-- [ ] Error overlay in development
-- [ ] Enhanced TypeScript inference
-- [ ] Project templates & scaffolding
+- [ ] Error overlay in development with source maps
+- [ ] Enhanced TypeScript inference for Filling chains
+- [ ] More project templates (e-commerce, blog, dashboard)
+- [ ] Visual route inspector
+
+---
+
+## Test Coverage
+
+| Package | Tests | Files |
+|---------|-------|-------|
+| `@mandujs/core` (src) | 543 | 35 |
+| `@mandujs/core` (tests) | 874 | 62 |
+| `@mandujs/ate` | 242 | 19 |
+| `@mandujs/mcp` | 69 | 6 |
+| **Total** | **1728** | **122** |
+
+```bash
+bun test                          # Run all tests
+bun test packages/core/src        # Test specific package
+bun test --watch                  # Watch mode
+```
 
 ---
 

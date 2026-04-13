@@ -40,6 +40,7 @@ import {
 } from "./cors";
 import { validateImportPath } from "./security";
 import { KITCHEN_PREFIX, KitchenHandler, recordRequest } from "../kitchen/kitchen-handler";
+import { eventBus } from "../observability/event-bus";
 import {
   type MiddlewareFn,
   type MiddlewareConfig,
@@ -759,6 +760,103 @@ interface StaticFileResult {
 }
 
 const INTERNAL_CACHE_ENDPOINT = "/_mandu/cache";
+const INTERNAL_EVENTS_ENDPOINT = "/__mandu/events";
+
+function handleEventsStreamRequest(req: Request): Response {
+  const url = new URL(req.url);
+  const filterType = url.searchParams.get("type") || undefined;
+  const filterSeverity = url.searchParams.get("severity") || undefined;
+  const filterSource = url.searchParams.get("source") || undefined;
+  const filterTrace = url.searchParams.get("trace") || undefined;
+
+  const matches = (e: import("../observability/event-bus").ObservabilityEvent): boolean => {
+    if (filterType && e.type !== filterType) return false;
+    if (filterSeverity && e.severity !== filterSeverity) return false;
+    if (filterSource && e.source !== filterSource) return false;
+    if (filterTrace && e.correlationId !== filterTrace) return false;
+    return true;
+  };
+
+  let unsubscribe: (() => void) | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (data: string, eventName?: string) => {
+        try {
+          const prefix = eventName ? `event: ${eventName}\n` : "";
+          controller.enqueue(encoder.encode(`${prefix}data: ${data}\n\n`));
+        } catch {
+          // Stream closed
+        }
+      };
+
+      // Replay recent events that match filters
+      const recent = eventBus.getRecent();
+      for (const e of recent) {
+        if (matches(e)) send(JSON.stringify(e));
+      }
+
+      // Subscribe to live events
+      unsubscribe = eventBus.on("*", (event) => {
+        if (matches(event)) send(JSON.stringify(event));
+      });
+
+      // Heartbeat (comment line) every 15s to keep connection alive
+      heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: heartbeat\n\n`));
+        } catch {
+          // ignore
+        }
+      }, 15000);
+
+      // Tear down when client disconnects
+      const signal = req.signal;
+      if (signal) {
+        signal.addEventListener("abort", () => {
+          if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+          if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+          try { controller.close(); } catch { /* noop */ }
+        });
+      }
+    },
+    cancel() {
+      if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+      if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+function handleEventsRecentRequest(req: Request): Response {
+  const url = new URL(req.url);
+  const count = url.searchParams.get("count");
+  const type = url.searchParams.get("type") || undefined;
+  const severity = url.searchParams.get("severity") || undefined;
+  const windowParam = url.searchParams.get("windowMs");
+  const windowMs = windowParam ? Number(windowParam) : undefined;
+
+  const events = eventBus.getRecent(
+    count ? Number(count) : undefined,
+    {
+      type: type as import("../observability/event-bus").EventType | undefined,
+      severity: severity as import("../observability/event-bus").ObservabilitySeverity | undefined,
+    },
+  );
+  const stats = eventBus.getStats(windowMs);
+  return Response.json({ events, stats });
+}
 
 function createStaticErrorResponse(status: 400 | 403 | 404 | 500): Response {
   const body = {
@@ -830,14 +928,18 @@ async function serveStaticFile(pathname: string, settings: ServerRegistrySetting
     relativePath = pathname.slice("/public/".length);
     allowedBaseDir = path.join(settings.rootDir, settings.publicDir);
   }
-  // 3. Public 폴더의 루트 파일 (favicon.ico, robots.txt 등)
+  // 3. .well-known/ 디렉토리 (#178: RFC 8615 표준 — Chrome DevTools, ACME, etc.)
+  else if (pathname.startsWith("/.well-known/")) {
+    relativePath = pathname.slice(1); // ".well-known/..."
+    allowedBaseDir = path.join(settings.rootDir, settings.publicDir);
+  }
+  // 4. Public 폴더의 루트 파일 (favicon.ico, robots.txt 등)
   else if (
     pathname === "/favicon.ico" ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
     pathname === "/manifest.json"
   ) {
-    // 고정된 파일명만 허용 (이미 위에서 정확히 매칭됨)
     relativePath = path.basename(pathname);
     allowedBaseDir = path.join(settings.rootDir, settings.publicDir);
   } else {
@@ -980,8 +1082,9 @@ async function handleInternalCacheControlRequest(
     if (req.method === "POST") {
       try {
         payload = await req.json() as Record<string, unknown>;
-      } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      } catch (parseErr) {
+        const detail = parseErr instanceof Error ? parseErr.message : "Invalid JSON";
+        return Response.json({ error: "Invalid JSON body", detail, hint: "Ensure the request body is valid JSON (e.g., no trailing commas, unquoted keys, or truncated input)." }, { status: 400 });
       }
     } else {
       payload = { all: true };
@@ -1011,22 +1114,38 @@ async function handleInternalCacheControlRequest(
     });
   }
 
-  return Response.json({ error: "Method not allowed" }, { status: 405 });
+  return new Response(JSON.stringify({ error: "Method not allowed", allowed: ["GET", "POST", "DELETE"], hint: `Received '${req.method}'. This endpoint accepts GET (read stats), POST (clear by path/tag), and DELETE (clear all).` }), { status: 405, headers: { "Content-Type": "application/json", "Allow": "GET, POST, DELETE" } });
 }
 
 async function handleRequest(req: Request, router: Router, registry: ServerRegistry): Promise<Response> {
   const requestStart = Date.now();
+  // Phase 1-4: Correlation ID — 한 요청에서 발생하는 모든 이벤트를 추적
+  const correlationId = req.headers.get("x-mandu-request-id") ?? crypto.randomUUID();
   const result = await handleRequestInternal(req, router, registry);
 
   if (!result.ok) {
     const errorResponse = errorToResponse(result.error, registry.settings.isDev);
     if (registry.settings.isDev) {
+      // #177: dev 모드 에러 응답도 캐시 방지
+      if (!errorResponse.headers.has("Cache-Control")) {
+        errorResponse.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+      }
       const url = new URL(req.url);
       const p = url.pathname;
-      if (!p.startsWith("/.mandu/") && !p.startsWith("/__kitchen")) {
+      if (!p.startsWith("/.mandu/") && !p.startsWith("/__kitchen") && !p.startsWith("/__mandu/")) {
         const elapsed = Date.now() - requestStart;
         console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${p} ${errorResponse.status} ${elapsed}ms`);
-        recordRequest({ id: crypto.randomUUID(), method: req.method, path: p, status: errorResponse.status, duration: elapsed, timestamp: Date.now() });
+        recordRequest({ id: correlationId, method: req.method, path: p, status: errorResponse.status, duration: elapsed, timestamp: Date.now() });
+        // Phase 1-2: HTTP 요청 → EventBus
+        eventBus.emit({
+          type: "http",
+          severity: errorResponse.status >= 500 ? "error" : errorResponse.status >= 400 ? "warn" : "info",
+          source: "server",
+          correlationId,
+          message: `${req.method} ${p} ${errorResponse.status}`,
+          duration: elapsed,
+          data: { method: req.method, path: p, status: errorResponse.status, error: true },
+        });
       }
     }
     return errorResponse;
@@ -1035,13 +1154,30 @@ async function handleRequest(req: Request, router: Router, registry: ServerRegis
   if (registry.settings.isDev) {
     const url = new URL(req.url);
     const p = url.pathname;
-    if (!p.startsWith("/.mandu/") && !p.startsWith("/__kitchen")) {
+
+    // #177: dev 모드에서 SSR HTML 응답에 Cache-Control 헤더 추가
+    // 브라우저가 오래된 HTML을 캐시하여 변경사항이 반영 안 되는 문제 방지
+    if (!result.value.headers.has("Cache-Control")) {
+      result.value.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    }
+
+    if (!p.startsWith("/.mandu/") && !p.startsWith("/__kitchen") && !p.startsWith("/__mandu/")) {
       const elapsed = Date.now() - requestStart;
       const status = result.value.status;
       const cacheHdr = result.value.headers.get("X-Mandu-Cache") ?? "";
       const cacheTag = cacheHdr ? ` ${cacheHdr}` : "";
       console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${p} ${status} ${elapsed}ms${cacheTag}`);
-      recordRequest({ id: crypto.randomUUID(), method: req.method, path: p, status, duration: elapsed, timestamp: Date.now(), cacheStatus: cacheHdr || undefined });
+      recordRequest({ id: correlationId, method: req.method, path: p, status, duration: elapsed, timestamp: Date.now(), cacheStatus: cacheHdr || undefined });
+      // Phase 1-2: HTTP 요청 → EventBus
+      eventBus.emit({
+        type: "http",
+        severity: status >= 500 ? "error" : status >= 400 ? "warn" : "info",
+        source: "server",
+        correlationId,
+        message: `${req.method} ${p} ${status}${cacheTag}`,
+        duration: elapsed,
+        data: { method: req.method, path: p, status, cache: cacheHdr || undefined },
+      });
     }
   }
 
@@ -1594,7 +1730,7 @@ async function ensurePageRouteMetadata(
 ): Promise<PageRegistration> {
   const handler = pageHandler ?? registry.pageHandlers.get(routeId);
   if (!handler) {
-    throw new Error(`Page handler not found for route: ${routeId}`);
+    throw new Error(`Page handler not found for route: '${routeId}'. Ensure this route is registered in the manifest. If you are running in development, restart 'mandu dev' to pick up new routes. In production, verify that the route module exists and was included in the build.`);
   }
 
   const existingComponent = registry.routeComponents.get(routeId);
@@ -1670,6 +1806,14 @@ async function handleRequestInternal(
   // 1.6. Internal runtime cache control endpoint
   if (pathname === INTERNAL_CACHE_ENDPOINT) {
     return ok(await handleInternalCacheControlRequest(req, settings));
+  }
+
+  // 1.7. Internal observability EventBus stream + recent snapshot
+  if (pathname === INTERNAL_EVENTS_ENDPOINT) {
+    return ok(handleEventsStreamRequest(req));
+  }
+  if (pathname === `${INTERNAL_EVENTS_ENDPOINT}/recent`) {
+    return ok(handleEventsRecentRequest(req));
   }
 
   // 2. Kitchen dev dashboard (dev mode only)

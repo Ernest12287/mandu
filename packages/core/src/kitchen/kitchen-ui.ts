@@ -63,6 +63,10 @@ export function renderKitchenHTML(): string {
       <button class="tab" data-panel="guard">Guard</button>
       <button class="tab" data-panel="preview">Preview</button>
       <button class="tab" data-panel="contracts">Contracts</button>
+      <button class="tab" data-panel="requests">Requests</button>
+      <button class="tab" data-panel="mcp-activity">MCP</button>
+      <button class="tab" data-panel="cache">Cache</button>
+      <button class="tab" data-panel="metrics">Metrics</button>
     </nav>
 
     <main class="panels">
@@ -153,6 +157,59 @@ export function renderKitchenHTML(): string {
               <div id="validate-result" class="validate-result"></div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section id="panel-requests" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Requests</h2>
+            <p class="panel-subtitle">Recent HTTP requests. Click a row to see correlation-linked events.</p>
+          </div>
+          <button id="refresh-requests" class="btn-sm">Refresh</button>
+        </div>
+        <div id="requests-list" class="requests-list">
+          <div class="empty-state">Loading requests...</div>
+        </div>
+        <div id="requests-detail" class="requests-detail" style="display:none;"></div>
+      </section>
+
+      <section id="panel-mcp-activity" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>MCP Activity</h2>
+            <p class="panel-subtitle">Recent MCP tool calls from the EventBus, grouped by correlation.</p>
+          </div>
+          <button id="refresh-mcp" class="btn-sm">Refresh</button>
+        </div>
+        <div id="mcp-list" class="mcp-list">
+          <div class="empty-state">Loading MCP activity...</div>
+        </div>
+      </section>
+
+      <section id="panel-cache" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Cache</h2>
+            <p class="panel-subtitle">ISR/SWR cache store statistics.</p>
+          </div>
+          <button id="refresh-cache" class="btn-sm">Refresh</button>
+        </div>
+        <div id="cache-content" class="cache-content">
+          <div class="empty-state">Loading cache stats...</div>
+        </div>
+      </section>
+
+      <section id="panel-metrics" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Metrics</h2>
+            <p class="panel-subtitle">Rolling 5-minute window over all observability events.</p>
+          </div>
+          <button id="refresh-metrics" class="btn-sm">Refresh</button>
+        </div>
+        <div id="metrics-content" class="metrics-content">
+          <div class="empty-state">Loading metrics...</div>
         </div>
       </section>
     </main>
@@ -1131,6 +1188,114 @@ const CSS = /* css */ `
     box-shadow: 0 12px 28px rgba(30, 42, 58, 0.22);
   }
 
+  .requests-list, .mcp-list, .cache-content, .metrics-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .req-row {
+    display: grid;
+    grid-template-columns: 70px 60px 1fr 90px 90px;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+    font-size: 12px;
+    align-items: center;
+  }
+
+  .req-row:hover { background: rgba(184, 106, 18, 0.08); }
+  .req-row.selected { background: rgba(184, 106, 18, 0.12); border-color: rgba(184, 106, 18, 0.28); }
+
+  .req-method {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+  .req-method.get { color: #2563eb; }
+  .req-method.post { color: #16a34a; }
+  .req-method.put, .req-method.patch { color: #d97706; }
+  .req-method.delete { color: #dc2626; }
+
+  .req-status { font-weight: 700; }
+  .req-status.s2 { color: var(--success); }
+  .req-status.s3 { color: #2563eb; }
+  .req-status.s4 { color: #d97706; }
+  .req-status.s5 { color: var(--danger); }
+
+  .req-path { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .req-dur, .req-cache { color: var(--muted); text-align: right; }
+
+  .requests-detail {
+    margin-top: 14px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    max-height: 420px;
+    overflow: auto;
+  }
+
+  .corr-event {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(220, 207, 186, 0.6);
+    font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+    font-size: 12px;
+  }
+  .corr-event:last-child { border-bottom: none; }
+  .corr-type {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-right: 8px;
+    background: rgba(30, 42, 58, 0.08);
+  }
+
+  .mcp-group {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.55);
+  }
+  .mcp-group-header {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .mcp-event {
+    display: grid;
+    grid-template-columns: 90px 22px 1fr 70px;
+    gap: 8px;
+    font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+    font-size: 12px;
+    padding: 4px 0;
+    align-items: center;
+  }
+  .mcp-status-ok { color: var(--success); font-weight: 700; }
+  .mcp-status-err { color: var(--danger); font-weight: 700; }
+
+  .cache-grid, .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+  .stat-card {
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid var(--line);
+  }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .stat-value { font-size: 22px; font-weight: 700; margin-top: 4px; color: var(--ink); }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
   @media (max-width: 1040px) {
     body {
       padding: 18px;
@@ -1727,6 +1892,246 @@ const JS = /* js */ `
   });
 
   loadContracts();
+
+  // ─── Requests Tab ─────────────────────────────
+  var requestsListEl = document.getElementById('requests-list');
+  var requestsDetailEl = document.getElementById('requests-detail');
+
+  function fetchJson(url, cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try { cb(null, JSON.parse(xhr.responseText)); }
+        catch(e) { cb(e); }
+      } else { cb(new Error('HTTP ' + xhr.status)); }
+    };
+    xhr.onerror = function() { cb(new Error('network')); };
+    xhr.send();
+  }
+
+  function statusClass(s) {
+    if (!s) return '';
+    if (s >= 500) return 's5';
+    if (s >= 400) return 's4';
+    if (s >= 300) return 's3';
+    return 's2';
+  }
+
+  function loadRequests() {
+    requestsListEl.innerHTML = '<div class="empty-state">Loading requests...</div>';
+    fetchJson('/__kitchen/api/requests?limit=100', function(err, data) {
+      if (err) {
+        requestsListEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var reqs = data.requests || [];
+      if (!reqs.length) {
+        requestsListEl.innerHTML = '<div class="empty-state">No requests yet.</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < reqs.length; i++) {
+        var r = reqs[i];
+        // EventBus event shape vs legacy ring buffer shape
+        var method = (r.data && r.data.method) || r.method || '?';
+        var pathStr = (r.data && (r.data.path || r.data.url)) || r.path || r.message || '';
+        var status = (r.data && r.data.status) || r.status || 0;
+        var dur = r.duration || (r.data && r.data.duration) || 0;
+        var cache = (r.data && (r.data.cacheStatus || r.data.cache)) || r.cacheStatus || '';
+        var corr = r.correlationId || '';
+        html += '<div class="req-row" data-corr="' + escapeHtml(corr) + '">' +
+          '<span class="req-method ' + String(method).toLowerCase() + '">' + escapeHtml(method) + '</span>' +
+          '<span class="req-status ' + statusClass(status) + '">' + escapeHtml(status || '-') + '</span>' +
+          '<span class="req-path">' + escapeHtml(pathStr) + '</span>' +
+          '<span class="req-dur">' + (dur ? Math.round(dur) + 'ms' : '-') + '</span>' +
+          '<span class="req-cache">' + escapeHtml(cache || '-') + '</span>' +
+          '</div>';
+      }
+      requestsListEl.innerHTML = html;
+
+      var rows = requestsListEl.querySelectorAll('.req-row');
+      for (var j = 0; j < rows.length; j++) {
+        rows[j].addEventListener('click', function() {
+          var all = requestsListEl.querySelectorAll('.req-row');
+          for (var k = 0; k < all.length; k++) all[k].classList.remove('selected');
+          this.classList.add('selected');
+          var cid = this.getAttribute('data-corr');
+          if (cid) loadCorrelation(cid);
+          else {
+            requestsDetailEl.innerHTML = '<div class="empty-state">No correlation ID on this request.</div>';
+            requestsDetailEl.style.display = 'block';
+          }
+        });
+      }
+    });
+  }
+
+  function loadCorrelation(cid) {
+    requestsDetailEl.innerHTML = '<div class="empty-state">Loading correlated events...</div>';
+    requestsDetailEl.style.display = 'block';
+    fetchJson('/__kitchen/api/correlation?id=' + encodeURIComponent(cid), function(err, data) {
+      if (err) {
+        requestsDetailEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var events = data.events || [];
+      if (!events.length) {
+        requestsDetailEl.innerHTML = '<div class="empty-state">No events for correlation ' + escapeHtml(cid) + '</div>';
+        return;
+      }
+      var html = '<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">correlation: ' + escapeHtml(cid) + '</div>';
+      for (var i = 0; i < events.length; i++) {
+        var e = events[i];
+        var t = new Date(e.timestamp).toLocaleTimeString();
+        html += '<div class="corr-event">' +
+          '<span class="corr-type">' + escapeHtml(e.type) + '</span>' +
+          '<span>' + escapeHtml(t) + ' </span>' +
+          '<span>' + escapeHtml(e.message || '') + '</span>' +
+          (e.duration ? ' <span style="color:var(--muted)">(' + Math.round(e.duration) + 'ms)</span>' : '') +
+          '</div>';
+      }
+      requestsDetailEl.innerHTML = html;
+    });
+  }
+
+  document.getElementById('refresh-requests').addEventListener('click', loadRequests);
+
+  // ─── MCP Activity Tab ─────────────────────────
+  var mcpListEl = document.getElementById('mcp-list');
+
+  function loadMcpActivity() {
+    mcpListEl.innerHTML = '<div class="empty-state">Loading MCP activity...</div>';
+    fetchJson('/__kitchen/api/activity?limit=100', function(err, data) {
+      if (err) {
+        mcpListEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var events = data.events || [];
+      if (!events.length) {
+        mcpListEl.innerHTML = '<div class="empty-state">No MCP activity yet.</div>';
+        return;
+      }
+
+      // Group by correlationId (fall back to individual items)
+      var groups = {};
+      var order = [];
+      for (var i = 0; i < events.length; i++) {
+        var e = events[i];
+        var cid = e.correlationId || ('_' + (e.id || i));
+        if (!groups[cid]) { groups[cid] = []; order.push(cid); }
+        groups[cid].push(e);
+      }
+
+      var html = '';
+      for (var g = 0; g < order.length; g++) {
+        var cid = order[g];
+        var items = groups[cid];
+        var header = cid.charAt(0) === '_' ? 'ungrouped' : 'correlation: ' + cid;
+        html += '<div class="mcp-group"><div class="mcp-group-header">' + escapeHtml(header) + '</div>';
+        for (var k = 0; k < items.length; k++) {
+          var ev = items[k];
+          var ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : (ev.ts || '');
+          var tool = (ev.data && (ev.data.tool || ev.data.name)) || ev.tool || ev.source || 'mcp';
+          var isErr = ev.severity === 'error';
+          var icon = isErr ? '<span class="mcp-status-err">X</span>' : '<span class="mcp-status-ok">OK</span>';
+          var dur = ev.duration ? Math.round(ev.duration) + 'ms' : '-';
+          html += '<div class="mcp-event">' +
+            '<span>' + escapeHtml(ts) + '</span>' +
+            icon +
+            '<span>' + escapeHtml(tool) + ' ' + escapeHtml(ev.message || '') + '</span>' +
+            '<span style="text-align:right;color:var(--muted)">' + dur + '</span>' +
+            '</div>';
+        }
+        html += '</div>';
+      }
+      mcpListEl.innerHTML = html;
+    });
+  }
+
+  document.getElementById('refresh-mcp').addEventListener('click', loadMcpActivity);
+
+  // ─── Cache Tab ────────────────────────────────
+  var cacheContentEl = document.getElementById('cache-content');
+
+  function loadCacheStats() {
+    cacheContentEl.innerHTML = '<div class="empty-state">Loading cache stats...</div>';
+    fetchJson('/__kitchen/api/cache-stats', function(err, data) {
+      if (err) {
+        cacheContentEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      if (!data.enabled) {
+        cacheContentEl.innerHTML = '<div class="empty-state">Cache store is not enabled.</div>';
+        return;
+      }
+      var s = data.stats || {};
+      var entries = s.entries != null ? s.entries : data.size;
+      var hits = s.hits || 0;
+      var misses = s.misses || 0;
+      var total = hits + misses;
+      var hitRate = total > 0 ? ((hits / total) * 100).toFixed(1) + '%' : '-';
+      var stale = s.stale != null ? s.stale : (s.staleCount != null ? s.staleCount : '-');
+      var tags = s.tags != null ? (Array.isArray(s.tags) ? s.tags.length : s.tags) : '-';
+
+      var html = '<div class="cache-grid">' +
+        '<div class="stat-card"><div class="stat-label">Entries</div><div class="stat-value">' + escapeHtml(entries) + '</div></div>' +
+        '<div class="stat-card"><div class="stat-label">Hit Rate</div><div class="stat-value">' + escapeHtml(hitRate) + '</div><div class="stat-sub">' + hits + ' hit / ' + misses + ' miss</div></div>' +
+        '<div class="stat-card"><div class="stat-label">Stale</div><div class="stat-value">' + escapeHtml(stale) + '</div></div>' +
+        '<div class="stat-card"><div class="stat-label">Tags</div><div class="stat-value">' + escapeHtml(tags) + '</div></div>' +
+        '</div>';
+      cacheContentEl.innerHTML = html;
+    });
+  }
+
+  document.getElementById('refresh-cache').addEventListener('click', loadCacheStats);
+
+  // ─── Metrics Tab ──────────────────────────────
+  var metricsContentEl = document.getElementById('metrics-content');
+
+  function loadMetrics() {
+    metricsContentEl.innerHTML = '<div class="empty-state">Loading metrics...</div>';
+    fetchJson('/__kitchen/api/metrics?window=5m', function(err, data) {
+      if (err) {
+        metricsContentEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var http = data.http || {};
+      var mcp = data.mcp || {};
+      var errRate = ((data.errorRate || 0) * 100).toFixed(2) + '%';
+      var html = '<div class="metrics-grid">' +
+        '<div class="stat-card"><div class="stat-label">HTTP Requests (5m)</div><div class="stat-value">' + (http.count || 0) + '</div></div>' +
+        '<div class="stat-card"><div class="stat-label">TTFB p50</div><div class="stat-value">' + Math.round(http.p50 || 0) + 'ms</div></div>' +
+        '<div class="stat-card"><div class="stat-label">TTFB p95</div><div class="stat-value">' + Math.round(http.p95 || 0) + 'ms</div></div>' +
+        '<div class="stat-card"><div class="stat-label">TTFB p99</div><div class="stat-value">' + Math.round(http.p99 || 0) + 'ms</div></div>' +
+        '<div class="stat-card"><div class="stat-label">MCP Calls</div><div class="stat-value">' + (mcp.count || 0) + '</div><div class="stat-sub">' + (mcp.errors || 0) + ' errors</div></div>' +
+        '<div class="stat-card"><div class="stat-label">MCP Avg Duration</div><div class="stat-value">' + Math.round(mcp.avgDuration || 0) + 'ms</div></div>' +
+        '<div class="stat-card"><div class="stat-label">Error Rate</div><div class="stat-value">' + errRate + '</div></div>' +
+        '<div class="stat-card"><div class="stat-label">Total Events</div><div class="stat-value">' + (data.totalEvents || 0) + '</div></div>' +
+        '</div>';
+      metricsContentEl.innerHTML = html;
+    });
+  }
+
+  document.getElementById('refresh-metrics').addEventListener('click', loadMetrics);
+
+  // Lazy-load new tab data when clicked (avoids loading everything up front)
+  var tabLoaders = {
+    'requests': loadRequests,
+    'mcp-activity': loadMcpActivity,
+    'cache': loadCacheStats,
+    'metrics': loadMetrics
+  };
+  var loadedTabs = {};
+  for (var t = 0; t < tabs.length; t++) {
+    tabs[t].addEventListener('click', function() {
+      var name = this.getAttribute('data-panel');
+      if (tabLoaders[name] && !loadedTabs[name]) {
+        loadedTabs[name] = true;
+        tabLoaders[name]();
+      }
+    });
+  }
 
 })();
 `;

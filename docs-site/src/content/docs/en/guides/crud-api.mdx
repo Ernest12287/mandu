@@ -1,0 +1,99 @@
+---
+title: Building a CRUD API
+description: Build a type-safe CRUD API from scratch using Mandu's Contract and Filling API.
+---
+
+This guide walks through building a Todo app's CRUD API. You will define the API specification with Contract, implement server logic with Filling, and connect client UI with Islands.
+
+## 1. Project Setup
+
+```bash
+bun create mandu todo-app
+cd todo-app
+```
+
+## 2. Define the Schema
+
+```typescript
+// src/shared/types/todo.ts
+import { z } from "zod";
+
+export const TodoSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1, "Title is required"),
+  done: z.boolean().default(false),
+  createdAt: z.string().datetime(),
+});
+
+export type Todo = z.infer<typeof TodoSchema>;
+```
+
+## 3. Define the Contract
+
+```typescript
+// src/shared/contracts/todo.contract.ts
+import { Mandu } from "@mandujs/core";
+import { z } from "zod";
+import { TodoSchema } from "../types/todo";
+
+export default Mandu.contract({
+  description: "Todo CRUD API",
+  request: {
+    GET: {
+      query: z.object({
+        page: z.coerce.number().default(1),
+        limit: z.coerce.number().default(20),
+      }),
+    },
+    POST: {
+      body: TodoSchema.omit({ id: true, createdAt: true }),
+    },
+  },
+  response: {
+    200: z.object({ todos: z.array(TodoSchema) }),
+    201: z.object({ todo: TodoSchema }),
+    404: z.object({ error: z.string() }),
+  },
+});
+```
+
+## 4. Implement Server Logic
+
+```typescript
+// app/api/todos/route.ts
+import { Mandu } from "@mandujs/core";
+
+export default Mandu.filling()
+  .get(async (ctx) => {
+    const todos = await db.list();
+    return ctx.json({ todos });
+  })
+  .post(async (ctx) => {
+    const body = await ctx.body<{ title: string }>();
+    const todo = await db.create(body);
+    return ctx.json({ todo }, 201);
+  });
+```
+
+## 5. Add an Island for Interactivity
+
+```tsx
+// app/todos/todo-list.island.tsx
+import { island } from "@mandujs/core";
+import { useState } from "react";
+
+export default island("load", ({ initialTodos }) => {
+  const [todos, setTodos] = useState(initialTodos);
+  // ... CRUD operations via fetch
+  return <ul>{todos.map((t) => <li key={t.id}>{t.title}</li>)}</ul>;
+});
+```
+
+## 6. Run
+
+```bash
+bun run dev
+# Open http://localhost:3333/todos
+```
+
+See the full Korean version of this guide for detailed code examples for each CRUD operation, including the Action pattern alternative.

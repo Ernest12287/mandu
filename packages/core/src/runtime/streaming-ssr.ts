@@ -540,12 +540,15 @@ function generateHTMLTailContent(options: StreamingSSROptions): string {
     }
   }
 
-  // 9. HMR 스크립트 (개발 모드 — Zero-JS 페이지에서도 CSS 핫리로드 지원)
+  // 9. #179: body 내 <link> 태그를 <head>로 호이스팅 (외부 폰트/스타일시트 지원)
+  scripts.push(`<script>document.querySelectorAll('#root link[rel="stylesheet"],#root link[rel="preconnect"],#root link[rel="preload"],#root link[rel="icon"],#root link[rel="dns-prefetch"]').forEach(function(l){document.head.appendChild(l)})</script>`);
+
+  // 10. HMR 스크립트 (개발 모드 — Zero-JS 페이지에서도 CSS 핫리로드 지원)
   if (isDev && hmrPort) {
     scripts.push(generateHMRScript(hmrPort));
   }
 
-  // 10. DevTools 번들 로드 (개발 모드)
+  // 11. DevTools 번들 로드 (개발 모드)
   if (isDev) {
     scripts.push(`<script type="module" src="/.mandu/client/_devtools.js"></script>`);
   }
@@ -618,7 +621,7 @@ window.__MANDU_HMR_PORT__ = ${hmrPort};
 
   function connect() {
     try {
-      ws = new WebSocket('ws://localhost:${hmrPort}');
+      ws = new WebSocket('ws://' + window.location.hostname + ':${hmrPort}');
       ws.onopen = function() {
         console.log('[Mandu HMR] Connected');
         reconnectAttempts = 0;

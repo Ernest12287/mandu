@@ -458,7 +458,9 @@ describe("Streaming SSR", () => {
       const html = new TextDecoder().decode(Buffer.concat(chunks.map(c => Buffer.from(c))));
 
       expect(html).toContain("WebSocket");
-      expect(html).toContain("ws://localhost:4001");
+      // #176: HMR URL은 window.location.hostname 기반으로 동적 생성
+      expect(html).toContain("window.location.hostname");
+      expect(html).toContain("4001");
       expect(html).toContain("[Mandu HMR]");
     });
 

@@ -1,0 +1,134 @@
+---
+title: 5분 퀵스타트
+description: Mandu 프레임워크를 설치하고 첫 앱을 만들어 보세요. 프로젝트 생성부터 빌드, 배포까지 5분이면 충분합니다.
+---
+
+Mandu는 Bun 런타임 위에 구축된 풀스택 TypeScript 프레임워크입니다. Contract-first API, Islands Architecture, 그리고 AI-native MCP 통합을 제공합니다.
+
+## 사전 준비
+
+Mandu를 사용하려면 [Bun](https://bun.sh)이 설치되어 있어야 합니다.
+
+```bash
+# Bun 설치 (macOS / Linux)
+curl -fsSL https://bun.sh/install | bash
+
+# Windows
+powershell -c "irm bun.sh/install.ps1 | iex"
+
+# 설치 확인
+bun --version
+```
+
+## 1. 프로젝트 생성
+
+```bash
+bun create mandu my-app
+cd my-app
+```
+
+생성된 프로젝트 구조는 다음과 같습니다.
+
+```
+my-app/
+├── app/
+│   ├── page.tsx          # 메인 페이지
+│   ├── layout.tsx        # 레이아웃 (body 내부 래퍼)
+│   └── globals.css       # 전역 스타일
+├── src/
+│   ├── client/           # 클라이언트 코드
+│   └── server/           # 서버 코드
+├── mandu.config.ts       # 프레임워크 설정
+└── package.json
+```
+
+## 2. 개발 서버 실행
+
+```bash
+bun run dev
+```
+
+`http://localhost:3333`에서 개발 서버가 시작됩니다. 파일을 수정하면 HMR로 즉시 반영됩니다.
+
+## 3. 페이지 만들기
+
+`app/page.tsx`를 열고 수정해 보세요.
+
+```tsx
+// app/page.tsx
+export default function Home() {
+  return (
+    <div>
+      <h1>나의 첫 Mandu 앱</h1>
+      <p>Bun 위에서 만두를 빚고 있습니다.</p>
+    </div>
+  );
+}
+```
+
+파일 기반 라우팅을 사용하므로, `app/about/page.tsx`를 만들면 `/about` 경로가 자동으로 생성됩니다.
+
+```tsx
+// app/about/page.tsx
+export default function About() {
+  return <h1>About</h1>;
+}
+```
+
+## 4. Interactive Island 추가
+
+기본적으로 모든 컴포넌트는 서버에서 렌더링되며 JavaScript를 전송하지 않습니다. 클라이언트 상호작용이 필요한 부분만 Island으로 만드세요.
+
+```tsx
+// app/counter.island.tsx
+import { island } from "@mandujs/core";
+import { useState } from "react";
+
+export default island("visible", ({ start = 0 }: { start?: number }) => {
+  const [count, setCount] = useState(start);
+  return (
+    <button onClick={() => setCount((c) => c + 1)}>
+      클릭: {count}
+    </button>
+  );
+});
+```
+
+```tsx
+// app/page.tsx
+import Counter from "./counter.island";
+
+export default function Home() {
+  return (
+    <div>
+      <h1>나의 첫 Mandu 앱</h1>
+      <Counter start={0} />
+    </div>
+  );
+}
+```
+
+`"visible"` 전략을 사용했으므로, 이 컴포넌트가 화면에 보일 때만 JavaScript가 로드됩니다.
+
+## 5. 빌드
+
+```bash
+bun run mandu build
+```
+
+프로덕션 빌드가 `.mandu/` 디렉토리에 생성됩니다.
+
+## 6. 프로덕션 실행
+
+```bash
+bun run mandu start
+```
+
+빌드된 앱이 프로덕션 모드로 실행됩니다.
+
+## 다음 단계
+
+- [Island Architecture](/ko/core-concepts/island-architecture/) -- 5가지 hydration 전략 알아보기
+- [Filling API](/ko/core-concepts/filling-api/) -- 서버 로직 작성하기
+- [Guard System](/ko/core-concepts/guard-system/) -- 아키텍처 규칙 설정하기
+- [CRUD API 만들기](/ko/guides/crud-api/) -- 실전 가이드

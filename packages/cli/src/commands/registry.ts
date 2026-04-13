@@ -406,6 +406,9 @@ registerCommand({
       type: ctx.options.type as import("./monitor").EventType | undefined,
       severity: ctx.options.severity as import("./monitor").SeverityLevel | undefined,
       stats: ctx.options.stats === "true",
+      trace: ctx.options.trace,
+      source: ctx.options.source,
+      noServer: ctx.options["no-server"] === "true",
     });
   },
 });

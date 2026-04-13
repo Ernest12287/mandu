@@ -1,0 +1,90 @@
+---
+title: Filling API
+description: Build server logic with Mandu's chaining Filling API. Supports an 8-stage lifecycle, loaders, actions, and WebSocket.
+---
+
+Filling is the "stuffing" inside a mandu. It defines server logic through a chaining API, with an 8-stage lifecycle that controls the entire request flow.
+
+## Basic Usage
+
+```typescript
+import { Mandu } from "@mandujs/core";
+
+export default Mandu.filling()
+  .get(async (ctx) => {
+    return ctx.json({ message: "Hello, Mandu!" });
+  })
+  .post(async (ctx) => {
+    const body = await ctx.body<{ name: string }>();
+    return ctx.json({ greeting: `Hello, ${body.name}!` }, 201);
+  });
+```
+
+## 8-Stage Lifecycle
+
+```
+Request → onRequest → onParse → beforeHandle → Handler → afterHandle → mapResponse → Response
+                                                                                       ↓
+                                                                                afterResponse
+                                                On error → onError
+```
+
+| Stage | Method | Role |
+|-------|--------|------|
+| 1 | `onRequest` | Immediately after receiving the request |
+| 2 | `onParse` | Body parsing |
+| 3 | `beforeHandle` | Pre-handler (auth/authz). Return a Response to short-circuit |
+| 4 | **Handler** | Business logic (`get`, `post`, etc.) |
+| 5 | `afterHandle` | Post-handler |
+| 6 | `mapResponse` | Final response transformation |
+| 7 | `afterResponse` | After response sent (async) |
+| - | `onError` | On error |
+
+## Loader (SSR Data Loading)
+
+```typescript
+// Basic
+Mandu.filling()
+  .loader(async (ctx) => ({ posts: await db.getPosts() }));
+
+// ISR: cache for 60s, then regenerate in background
+Mandu.filling()
+  .loader(
+    async (ctx) => ({ posts: await db.getPosts() }),
+    { revalidate: 60 }
+  );
+```
+
+## Actions (Named Mutations)
+
+```typescript
+Mandu.filling()
+  .loader(async () => ({ todos: await db.getTodos() }))
+  .action("create", async (ctx) => {
+    const { title } = await ctx.body<{ title: string }>();
+    await db.createTodo(title);
+    return ctx.ok({ created: true });
+  })
+  .action("delete", async (ctx) => {
+    const { id } = await ctx.body<{ id: string }>();
+    await db.deleteTodo(id);
+    return ctx.ok({ deleted: true });
+  });
+```
+
+After an action completes, the loader automatically re-executes (revalidation).
+
+## WebSocket
+
+```typescript
+Mandu.filling()
+  .ws({
+    open(ws) { ws.subscribe("chat"); },
+    message(ws, msg) { ws.publish("chat", msg); },
+    close(ws) { console.log("Disconnected:", ws.id); },
+  });
+```
+
+## HTTP Methods
+
+All standard methods are available: `.get()`, `.post()`, `.put()`, `.patch()`, `.delete()`, `.head()`, `.options()`, `.all()`.

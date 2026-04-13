@@ -1,6 +1,6 @@
 {
   "name": "@mandujs/core",
-  "version": "0.20.0",
+  "version": "0.20.10",
   "description": "Mandu Framework Core - Spec, Generator, Guard, Runtime",
   "type": "module",
   "main": "./src/index.ts",
@@ -12,6 +12,7 @@
     "./testing": "./src/testing/index.ts",
     "./plugins": "./src/plugins/index.ts",
     "./error": "./src/error/index.ts",
+    "./observability": "./src/observability/index.ts",
     "./bundler/prerender": "./src/bundler/prerender.ts",
     "./*": "./src/*"
   },

@@ -1,0 +1,49 @@
+---
+title: Guard System
+description: Mandu Guard defines project architecture rules and monitors import violations in real time. Includes 6 built-in presets.
+---
+
+Guard defines your project's architecture rules and monitors import paths in real time. It immediately detects incorrect dependency directions, preventing architecture erosion.
+
+## Configuration
+
+```typescript
+// mandu.config.ts
+import { defineConfig } from "@mandujs/core";
+
+export default defineConfig({
+  guard: {
+    preset: "mandu",
+  },
+});
+```
+
+## 6 Built-in Presets
+
+| Preset | Architecture | Layer Direction |
+|--------|-------------|----------------|
+| `fsd` | Feature-Sliced Design | app > pages > widgets > features > entities > shared |
+| `clean` | Clean Architecture | api > application > domain; infrastructure implements domain |
+| `hexagonal` | Hexagonal / Ports & Adapters | adapters > ports > domain |
+| `atomic` | Atomic Design | templates > organisms > molecules > atoms |
+| `cqrs` | CQRS | commands / queries > domain; events |
+| `mandu` | Mandu (recommended) | Client FSD + Server Clean + Strict Shared |
+
+### Mandu Preset (Recommended)
+
+Combines FSD for the client, Clean Architecture for the server, and strict shared boundaries.
+
+- `client/*` layers cannot import from `server/*`.
+- `shared/contracts` is accessible from both client and server.
+- `shared/utils/server` is only importable on the server.
+- `server/domain` has no external dependencies.
+
+## Violation Types
+
+| Violation | Description | Default Severity |
+|-----------|-------------|-----------------|
+| `layerViolation` | Importing from a higher layer | error |
+| `circularDependency` | Circular dependency detected | warn |
+| `crossSliceDependency` | Direct import across same-level slices | warn |
+| `deepNesting` | Excessive directory depth | info |
+| `fileType` | Disallowed file extension | error |

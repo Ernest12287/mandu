@@ -45,6 +45,8 @@ export interface ManduConfig {
   dev?: {
     hmr?: boolean;
     watchDirs?: string[];
+    /** Observability SQLite 영구 저장 (기본: true) */
+    observability?: boolean;
   };
   fsRoutes?: {
     routesDir?: string;

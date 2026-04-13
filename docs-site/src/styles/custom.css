@@ -1,0 +1,17 @@
+/* Mandu Docs - Custom Starlight theme */
+
+:root {
+  /* Warm mandu-inspired palette */
+  --sl-color-accent-low: #f5e6d3;
+  --sl-color-accent: #ff6b4a;
+  --sl-color-accent-high: #2d1b0e;
+
+  --sl-font: "Inter", sans-serif;
+  --sl-font-mono: "JetBrains Mono", monospace;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #3d1f0e;
+  --sl-color-accent: #ff6b4a;
+  --sl-color-accent-high: #f5e6d3;
+}

@@ -27,7 +27,7 @@ export { brainTools, brainToolDefinitions } from "./brain.js";
 export { runtimeTools, runtimeToolDefinitions } from "./runtime.js";
 export { seoTools, seoToolDefinitions } from "./seo.js";
 export { projectTools, projectToolDefinitions, getDevServerState } from "./project.js";
-export { ateTools, ateToolDefinitions } from "./ate.js";
+export { ateTools, ateToolDefinitions, atePhase5ToolDefinitions, createAtePhase5Handlers } from "./ate.js";
 export { resourceTools, resourceToolDefinitions } from "./resource.js";
 export { componentTools, componentToolDefinitions } from "./component.js";
 export { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -49,7 +49,7 @@ import { brainTools, brainToolDefinitions } from "./brain.js";
 import { runtimeTools, runtimeToolDefinitions } from "./runtime.js";
 import { seoTools, seoToolDefinitions } from "./seo.js";
 import { projectTools, projectToolDefinitions } from "./project.js";
-import { ateTools, ateToolDefinitions } from "./ate.js";
+import { ateTools, ateToolDefinitions, atePhase5ToolDefinitions, createAtePhase5Handlers } from "./ate.js";
 import { resourceTools, resourceToolDefinitions } from "./resource.js";
 import { componentTools, componentToolDefinitions } from "./component.js";
 import { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -89,6 +89,7 @@ const TOOL_MODULES: ToolModule[] = [
   { category: "seo", definitions: seoToolDefinitions, handlers: seoTools },
   { category: "project", definitions: projectToolDefinitions, handlers: projectTools as ToolModule["handlers"], requiresServer: true },
   { category: "ate", definitions: ateToolDefinitions, handlers: ateTools as ToolModule["handlers"] },
+  { category: "ate-phase5", definitions: atePhase5ToolDefinitions, handlers: createAtePhase5Handlers as unknown as ToolModule["handlers"] },
   { category: "resource", definitions: resourceToolDefinitions, handlers: resourceTools },
   { category: "component", definitions: componentToolDefinitions, handlers: componentTools },
   { category: "kitchen", definitions: kitchenToolDefinitions, handlers: kitchenTools },

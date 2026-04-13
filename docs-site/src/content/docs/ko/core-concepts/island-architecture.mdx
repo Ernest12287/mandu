@@ -1,0 +1,157 @@
+---
+title: Island Architecture
+description: Mandu의 Islands Architecture를 알아보세요. 5가지 hydration 전략으로 필요한 곳에만 JavaScript를 전달합니다.
+---
+
+Mandu는 기본적으로 **0바이트 JavaScript**를 클라이언트에 전송합니다. 모든 컴포넌트는 서버에서 HTML로 렌더링되며, 클라이언트 상호작용이 필요한 부분만 Island으로 선언하여 선택적으로 hydrate합니다.
+
+## 핵심 원리
+
+```
+일반 컴포넌트 = 서버 렌더링 전용 (JS 전송 없음)
+Island 컴포넌트 = 서버 렌더링 + 선택적 클라이언트 hydration
+```
+
+## 5가지 Hydration 전략
+
+| 전략 | 실행 시점 | 사용 사례 |
+|------|-----------|-----------|
+| `load` | 페이지 로드 즉시 | 즉시 상호작용이 필요한 UI (헤더 네비게이션, 폼) |
+| `idle` | 브라우저가 유휴 상태일 때 | 중요하지만 즉시는 아닌 UI (사이드바, 필터) |
+| `visible` | 뷰포트에 보일 때 | 스크롤해야 보이는 UI (댓글, 차트, 푸터 위젯) |
+| `media` | 미디어 쿼리 매치 시 | 반응형 전용 UI (모바일 메뉴, 데스크탑 대시보드) |
+| `never` | hydrate 하지 않음 | 순수 정적 콘텐츠 (SSR HTML만 전달) |
+
+## 사용법
+
+### 기본: 전략 문자열로 선언
+
+```tsx
+import { island } from "@mandujs/core";
+import { useState } from "react";
+
+// 파일명: *.island.tsx
+export default island("visible", ({ name }: { name: string }) => {
+  const [count, setCount] = useState(0);
+  return (
+    <button onClick={() => setCount((c) => c + 1)}>
+      {name}: {count}
+    </button>
+  );
+});
+```
+
+### 옵션 객체로 선언
+
+더 세밀한 제어가 필요한 경우 옵션 객체를 사용합니다.
+
+```tsx
+import { island } from "@mandujs/core";
+import { z } from "zod";
+
+export default island(
+  {
+    hydrate: "media",
+    media: "(max-width: 768px)",
+    fallback: <div className="skeleton h-12" />,
+    props: z.object({
+      userId: z.string(),
+    }),
+  },
+  ({ userId }) => {
+    // 모바일에서만 hydrate되는 컴포넌트
+    return <MobileNav userId={userId} />;
+  }
+);
+```
+
+### Setup/Render 패턴 (Client Island)
+
+서버에서 전달받은 데이터를 클라이언트에서 상태로 변환해야 할 때 사용합니다.
+
+```tsx
+import { island } from "@mandujs/core/client";
+
+interface TodosData {
+  todos: Array<{ id: string; title: string; done: boolean }>;
+}
+
+export default island<TodosData>({
+  setup: (serverData) => {
+    const [todos, setTodos] = useState(serverData.todos);
+    const addTodo = (title: string) => {
+      setTodos((prev) => [...prev, { id: crypto.randomUUID(), title, done: false }]);
+    };
+    return { todos, addTodo };
+  },
+  render: ({ todos, addTodo }) => (
+    <div>
+      <ul>
+        {todos.map((t) => (
+          <li key={t.id}>{t.title}</li>
+        ))}
+      </ul>
+      <button onClick={() => addTodo("새 할일")}>추가</button>
+    </div>
+  ),
+});
+```
+
+:::caution
+Client island은 반드시 `@mandujs/core/client`에서 import해야 합니다. 메인 모듈(`@mandujs/core`)은 서버 의존성을 포함하고 있어 클라이언트 번들 크기가 증가합니다.
+:::
+
+## 파일 네이밍
+
+Island 컴포넌트는 파일명에 `.island.`을 포함해야 합니다. Mandu 번들러가 이 패턴을 감지하여 클라이언트 번들에 포함시킵니다.
+
+```
+app/
+├── page.tsx                # 서버 전용 (JS 전송 없음)
+├── counter.island.tsx      # Island (클라이언트 JS 포함)
+├── header.island.tsx       # Island
+└── footer.tsx              # 서버 전용
+```
+
+## Props 직렬화
+
+Island에 전달하는 props는 서버에서 클라이언트로 직렬화됩니다. 다음 타입이 지원됩니다.
+
+| 타입 | 지원 |
+|------|------|
+| `string`, `number`, `boolean`, `null` | O |
+| `object`, `array` | O (중첩 가능) |
+| `Date` | O (자동 변환) |
+| `Map`, `Set` | O (자동 변환) |
+| `function` | X (직렬화 불가, 경고 출력) |
+
+## 작동 방식
+
+1. **서버**: 모든 컴포넌트를 HTML로 렌더링합니다. Island은 `<div data-mandu-island="..." data-hydrate="...">` 플레이스홀더로 감싸집니다.
+2. **클라이언트**: hydration 스크립트가 `data-mandu-island` 요소를 검색합니다.
+3. **전략 실행**: 각 Island의 `data-hydrate` 값에 따라 hydration 타이밍을 결정합니다.
+4. **hydrate**: 해당 시점에 Island 컴포넌트의 JavaScript를 로드하고 React hydration을 수행합니다.
+
+```html
+<!-- 서버가 생성하는 HTML -->
+<div data-mandu-island="counter"
+     data-hydrate="visible"
+     data-props='{"start":0}'
+     style="display:contents">
+  <button>클릭: 0</button>
+</div>
+```
+
+## 전략 선택 가이드
+
+```
+사용자가 즉시 클릭하는가?
+  ├── Yes → load
+  └── No → 스크롤해야 보이는가?
+       ├── Yes → visible
+       └── No → 특정 화면 크기에서만 필요한가?
+            ├── Yes → media
+            └── No → 상호작용이 필요한가?
+                 ├── Yes → idle
+                 └── No → never
+```

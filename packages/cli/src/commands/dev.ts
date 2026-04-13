@@ -17,7 +17,6 @@ import {
   isTailwindProject,
   startCSSWatch,
   runHook,
-  FileTailer,
   type RoutesManifest,
   type GuardConfig,
   type Violation,
@@ -93,6 +92,14 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
   if (envResult.loaded.length > 0) {
     console.log(`Env loaded: ${envResult.loaded.join(", ")}`);
+  }
+
+  // Phase 6-1: SQLite observability store 시작 (옵션)
+  if (devConfig.observability !== false) {
+    try {
+      const { startSqliteStore } = await import("@mandujs/core/observability");
+      await startSqliteStore(rootDir);
+    } catch { /* SQLite 미사용 환경에서는 무시 */ }
   }
 
   // Scan routes (FS Routes first, fallback to spec manifest)
@@ -196,7 +203,8 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   try {
     const resolved = await resolveAvailablePort(desiredPort, {
       hostname: serverConfig.hostname,
-      offsets: hasIslands && hmrEnabled ? [0, HMR_OFFSET] : [0],
+      // HMR 활성화 시 항상 HMR 포트 예약 (island 유무 무관)
+      offsets: hmrEnabled ? [0, HMR_OFFSET] : [0],
       strict: isExplicitPort,
     });
     port = resolved.port;
@@ -250,8 +258,8 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     });
   }
 
-  if (!hasIslands) {
-    // Build DevTools bundle even without Islands (_devtools.js needed in dev mode)
+  if (!hasIslands && !hmrEnabled) {
+    // HMR 비활성 + island 없음: devBundler가 안 도니까 수동으로 DevTools 번들 빌드
     await buildClientBundles(manifest, rootDir, { minify: false });
   }
 
@@ -324,6 +332,31 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     console.log("  Status: SSR refresh complete");
   };
 
+  // API route file change callback (route.ts -> re-register API handler + browser reload)
+  const handleAPIChange = async (filePath: string) => {
+    logDevEvent("API route changed", [
+      `File: ${path.relative(rootDir, filePath)}`,
+      "Action: re-register API handler",
+    ]);
+    await registerHandlers(manifest, true);
+
+    // Broadcast file change for Kitchen Preview
+    hmrServer?.broadcast({
+      type: "kitchen:file-change",
+      data: {
+        file: filePath,
+        changeType: "change",
+        timestamp: Date.now(),
+      },
+    });
+
+    hmrServer?.broadcast({
+      type: "reload",
+      data: { timestamp: Date.now() },
+    });
+    console.log("  Status: API handler refreshed");
+  };
+
   const restartDevServer = async () => {
     clearDefaultRegistry();
     registeredLayouts.clear();
@@ -341,6 +374,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         onRebuild: handleRebuild,
         onError: handleBundlerError,
         onSSRChange: handleSSRChange,
+        onAPIChange: handleAPIChange,
       });
 
       hmrServer.broadcast({
@@ -352,11 +386,14 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     console.log("Restart complete.");
   };
 
-  if (hasIslands && hmrEnabled) {
-    // Start HMR server
+  if (hmrEnabled) {
+    // HMR 서버는 island 유무와 무관하게 시작 (SSR 페이지에서도 CSS/페이지 리로드 필요)
     hmrServer = createHMRServer(port);
+    hmrServer.setRestartHandler(async () => {
+      await restartDevServer();
+    });
 
-    // Start dev bundler (file watching)
+    // Dev bundler: 파일 감시 + 리빌드 (island이 있으면 island 리빌드, 없어도 SSR 변경 감지)
     devBundler = await startDevBundler({
       rootDir,
       manifest,
@@ -364,11 +401,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
       onRebuild: handleRebuild,
       onError: handleBundlerError,
       onSSRChange: handleSSRChange,
-    });
-
-    // Register restart handler
-    hmrServer.setRestartHandler(async () => {
-      await restartDevServer();
+      onAPIChange: handleAPIChange,
     });
   }
 
@@ -478,6 +511,8 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     routesWatcher.close();
     archGuardWatcher?.close();
     shortcutCleanup?.();
+    // Phase 6-1: SQLite store 정리
+    void import("@mandujs/core/observability").then((m) => m.stopSqliteStore?.()).catch(() => {});
     void removeRuntimeControl(rootDir).finally(() => {
       process.exit(0);
     });
@@ -547,33 +582,25 @@ function attachDevShortcuts(options: {
   stdin.resume();
   stdin.setEncoding("utf8");
 
-  // MCP activity monitor state
+  // MCP activity monitor state — Phase 2-2: EventBus 기반 (#ATIVITY-LOG)
   let mcpMonitorActive = false;
-  let mcpTailer: InstanceType<typeof FileTailer> | null = null;
+  let mcpUnsubscribe: (() => void) | null = null;
 
-  const toggleMonitor = () => {
+  const toggleMonitor = async () => {
     mcpMonitorActive = !mcpMonitorActive;
     if (mcpMonitorActive) {
-      console.log("MCP activity: ON");
-      if (!mcpTailer) {
-        const logPath = path.join(options.rootDir, ".mandu", "activity.jsonl");
-        mcpTailer = new FileTailer(logPath, { startAtEnd: true, pollIntervalMs: 500 });
-        mcpTailer.on("line", (line: string) => {
-          if (!mcpMonitorActive) return;
-          try {
-            const evt = JSON.parse(line);
-            const tool = evt.tool || evt.type || "unknown";
-            const status = evt.status || "";
-            const ts = new Date().toLocaleTimeString();
-            console.log(`[${ts}] MCP ${tool} ${status}`);
-          } catch {
-            console.log(`[MCP] ${line.slice(0, 120)}`);
-          }
-        });
-        mcpTailer.start();
-      }
+      console.log("\n🤖 MCP activity: ON (press 'm' again to stop)");
+      const { eventBus } = await import("@mandujs/core/observability");
+      mcpUnsubscribe = eventBus.on("mcp", (event) => {
+        if (!mcpMonitorActive) return;
+        const ts = new Date().toLocaleTimeString();
+        const dur = event.duration ? ` ${Math.round(event.duration)}ms` : "";
+        console.log(`[${ts}] 🤖 ${event.message}${dur}`);
+      });
     } else {
-      console.log("MCP activity: OFF");
+      mcpUnsubscribe?.();
+      mcpUnsubscribe = null;
+      console.log("\n🤖 MCP activity: OFF");
     }
   };
 
@@ -600,6 +627,6 @@ function attachDevShortcuts(options: {
   return () => {
     stdin.off("data", onData);
     stdin.setRawMode?.(false);
-    mcpTailer?.stop();
+    mcpUnsubscribe?.();
   };
 }

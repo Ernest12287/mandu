@@ -16,7 +16,18 @@ export interface HealSuggestion {
   };
 }
 
-export type FailureCategory = "selector" | "timeout" | "assertion" | "unknown";
+// Phase 4: 7종 실패 원인 분류 (#ATE-P4)
+export type FailureCategory =
+  | "selector-stale"         // DOM 구조 변경 → 대체 셀렉터 제안
+  | "api-shape-changed"      // API 응답 스키마 변경 → assertion diff
+  | "component-restructured" // 컴포넌트 리팩토링 → selector-map 전체 재빌드
+  | "race-condition"         // 타이밍 이슈 → waitForResponse 삽입
+  | "timeout"                // 네트워크/렌더링 지연 → timeout 증가
+  | "assertion-mismatch"     // 예상 값 변경 → 예상 값 업데이트
+  | "unknown";
+
+// 하위 호환성 유지
+export type LegacyFailureCategory = "selector" | "timeout" | "assertion" | "unknown";
 
 export interface FeedbackAnalysis {
   category: FailureCategory;
@@ -208,6 +219,154 @@ function generateTestCodeDiff(
 }
 
 /**
+ * Phase 4: 심층 실패 원인 분류 (#ATE-P4)
+ * Playwright report JSON에서 에러 메시지를 추출하여 7종으로 분류
+ */
+function classifyFailure(reportPath: string, suggestions: HealSuggestion[]): {
+  category: FailureCategory;
+  reasoning: string;
+  priority: number;
+  autoApplicable: boolean;
+} {
+  const hasSelector = suggestions.some((s) => s.kind === "selector-map");
+  const hasTestCode = suggestions.some((s) => s.kind === "test-code");
+  const onlyNotes = suggestions.every((s) => s.kind === "note");
+
+  // Report JSON에서 에러 패턴 분석
+  let errorText = "";
+  try {
+    if (existsSync(reportPath)) {
+      const report = JSON.parse(readFileSync(reportPath, "utf8"));
+      errorText = JSON.stringify(report).toLowerCase();
+    }
+  } catch { /* parse error — continue with suggestion-based classification */ }
+
+  // Race condition 감지: "strict mode violation", "detached", "intercepted"
+  if (errorText.includes("strict mode violation") || errorText.includes("detached") ||
+      errorText.includes("intercepted by another")) {
+    return {
+      category: "race-condition",
+      reasoning: "Element was detached or intercepted — likely a timing/race condition. Consider adding page.waitForResponse() or page.waitForLoadState().",
+      priority: 7,
+      autoApplicable: false,
+    };
+  }
+
+  // API shape changed: "expected.*to have property", "toMatchObject", "schema"
+  if (errorText.includes("to have property") || errorText.includes("tomatchobject") ||
+      errorText.includes("expected.*received") || errorText.includes("contract")) {
+    return {
+      category: "api-shape-changed",
+      reasoning: "API response shape doesn't match expected schema. Update assertions to match new response structure.",
+      priority: 8,
+      autoApplicable: false,
+    };
+  }
+
+  // Component restructured: 다수의 selector 실패 (3개 이상)
+  if (hasSelector && suggestions.filter((s) => s.kind === "selector-map").length >= 3) {
+    return {
+      category: "component-restructured",
+      reasoning: "Multiple selectors failed — component was likely restructured. Full selector-map rebuild recommended.",
+      priority: 9,
+      autoApplicable: false,
+    };
+  }
+
+  // Selector stale: 단일 selector 실패
+  if (hasSelector) {
+    return {
+      category: "selector-stale",
+      reasoning: "DOM structure changed — single selector needs update. Selector-map update is safe to auto-apply.",
+      priority: 8,
+      autoApplicable: true,
+    };
+  }
+
+  // Assertion mismatch: 테스트 코드 수정 제안
+  if (hasTestCode) {
+    return {
+      category: "assertion-mismatch",
+      reasoning: "Expected value changed. Test assertion needs updating to match new behavior.",
+      priority: 6,
+      autoApplicable: false,
+    };
+  }
+
+  // Timeout
+  if (onlyNotes) {
+    const noteText = suggestions[0]?.title.toLowerCase() || "";
+    if (noteText.includes("timeout") || errorText.includes("timeout") || errorText.includes("exceeded")) {
+      return {
+        category: "timeout",
+        reasoning: "Operation timed out. Consider increasing timeout or adding explicit wait conditions.",
+        priority: 4,
+        autoApplicable: false,
+      };
+    }
+  }
+
+  return {
+    category: "unknown",
+    reasoning: "Unable to classify failure automatically. Manual investigation required.",
+    priority: 3,
+    autoApplicable: false,
+  };
+}
+
+/**
+ * Phase 4.3: Heal 이력 학습 (#ATE-P4)
+ * 이전 heal 적용 결과를 기록하고, 동일 패턴 반복 시 자동 적용 신뢰도 상향
+ */
+interface HealHistoryEntry {
+  timestamp: number;
+  runId: string;
+  category: FailureCategory;
+  selector?: string;
+  applied: boolean;
+  success: boolean;
+}
+
+function loadHealHistory(repoRoot: string): HealHistoryEntry[] {
+  const historyPath = join(repoRoot, ".mandu", "ate", "heal-history.json");
+  try {
+    if (existsSync(historyPath)) {
+      return JSON.parse(readFileSync(historyPath, "utf8"));
+    }
+  } catch { /* corrupt file — start fresh */ }
+  return [];
+}
+
+function saveHealHistory(repoRoot: string, entries: HealHistoryEntry[]): void {
+  const dir = join(repoRoot, ".mandu", "ate");
+  ensureDir(dir);
+  const historyPath = join(dir, "heal-history.json");
+  // 최근 200개만 유지
+  const trimmed = entries.slice(-200);
+  writeFileSync(historyPath, JSON.stringify(trimmed, null, 2), "utf8");
+}
+
+export function recordHealResult(repoRoot: string, entry: HealHistoryEntry): void {
+  const history = loadHealHistory(repoRoot);
+  history.push(entry);
+  saveHealHistory(repoRoot, history);
+}
+
+/**
+ * 동일 패턴의 이전 heal 성공률을 기반으로 신뢰도 보정
+ */
+function getHistoryBoost(repoRoot: string, category: FailureCategory, selector?: string): number {
+  const history = loadHealHistory(repoRoot);
+  const relevant = history.filter((h) =>
+    h.category === category && h.applied && (!selector || h.selector === selector)
+  );
+  if (relevant.length === 0) return 0;
+  const successRate = relevant.filter((h) => h.success).length / relevant.length;
+  // 성공률 80% 이상이면 우선순위 +2
+  return successRate >= 0.8 ? 2 : successRate >= 0.5 ? 1 : 0;
+}
+
+/**
  * Analyze test failure feedback and categorize for heal suggestions
  */
 export function analyzeFeedback(input: FeedbackInput): FeedbackAnalysis {
@@ -226,48 +385,25 @@ export function analyzeFeedback(input: FeedbackInput): FeedbackAnalysis {
     };
   }
 
-  // Categorize failure based on suggestions
-  const hasSelector = healResult.suggestions.some((s) => s.kind === "selector-map");
-  const hasTestCode = healResult.suggestions.some((s) => s.kind === "test-code");
-  const onlyNotes = healResult.suggestions.every((s) => s.kind === "note");
+  // Phase 4: 심층 분류
+  const paths = getAtePaths(input.repoRoot);
+  const reportDir = join(paths.reportsDir, input.runId || "latest");
+  const reportPath = join(reportDir, "playwright-report.json");
+  const classification = classifyFailure(reportPath, healResult.suggestions);
 
-  let category: FailureCategory = "unknown";
-  let autoApplicable = false;
-  let priority = 5;
-  let reasoning = "";
-
-  if (hasSelector) {
-    category = "selector";
-    // Auto-apply selector-map changes only (safe)
-    autoApplicable = true;
-    priority = 8;
-    reasoning = "Failed locator detected. Selector-map update is safe to auto-apply.";
-  } else if (hasTestCode) {
-    category = "assertion";
-    // Test code changes require manual review
-    autoApplicable = false;
-    priority = 6;
-    reasoning = "Test code modification suggested. Manual review required.";
-  } else if (onlyNotes) {
-    const noteText = healResult.suggestions[0]?.title.toLowerCase() || "";
-    if (noteText.includes("timeout")) {
-      category = "timeout";
-      priority = 4;
-      reasoning = "Timeout detected. May require wait time adjustment.";
-    } else {
-      category = "unknown";
-      priority = 3;
-      reasoning = "Unable to categorize failure automatically.";
-    }
-    autoApplicable = false;
-  }
+  // Phase 4.3: 이력 기반 신뢰도 보정
+  const historyBoost = getHistoryBoost(
+    input.repoRoot,
+    classification.category,
+    healResult.suggestions[0]?.metadata?.selector,
+  );
 
   return {
-    category,
+    category: classification.category,
     suggestions: healResult.suggestions,
-    autoApplicable: autoApplicable && (input.autoApply ?? false),
-    priority,
-    reasoning,
+    autoApplicable: classification.autoApplicable && (input.autoApply ?? false),
+    priority: Math.min(10, classification.priority + historyBoost),
+    reasoning: classification.reasoning + (historyBoost > 0 ? ` (confidence +${historyBoost} from heal history)` : ""),
   };
 }
 
@@ -411,12 +547,32 @@ export function applyHeal(input: ApplyHealInput): ApplyHealResult {
       };
     }
 
+    // Phase 4.3: Heal 이력 기록
+    recordHealResult(input.repoRoot, {
+      timestamp: Date.now(),
+      runId: input.runId,
+      category: "selector-stale", // applyHeal은 주로 selector 수정
+      selector: suggestion.metadata?.selector,
+      applied: true,
+      success: true,
+    });
+
     return {
       success: true,
       appliedFile: targetFile,
       backupPath,
     };
   } catch (err) {
+    // 실패도 기록
+    recordHealResult(input.repoRoot, {
+      timestamp: Date.now(),
+      runId: input.runId,
+      category: "unknown",
+      selector: undefined,
+      applied: true,
+      success: false,
+    });
+
     return {
       success: false,
       appliedFile: targetFile!,

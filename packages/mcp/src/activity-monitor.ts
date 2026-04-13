@@ -8,6 +8,7 @@
 import fs from "fs";
 import path from "path";
 import type { Subprocess } from "bun";
+import { eventBus } from "@mandujs/core/observability";
 
 const TOOL_ICONS: Record<string, string> = {
   // Spec
@@ -276,6 +277,8 @@ export class ActivityMonitor {
   private summaryTimer: NodeJS.Timeout | null = null;
   private summaryCounts = { total: 0, info: 0, warn: 0, error: 0 };
   private lastToolArgs = new Map<string, Record<string, unknown> | null>();
+  // Phase 5-1: 에이전트 세션 식별 (MCP 클라이언트별 추적)
+  public sessionId: string = crypto.randomUUID();
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
@@ -379,6 +382,14 @@ export class ActivityMonitor {
         fingerprint: `tool:error:${name}:${argsStr}`,
         data: { tool: name, tag, args, argsSummary: argsStr, error },
       });
+      // Phase 1-3: MCP 도구 에러 → EventBus (Phase 5-1: sessionId 포함)
+      eventBus.emit({
+        type: "mcp",
+        severity: "error",
+        source: "mcp",
+        message: `${name} ❌ ${error}`,
+        data: { tool: name, args, error, sessionId: this.sessionId },
+      });
       return;
     }
 
@@ -388,6 +399,14 @@ export class ActivityMonitor {
       severity: "info",
       source: "tool",
       data: { tool: name, tag, args, argsSummary: argsStr },
+    });
+    // Phase 1-3: MCP 도구 호출 → EventBus (Phase 5-1: sessionId 포함)
+    eventBus.emit({
+      type: "mcp",
+      severity: "info",
+      source: "mcp",
+      message: `${name} ✅`,
+      data: { tool: name, args, sessionId: this.sessionId },
     });
   }
 

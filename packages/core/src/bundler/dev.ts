@@ -25,6 +25,11 @@ export interface DevBundlerOptions {
    */
   onSSRChange?: (filePath: string) => void;
   /**
+   * API route 파일 변경 콜백 (route.ts 등)
+   * API 핸들러 재등록이 필요한 경우 호출
+   */
+  onAPIChange?: (filePath: string) => void;
+  /**
    * 추가 watch 디렉토리 (공통 컴포넌트 등)
    * 상대 경로 또는 절대 경로 모두 지원
    * 기본값: ["src/components", "components", "src/shared", "shared", "src/lib", "lib", "src/hooks", "hooks", "src/utils", "utils"]
@@ -81,6 +86,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     onRebuild,
     onError,
     onSSRChange,
+    onAPIChange,
     watchDirs: customWatchDirs = [],
     disableDefaultWatchDirs = false,
   } = options;
@@ -101,6 +107,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
   // clientModule 경로에서 routeId 매핑 생성
   const clientModuleToRoute = new Map<string, string>();
   const serverModuleSet = new Set<string>(); // SSR 모듈 (page.tsx, layout.tsx)
+  const apiModuleSet = new Set<string>(); // API 모듈 (route.ts)
   const watchDirs = new Set<string>();
   const commonWatchDirs = new Set<string>(); // 공통 디렉토리 (전체 재빌드 트리거)
 
@@ -137,6 +144,13 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
         serverModuleSet.add(absPath);
         watchDirs.add(path.dirname(path.resolve(rootDir, layoutPath)));
       }
+    }
+
+    // Track API route modules for hot-reload
+    if (route.kind === "api" && route.module) {
+      const absPath = path.resolve(rootDir, route.module).replace(/\\/g, "/");
+      apiModuleSet.add(absPath);
+      watchDirs.add(path.dirname(path.resolve(rootDir, route.module)));
     }
   }
 
@@ -281,6 +295,12 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       if (onSSRChange && serverModuleSet.has(normalizedPath)) {
         console.log(`\n🔄 SSR file changed: ${path.basename(changedFile)}`);
         onSSRChange(normalizedPath);
+        return;
+      }
+      // API 모듈 변경 감지 (route.ts)
+      if (onAPIChange && apiModuleSet.has(normalizedPath)) {
+        console.log(`\n🔄 API route changed: ${path.basename(changedFile)}`);
+        onAPIChange(normalizedPath);
       }
       return;
     }
@@ -559,7 +579,7 @@ export function generateHMRClientScript(port: number): string {
 
   function connect() {
     try {
-      ws = new WebSocket('ws://localhost:' + HMR_PORT);
+      ws = new WebSocket('ws://' + window.location.hostname + ':' + HMR_PORT);
 
       ws.onopen = function() {
         console.log('[Mandu HMR] Connected');

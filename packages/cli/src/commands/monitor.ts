@@ -1,12 +1,34 @@
+/**
+ * Mandu Monitor CLI
+ *
+ * Streams observability events from the running dev server's EventBus via
+ * the `/__mandu/events` SSE endpoint. Falls back to tailing the legacy
+ * `.mandu/activity.jsonl` / `activity.log` files when no dev server is
+ * detected (or when `--no-server` is passed).
+ *
+ * Supported flags:
+ *   --type <http|mcp|guard|build|error|cache|ws>
+ *   --severity <info|warn|error>
+ *   --trace <correlationId>
+ *   --source <name>
+ *   --stats              (aggregated stats from eventBus.getStats)
+ *   --since <duration>   (e.g. "5m", "1h" — only used with --stats)
+ *   --summary            (legacy summary mode for file-based logs)
+ *   --no-server          (force file-tail fallback)
+ *   --file <path>        (explicit log file)
+ *   --follow=false       (don't stream — print snapshot and exit)
+ */
+
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import { resolveFromCwd, pathExists } from "../util/fs";
 import { resolveOutputFormat } from "../util/output";
+import { readRuntimeControl } from "../util/runtime-control";
 
 type MonitorOutput = "console" | "json";
 
-export type EventType = "http" | "mcp" | "guard" | "build" | "error" | "cache";
+export type EventType = "http" | "mcp" | "guard" | "build" | "error" | "cache" | "ws";
 export type SeverityLevel = "info" | "warn" | "error";
 
 export interface MonitorOptions {
@@ -17,130 +39,266 @@ export interface MonitorOptions {
   type?: EventType;
   severity?: SeverityLevel;
   stats?: boolean;
+  trace?: string;
+  source?: string;
+  noServer?: boolean;
 }
 
-interface MonitorEvent {
+/** Shape of an event coming from the EventBus SSE stream. */
+interface BusEvent {
+  id?: string;
+  correlationId?: string;
+  type?: string;
+  severity?: SeverityLevel;
+  source?: string;
+  message?: string;
+  timestamp?: number;
+  duration?: number;
+  data?: Record<string, unknown>;
+}
+
+/** Shape of a legacy activity.jsonl line. */
+interface LegacyEvent {
   ts?: string;
   type?: string;
-  severity?: "info" | "warn" | "error";
+  severity?: SeverityLevel;
   source?: string;
   message?: string;
   data?: Record<string, unknown>;
   count?: number;
 }
 
+// ---------- Duration parsing ----------
+
 function parseDuration(value?: string): number | undefined {
   if (!value) return undefined;
-  const trimmed = value.trim();
-  const match = trimmed.match(/^(\d+)(ms|s|m|h|d)?$/);
+  const match = value.trim().match(/^(\d+)(ms|s|m|h|d)?$/);
   if (!match) return undefined;
   const amount = Number(match[1]);
   const unit = match[2] ?? "m";
   switch (unit) {
-    case "ms":
-      return amount;
-    case "s":
-      return amount * 1000;
-    case "m":
-      return amount * 60 * 1000;
-    case "h":
-      return amount * 60 * 60 * 1000;
-    case "d":
-      return amount * 24 * 60 * 60 * 1000;
-    default:
-      return undefined;
+    case "ms": return amount;
+    case "s":  return amount * 1000;
+    case "m":  return amount * 60 * 1000;
+    case "h":  return amount * 60 * 60 * 1000;
+    case "d":  return amount * 24 * 60 * 60 * 1000;
+    default:   return undefined;
   }
 }
 
-const SEVERITY_LEVELS: Record<string, number> = { info: 0, warn: 1, error: 2 };
+// ---------- Filtering ----------
 
-function shouldShow(event: MonitorEvent, opts: MonitorOptions): boolean {
-  if (opts.type && !event.type?.startsWith(opts.type)) return false;
-  if (opts.severity) {
-    if ((SEVERITY_LEVELS[event.severity ?? "info"] ?? 0) < (SEVERITY_LEVELS[opts.severity] ?? 0)) return false;
+const SEVERITY_LEVELS: Record<string, number> = { info: 0, warn: 1, error: 2 };
+const VALID_TYPES: ReadonlySet<string> = new Set([
+  "http", "mcp", "guard", "build", "error", "cache", "ws",
+]);
+
+function matchesFilters(
+  event: { type?: string; severity?: SeverityLevel; source?: string; correlationId?: string },
+  opts: MonitorOptions,
+): boolean {
+  if (opts.type && !(event.type === opts.type || event.type?.startsWith(`${opts.type}.`))) {
+    return false;
   }
+  if (opts.severity) {
+    const have = SEVERITY_LEVELS[event.severity ?? "info"] ?? 0;
+    const want = SEVERITY_LEVELS[opts.severity] ?? 0;
+    if (have < want) return false;
+  }
+  if (opts.source && event.source !== opts.source) return false;
+  if (opts.trace && event.correlationId !== opts.trace) return false;
   return true;
 }
 
-function formatTime(ts?: string): string {
+// ---------- Formatting ----------
+
+const SEVERITY_ICON: Record<SeverityLevel, string> = {
+  info: "·",
+  warn: "⚠",
+  error: "✗",
+};
+
+const TYPE_TAG: Record<string, string> = {
+  http:  "HTTP ",
+  mcp:   "MCP  ",
+  guard: "GUARD",
+  build: "BUILD",
+  cache: "CACHE",
+  error: "ERROR",
+  ws:    "WS   ",
+};
+
+function formatBusTime(ts?: number): string {
   const date = ts ? new Date(ts) : new Date();
   return date.toLocaleTimeString("en-US", { hour12: false });
 }
 
-function formatEventForConsole(event: MonitorEvent): string {
-  const time = formatTime(event.ts);
+function formatLegacyTime(ts?: string): string {
+  const date = ts ? new Date(ts) : new Date();
+  return date.toLocaleTimeString("en-US", { hour12: false });
+}
+
+function formatBusEventLine(event: BusEvent): string {
+  const time = formatBusTime(event.timestamp);
+  const severity: SeverityLevel = event.severity ?? "info";
+  const icon = SEVERITY_ICON[severity];
+  const tag = TYPE_TAG[event.type ?? ""] ?? (event.type ?? "EVENT").toUpperCase().padEnd(5);
+  const dur = typeof event.duration === "number" ? ` ${Math.round(event.duration)}ms` : "";
+  const trace = event.correlationId ? ` [${event.correlationId.slice(0, 8)}]` : "";
+  const src = event.source ? ` <${event.source}>` : "";
+  const msg = event.message ?? "";
+  return `${time} ${icon} [${tag}]${src}${dur}${trace} ${msg}`;
+}
+
+function formatLegacyEventLine(event: LegacyEvent): string {
+  const time = formatLegacyTime(event.ts);
   const countSuffix = event.count && event.count > 1 ? ` x${event.count}` : "";
   const type = event.type ?? "event";
-
-  if (type === "tool.call") {
-    const tag = (event.data?.tag as string | undefined) ?? "TOOL";
-    const argsSummary = event.data?.argsSummary as string | undefined;
-    return `${time} → [${tag}]${argsSummary ?? ""}${countSuffix}`;
-  }
-  if (type === "tool.error") {
-    const tag = (event.data?.tag as string | undefined) ?? "TOOL";
-    const argsSummary = event.data?.argsSummary as string | undefined;
-    const message = event.message ?? "ERROR";
-    return `${time} ✗ [${tag}]${argsSummary ?? ""}${countSuffix}\n       ${message}`;
-  }
-  if (type === "tool.result") {
-    const tag = (event.data?.tag as string | undefined) ?? "TOOL";
-    const summary = event.data?.summary as string | undefined;
-    return `${time} ✓ [${tag}]${summary ?? ""}${countSuffix}`;
-  }
-  if (type === "watch.warning") {
-    const ruleId = event.data?.ruleId as string | undefined;
-    const file = event.data?.file as string | undefined;
-    const message = event.message ?? "";
-    const icon = event.severity === "info" ? "ℹ" : "⚠";
-    return `${time} ${icon} [WATCH:${ruleId ?? "UNKNOWN"}] ${file ?? ""}${countSuffix}\n       ${message}`;
-  }
-  if (type === "guard.violation") {
-    const ruleId = event.data?.ruleId as string | undefined;
-    const file = event.data?.file as string | undefined;
-    const line = event.data?.line as number | undefined;
-    const message = event.message ?? (event.data?.message as string | undefined) ?? "";
-    const location = line ? `${file}:${line}` : file ?? "";
-    return `${time} 🚨 [GUARD:${ruleId ?? "UNKNOWN"}] ${location}${countSuffix}\n       ${message}`;
-  }
-  if (type === "guard.summary") {
-    const count = event.data?.count as number | undefined;
-    const passed = event.data?.passed as boolean | undefined;
-    return `${time} 🧱 [GUARD] ${passed ? "PASSED" : "FAILED"} (${count ?? 0} violations)`;
-  }
-  if (type === "routes.change") {
-    const action = event.data?.action as string | undefined;
-    const routeId = event.data?.routeId as string | undefined;
-    const pattern = event.data?.pattern as string | undefined;
-    const kind = event.data?.kind as string | undefined;
-    const detail = [routeId, pattern, kind].filter(Boolean).join(" ");
-    return `${time} 🛣️  [ROUTES:${action ?? "change"}] ${detail}${countSuffix}`;
-  }
-  if (type === "monitor.summary") {
-    return `${time} · SUMMARY ${event.message ?? ""}`;
-  }
-  if (type === "system.event") {
-    const category = event.data?.category as string | undefined;
-    return `${time}   [${category ?? "SYSTEM"}] ${event.message ?? ""}${countSuffix}`;
-  }
-
-  return `${time}   [${type}] ${event.message ?? ""}${countSuffix}`;
+  const severity: SeverityLevel = event.severity ?? "info";
+  const icon = SEVERITY_ICON[severity];
+  return `${time} ${icon} [${type}] ${event.message ?? ""}${countSuffix}`;
 }
+
+// ---------- SSE consumer ----------
+
+async function fetchRecentSnapshot(baseUrl: string, opts: MonitorOptions): Promise<{
+  events: BusEvent[];
+  stats: Record<string, { count: number; errors: number; avgDuration: number }>;
+} | null> {
+  try {
+    const url = new URL(`${baseUrl}/__mandu/events/recent`);
+    if (opts.type) url.searchParams.set("type", opts.type);
+    if (opts.severity) url.searchParams.set("severity", opts.severity);
+    const windowMs = parseDuration(opts.since);
+    if (windowMs) url.searchParams.set("windowMs", String(windowMs));
+    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return null;
+    return await res.json() as {
+      events: BusEvent[];
+      stats: Record<string, { count: number; errors: number; avgDuration: number }>;
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function streamFromSSE(
+  baseUrl: string,
+  opts: MonitorOptions,
+  output: MonitorOutput,
+): Promise<void> {
+  const url = new URL(`${baseUrl}/__mandu/events`);
+  if (opts.type) url.searchParams.set("type", opts.type);
+  if (opts.severity) url.searchParams.set("severity", opts.severity);
+  if (opts.source) url.searchParams.set("source", opts.source);
+  if (opts.trace) url.searchParams.set("trace", opts.trace);
+
+  const res = await fetch(url, {
+    headers: { Accept: "text/event-stream" },
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`Failed to connect to ${url}: HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  // Stop the process gracefully on Ctrl+C.
+  const onSig = () => {
+    try { reader.cancel().catch(() => {}); } catch { /* noop */ }
+    process.exit(0);
+  };
+  process.once("SIGINT", onSig);
+  process.once("SIGTERM", onSig);
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE messages are separated by blank lines.
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const raw = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+
+      const dataLines: string[] = [];
+      for (const line of raw.split("\n")) {
+        if (line.startsWith(":")) continue;            // comment / heartbeat
+        if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      }
+      if (dataLines.length === 0) continue;
+      const payload = dataLines.join("\n");
+
+      let event: BusEvent;
+      try {
+        event = JSON.parse(payload) as BusEvent;
+      } catch {
+        continue;
+      }
+      // Server-side filters cover type/severity/source/trace already, but
+      // clients may apply additional severity escalation (>= filter).
+      if (!matchesFilters(event, opts)) continue;
+
+      if (output === "json") {
+        process.stdout.write(`${JSON.stringify(event)}\n`);
+      } else {
+        process.stdout.write(`${formatBusEventLine(event)}\n`);
+      }
+    }
+  }
+}
+
+// ---------- Stats rendering ----------
+
+interface StatsBlock { count: number; errors: number; avgDuration: number }
+
+function printStatsConsole(
+  stats: Record<string, StatsBlock>,
+  windowMs: number,
+): void {
+  const mins = Math.max(1, Math.round(windowMs / 60000));
+  console.log(`\nLast ${mins} minute${mins !== 1 ? "s" : ""}:\n`);
+
+  const fmt = (label: string, key: string, unit: string) => {
+    const s = stats[key];
+    if (!s || s.count === 0) return null;
+    const avg = Math.round(s.avgDuration);
+    return `  ${label.padEnd(7)} ${s.count} ${unit}${avg ? `, avg ${avg}ms` : ""}${s.errors ? `, ${s.errors} error${s.errors !== 1 ? "s" : ""}` : ""}`;
+  };
+
+  const rows = [
+    fmt("HTTP:",  "http",  "req"),
+    fmt("MCP:",   "mcp",   "calls"),
+    fmt("Guard:", "guard", "violations"),
+    fmt("Build:", "build", "rebuilds"),
+    fmt("Cache:", "cache", "ops"),
+    fmt("WS:",    "ws",    "msgs"),
+    fmt("Error:", "error", "events"),
+  ].filter((l): l is string => l !== null);
+
+  if (rows.length === 0) {
+    console.log("  (no events recorded in window)");
+  } else {
+    for (const row of rows) console.log(row);
+  }
+  console.log("");
+}
+
+// ---------- Legacy file-tail fallback ----------
 
 async function resolveLogFile(
   rootDir: string,
   output: MonitorOutput,
-  explicit?: string
+  explicit?: string,
 ): Promise<string | null> {
   if (explicit) return explicit;
-
   const manduDir = path.join(rootDir, ".mandu");
   const jsonPath = path.join(manduDir, "activity.jsonl");
-  const logPath = path.join(manduDir, "activity.log");
-
+  const logPath  = path.join(manduDir, "activity.log");
   const hasJson = await pathExists(jsonPath);
-  const hasLog = await pathExists(logPath);
-
+  const hasLog  = await pathExists(logPath);
   if (output === "json") {
     if (hasJson) return jsonPath;
     if (hasLog) return logPath;
@@ -148,221 +306,166 @@ async function resolveLogFile(
     if (hasLog) return logPath;
     if (hasJson) return jsonPath;
   }
-
   return null;
 }
 
-async function readSummary(
-  filePath: string,
-  sinceMs: number
-): Promise<{
-  windowMs: number;
-  total: number;
-  bySeverity: { info: number; warn: number; error: number };
-  byType: Record<string, number>;
-}> {
-  const content = await fs.readFile(filePath, "utf-8");
-  const lines = content.split("\n").filter(Boolean);
-  const cutoff = Date.now() - sinceMs;
-  const counts = { total: 0, info: 0, warn: 0, error: 0 };
-  const byType: Record<string, number> = {};
-
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as MonitorEvent;
-      if (!event.ts) continue;
-      const ts = new Date(event.ts).getTime();
-      if (Number.isNaN(ts) || ts < cutoff) continue;
-      const count = event.count ?? 1;
-      counts.total += count;
-      if (event.severity) {
-        counts[event.severity] += count;
-      }
-      const type = event.type ?? "event";
-      byType[type] = (byType[type] ?? 0) + count;
-    } catch {
-      // ignore parse errors
-    }
-  }
-
-  return { windowMs: sinceMs, total: counts.total, bySeverity: counts, byType };
-}
-
-function printSummaryConsole(summary: {
-  windowMs: number;
-  total: number;
-  bySeverity: { info: number; warn: number; error: number };
-  byType: Record<string, number>;
-}): void {
-  const seconds = Math.round(summary.windowMs / 1000);
-  const topTypes = Object.entries(summary.byType)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([type, count]) => `${type}=${count}`)
-    .join(", ");
-
-  console.log(`Summary (last ${seconds}s)`);
-  console.log(`  total=${summary.total}`);
-  console.log(`  error=${summary.bySeverity.error} warn=${summary.bySeverity.warn} info=${summary.bySeverity.info}`);
-  if (topTypes) {
-    console.log(`  top=${topTypes}`);
-  }
-}
-
-async function readStats(filePath: string, sinceMs: number) {
-  const lines = (await fs.readFile(filePath, "utf-8")).split("\n").filter(Boolean);
-  const cutoff = Date.now() - sinceMs;
-  const s = { http: [0, 0, 0], mcp: [0, 0, 0], guard: 0, cacheHit: 0, cacheMiss: 0, build: [0, 0] };
-  for (const line of lines) {
-    try {
-      const ev = JSON.parse(line) as MonitorEvent;
-      if (!ev.ts || new Date(ev.ts).getTime() < cutoff) continue;
-      const t = ev.type ?? "", dur = (ev.data?.durationMs as number) ?? 0;
-      if (t.startsWith("http")) { s.http[0]++; s.http[1] += dur; if (ev.severity === "error") s.http[2]++; }
-      else if (t.startsWith("mcp") || t.startsWith("tool.")) { s.mcp[0]++; s.mcp[1] += dur; if (t === "tool.error" || ev.severity === "error") s.mcp[2]++; }
-      else if (t.startsWith("guard")) s.guard++;
-      else if (t.startsWith("cache")) { if (ev.data?.hit) s.cacheHit++; else s.cacheMiss++; }
-      else if (t.startsWith("build")) { s.build[0]++; s.build[1] += dur; }
-    } catch { /* skip */ }
-  }
-  const avg = (tot: number, n: number) => n > 0 ? Math.round(tot / n) : 0;
-  const ct = s.cacheHit + s.cacheMiss;
-  return { windowMs: sinceMs, http: { requests: s.http[0], avgMs: avg(s.http[1], s.http[0]), errors: s.http[2] },
-    mcp: { calls: s.mcp[0], avgMs: avg(s.mcp[1], s.mcp[0]), failures: s.mcp[2] }, guard: { violations: s.guard },
-    cache: { hits: s.cacheHit, misses: s.cacheMiss, hitRate: ct > 0 ? `${Math.round((s.cacheHit / ct) * 100)}%` : "N/A" },
-    build: { rebuilds: s.build[0], avgMs: avg(s.build[1], s.build[0]) } };
-}
-
-function printStats(st: Awaited<ReturnType<typeof readStats>>): void {
-  const mins = Math.round(st.windowMs / 60000);
-  console.log(`\nActivity Summary (last ${mins} minute${mins !== 1 ? "s" : ""})\n`);
-  console.log(`  HTTP:    ${st.http.requests} requests, avg ${st.http.avgMs}ms, ${st.http.errors} errors`);
-  console.log(`  MCP:     ${st.mcp.calls} tool calls, avg ${st.mcp.avgMs}ms, ${st.mcp.failures} failures`);
-  console.log(`  Guard:   ${st.guard.violations} violation${st.guard.violations !== 1 ? "s" : ""}`);
-  console.log(`  Cache:   ${st.cache.hitRate} hit rate (${st.cache.hits}/${st.cache.hits + st.cache.misses} entries)`);
-  console.log(`  Build:   ${st.build.rebuilds} rebuild${st.build.rebuilds !== 1 ? "s" : ""}, avg ${st.build.avgMs}ms\n`);
-}
-
-function outputChunk(
+function outputLegacyChunk(
   chunk: string,
   isJson: boolean,
   output: MonitorOutput,
-  filters?: MonitorOptions
+  filters: MonitorOptions,
 ): void {
   if (!isJson || output === "json") {
     process.stdout.write(chunk);
     return;
   }
-
-  const lines = chunk.split("\n").filter(Boolean);
-  for (const line of lines) {
+  for (const line of chunk.split("\n").filter(Boolean)) {
     try {
-      const event = JSON.parse(line) as MonitorEvent;
-      if (filters && !shouldShow(event, filters)) continue;
-      const formatted = formatEventForConsole(event);
-      process.stdout.write(`${formatted}\n`);
+      const event = JSON.parse(line) as LegacyEvent;
+      if (!matchesFilters(event, filters)) continue;
+      process.stdout.write(`${formatLegacyEventLine(event)}\n`);
     } catch {
       process.stdout.write(`${line}\n`);
     }
   }
 }
 
-async function followFile(
+async function followLegacyFile(
   filePath: string,
   isJson: boolean,
   output: MonitorOutput,
-  startAtEnd: boolean,
-  filters?: MonitorOptions
+  filters: MonitorOptions,
 ): Promise<void> {
   let position = 0;
   let buffer = "";
-
   try {
     const stat = await fs.stat(filePath);
-    position = startAtEnd ? stat.size : 0;
-  } catch {
-    position = 0;
-  }
+    position = stat.size;
+  } catch { position = 0; }
 
   const fd = await fs.open(filePath, "r");
-
-  fsSync.watchFile(
-    filePath,
-    { interval: 500 },
-    async (curr) => {
-      if (curr.size < position) {
-        position = 0;
-        buffer = "";
-      }
-      if (curr.size === position) {
-        return;
-      }
-
-      const length = curr.size - position;
-      const chunk = Buffer.alloc(length);
-      await fd.read(chunk, 0, length, position);
-      position = curr.size;
-      buffer += chunk.toString("utf-8");
-
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      if (lines.length > 0) {
-        outputChunk(lines.join("\n"), isJson, output, filters);
-      }
+  fsSync.watchFile(filePath, { interval: 500 }, async (curr) => {
+    if (curr.size < position) { position = 0; buffer = ""; }
+    if (curr.size === position) return;
+    const length = curr.size - position;
+    const chunk = Buffer.alloc(length);
+    await fd.read(chunk, 0, length, position);
+    position = curr.size;
+    buffer += chunk.toString("utf-8");
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    if (lines.length > 0) {
+      outputLegacyChunk(lines.join("\n"), isJson, output, filters);
     }
-  );
+  });
 }
 
-export async function monitor(options: MonitorOptions = {}): Promise<boolean> {
-  const rootDir = resolveFromCwd(".");
-  const resolved = resolveOutputFormat();
-  const output: MonitorOutput = resolved === "json" || resolved === "agent" ? "json" : "console";
+async function runFileFallback(
+  rootDir: string,
+  options: MonitorOptions,
+  output: MonitorOutput,
+): Promise<boolean> {
   const filePath = await resolveLogFile(rootDir, output, options.file);
-
   if (!filePath) {
-    console.error("❌ Activity log file not found (.mandu/activity.log or activity.jsonl)");
+    console.error("Activity log file not found (.mandu/activity.log or activity.jsonl) and no dev server is running.");
     return false;
   }
-
   const isJson = filePath.endsWith(".jsonl");
   const follow = options.follow !== false;
 
-  const windowMs = parseDuration(options.since) ?? 5 * 60 * 1000;
-
-  if (options.stats) {
-    if (!isJson) {
-      console.error("Stats require JSON logs (activity.jsonl)");
-      return false;
-    }
-    const st = await readStats(filePath, windowMs);
-    if (output === "json") {
-      console.log(JSON.stringify(st, null, 2));
-    } else {
-      printStats(st);
-    }
-    return true;
-  }
-
-  if (options.summary) {
-    if (!isJson) {
-      console.error("Summary is only available for JSON logs (activity.jsonl)");
-    } else {
-      const summary = await readSummary(filePath, windowMs);
-      if (output === "json") {
-        console.log(JSON.stringify(summary, null, 2));
-      } else {
-        printSummaryConsole(summary);
-      }
-    }
-    if (!follow) return true;
-  }
-
   if (!follow) {
     const content = await fs.readFile(filePath, "utf-8");
-    outputChunk(content, isJson, output, options);
+    outputLegacyChunk(content, isJson, output, options);
     return true;
   }
 
-  await followFile(filePath, isJson, output, true, options);
+  if (output !== "json") {
+    console.log(`(no dev server detected — tailing ${path.relative(rootDir, filePath)})`);
+  }
+  await followLegacyFile(filePath, isJson, output, options);
   return new Promise(() => {});
+}
+
+// ---------- Entry ----------
+
+function validateOptions(opts: MonitorOptions): string | null {
+  if (opts.type && !VALID_TYPES.has(opts.type)) {
+    return `Invalid --type "${opts.type}". Expected one of: ${[...VALID_TYPES].join(", ")}.`;
+  }
+  if (opts.severity && !(opts.severity in SEVERITY_LEVELS)) {
+    return `Invalid --severity "${opts.severity}". Expected one of: info, warn, error.`;
+  }
+  if (opts.since && parseDuration(opts.since) === undefined) {
+    return `Invalid --since "${opts.since}". Expected duration like "30s", "5m", "1h".`;
+  }
+  return null;
+}
+
+export async function monitor(options: MonitorOptions = {}): Promise<boolean> {
+  const validation = validateOptions(options);
+  if (validation) {
+    console.error(validation);
+    return false;
+  }
+
+  const rootDir = resolveFromCwd(".");
+  const resolved = resolveOutputFormat();
+  const output: MonitorOutput = resolved === "json" || resolved === "agent" ? "json" : "console";
+
+  // 1. Try connecting to a running dev server (unless --no-server / --file).
+  const useServer = !options.noServer && !options.file;
+  const runtime = useServer ? await readRuntimeControl(rootDir) : null;
+  const baseUrl = runtime?.baseUrl;
+
+  // Stats mode — fetch a one-shot snapshot from the server.
+  if (options.stats) {
+    if (baseUrl) {
+      const snapshot = await fetchRecentSnapshot(baseUrl, options);
+      if (snapshot) {
+        const windowMs = parseDuration(options.since) ?? 5 * 60 * 1000;
+        if (output === "json") {
+          console.log(JSON.stringify({ windowMs, stats: snapshot.stats }, null, 2));
+        } else {
+          printStatsConsole(snapshot.stats, windowMs);
+        }
+        return true;
+      }
+    }
+    // Fallback: legacy file-based stats are no longer supported in stats mode.
+    console.error("Stats mode requires a running dev server (start `mandu dev` first).");
+    return false;
+  }
+
+  // Streaming/snapshot mode against the SSE endpoint.
+  if (baseUrl) {
+    try {
+      // Snapshot-only mode (--follow=false): print recent events and exit.
+      if (options.follow === false) {
+        const snapshot = await fetchRecentSnapshot(baseUrl, options);
+        if (snapshot) {
+          for (const event of snapshot.events) {
+            if (!matchesFilters(event, options)) continue;
+            if (output === "json") {
+              process.stdout.write(`${JSON.stringify(event)}\n`);
+            } else {
+              process.stdout.write(`${formatBusEventLine(event)}\n`);
+            }
+          }
+          return true;
+        }
+      } else {
+        if (output !== "json") {
+          console.log(`(streaming from ${baseUrl}/__mandu/events — Ctrl+C to exit)`);
+        }
+        await streamFromSSE(baseUrl, options, output);
+        return true;
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`SSE connection failed (${detail}) — falling back to file tailing.`);
+    }
+  }
+
+  // 2. Fallback to legacy file-based monitoring.
+  return runFileFallback(rootDir, options, output);
 }

@@ -34,18 +34,34 @@ Add to your MCP configuration (`.mcp.json` or `.claude.json`):
   "mcpServers": {
     "mandu": {
       "command": "bunx",
-      "args": ["@mandujs/mcp"],
+      "args": ["mandu-mcp"],
       "cwd": "/path/to/your/project"
     }
   }
 }
 ```
 
+> **Note**: Use `mandu-mcp` (not `@mandujs/mcp`) to avoid conflicts with Python's `mcp` CLI on PATH (#174).
+
 ### Direct Execution
 
 ```bash
 cd /path/to/project
-bunx @mandujs/mcp
+bunx mandu-mcp
+```
+
+### Tool Profiles
+
+Filter available tools via the `MANDU_MCP_PROFILE` env var:
+
+| Profile | Tools | Use Case |
+|---------|-------|----------|
+| `minimal` | ~15 | Read-only operations, safe for autonomous agents |
+| `standard` | ~50 | Default — most common operations |
+| `full` | 85+ | All tools including destructive operations |
+
+```bash
+MANDU_MCP_PROFILE=minimal bunx mandu-mcp
 ```
 
 ### Global Mode
@@ -64,7 +80,7 @@ bunx @mandujs/mcp --root /path/to/project
 
 ---
 
-## Tools (35+)
+## Tools (85+)
 
 ### Spec Management
 
@@ -167,7 +183,7 @@ bunx @mandujs/mcp --root /path/to/project
 | `mandu_list_changes` | View change history |
 | `mandu_prune_history` | Clean old snapshots |
 
-### ATE (Automation Test Engine) 🆕
+### ATE (Automation Test Engine) — 9 tools
 
 | Tool | Description |
 |------|-------------|
@@ -177,19 +193,40 @@ bunx @mandujs/mcp --root /path/to/project
 | `mandu.ate.report` | Generate test summary report |
 | `mandu.ate.heal` | Auto-suggest fixes for failed tests |
 | `mandu.ate.impact` | Compute affected routes (subset testing) |
+| `mandu.ate.auto_pipeline` | Run full pipeline (extract → generate → run → report → heal) |
+| `mandu.ate.feedback` | Analyze failures with 7-category classification |
+| `mandu.ate.apply_heal` | Apply heal diffs safely (with backup) |
+
+### Test Selection (Phase 5) — 3 tools 🆕
+
+| Tool | Description |
+|------|-------------|
+| `mandu.test.smart` | Smart test selection from git diff with priority scoring |
+| `mandu.test.coverage` | Detect coverage gaps in interaction graph |
+| `mandu.test.precommit` | Pre-commit hook: should we test before committing? |
+
+### Composite — 7 tools
+
+| Tool | Description |
+|------|-------------|
+| `mandu.feature.create` | Scaffold full feature (route + contract + slot + island) |
+| `mandu.diagnose` | Multi-aspect project health check |
+| `mandu.island.add` | Add interactive island to route |
+| `mandu.middleware.add` | Add middleware to route |
+| `mandu.test.route` | Quick smoke test for a route |
+| `mandu.deploy.check` | Pre-deploy production readiness check |
+| `mandu.cache.manage` | Manage ISR/SWR cache (list, invalidate, stats) |
 
 ---
 
-## Resources
+## Resources (4)
 
 | URI | Description |
 |-----|-------------|
-| `mandu://spec/manifest` | Current routes.manifest.json |
-| `mandu://generated/map` | Generated files mapping |
-| `mandu://transaction/active` | Active transaction state |
-| `mandu://slots/{routeId}` | Slot file content by route ID |
-| `mandu://watch/warnings` | Recent architecture violation warnings |
-| `mandu://watch/status` | Watcher status (active, uptime, count) |
+| `mandu://routes` | Current routes manifest |
+| `mandu://config` | Parsed `mandu.config.ts` settings |
+| `mandu://errors` | Recent build and runtime errors |
+| `mandu://activity` | **NEW**: Recent observability events + 5-minute stats from EventBus |
 
 ---
 

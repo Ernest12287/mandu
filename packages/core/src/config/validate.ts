@@ -100,6 +100,7 @@ const DevConfigSchema = z
   .object({
     hmr: z.boolean().default(true),
     watchDirs: z.array(z.string()).default([]),
+    observability: z.boolean().default(true),
   })
   .strict();
 
@@ -233,19 +234,33 @@ export async function validateConfig(rootDir: string): Promise<ValidationResult>
           path: e.path.join("."),
           message: e.message,
         }));
-        return { valid: false, errors, source: fileName };
+        return {
+          valid: false,
+          errors: [
+            { path: "", message: `Config validation failed in '${filePath}'. Fix the following field errors:` },
+            ...errors,
+          ],
+          source: fileName,
+        };
+      }
+
+      // Differentiate file-not-found from parse/import errors
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const isModuleError = errMsg.includes("Cannot find module") || errMsg.includes("MODULE_NOT_FOUND");
+      const isSyntaxError = error instanceof SyntaxError || errMsg.includes("SyntaxError");
+
+      let detail: string;
+      if (isModuleError) {
+        detail = `Could not resolve config file '${filePath}'. Check that the file exists and all its imports are installed.`;
+      } else if (isSyntaxError) {
+        detail = `Syntax error while parsing '${filePath}': ${errMsg}. Verify the file contains valid TypeScript/JSON.`;
+      } else {
+        detail = `Failed to load config from '${filePath}': ${errMsg}`;
       }
 
       return {
         valid: false,
-        errors: [
-          {
-            path: "",
-            message: `Failed to load config: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          },
-        ],
+        errors: [{ path: "", message: detail }],
         source: fileName,
       };
     }

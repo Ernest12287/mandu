@@ -1,0 +1,75 @@
+---
+title: Contract API
+description: Define type-safe APIs with Zod schemas using Mandu Contract API. Get TypeScript inference, runtime validation, and OpenAPI generation in one step.
+---
+
+A Contract is your API's specification. Define requests and responses with Zod schemas, and Mandu automatically handles TypeScript type inference, runtime validation, and OpenAPI document generation.
+
+## Basic Usage
+
+```typescript
+import { Mandu } from "@mandujs/core";
+import { z } from "zod";
+
+export default Mandu.contract({
+  description: "Todo API",
+  tags: ["todos"],
+
+  request: {
+    GET: {
+      query: z.object({
+        page: z.coerce.number().default(1),
+      }),
+    },
+    POST: {
+      body: z.object({
+        title: z.string().min(1),
+        done: z.boolean().default(false),
+      }),
+    },
+  },
+
+  response: {
+    200: z.object({ todos: z.array(TodoSchema) }),
+    201: z.object({ todo: TodoSchema }),
+    400: z.object({ error: z.string() }),
+  },
+});
+```
+
+## Contract + Handler
+
+```typescript
+const handlers = Mandu.handler(contract, {
+  GET: async (ctx) => {
+    // ctx.query.page is inferred as number
+    return { todos: await db.list({ page: ctx.query.page }) };
+  },
+  POST: async (ctx) => {
+    // ctx.body.title inferred as string
+    const todo = await db.create(ctx.body);
+    return { todo };
+  },
+});
+```
+
+## Type-Safe Client
+
+```typescript
+const client = Mandu.client(contract, {
+  baseUrl: "http://localhost:3333/api/todos",
+});
+
+const { todos } = await client.GET({ query: { page: 1 } });
+```
+
+## OpenAPI Generation
+
+```typescript
+import { generateOpenAPISpec } from "@mandujs/core";
+
+const spec = generateOpenAPISpec(contract, {
+  title: "Todo API",
+  version: "1.0.0",
+});
+```

@@ -282,6 +282,17 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
     devtoolsScript = generateDevtoolsScript();
   }
 
+  // #179: body 내 <link> 태그를 <head>로 호이스팅
+  // React 컴포넌트(layout.tsx 등)에서 <link>를 렌더링하면 body 안에 위치하게 되는데,
+  // 폰트/스타일시트는 <head>에 있어야 FOUT 없이 로드됨
+  const linkTagPattern = /<link\s[^>]*(?:rel=["'](?:stylesheet|preconnect|preload|icon|dns-prefetch)["'][^>]*|href=["'][^"']+["'][^>]*)\/?\s*>/gi;
+  const hoistedLinks: string[] = [];
+  const bodyContent = content.replace(linkTagPattern, (match) => {
+    hoistedLinks.push(match);
+    return "";
+  });
+  const hoistedLinkTags = hoistedLinks.join("\n  ");
+
   return `<!doctype html>
 <html lang="${escapeHtmlAttr(lang)}">
 <head>
@@ -289,11 +300,12 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtmlText(title)}</title>
   ${cssLinkTag}
+  ${hoistedLinkTags}
   ${headTags}
   ${collectedHeadTags}
 </head>
 <body>
-  <div id="root">${content}</div>
+  <div id="root">${bodyContent}</div>
   ${dataScript}
   ${routeScript}
   ${hydrationScripts}
@@ -372,7 +384,7 @@ window.__MANDU_HMR_PORT__ = ${hmrPort};
 
   function connect() {
     try {
-      ws = new WebSocket('ws://localhost:${hmrPort}');
+      ws = new WebSocket('ws://' + window.location.hostname + ':${hmrPort}');
       ws.onopen = function() {
         console.log('[Mandu HMR] Connected');
         reconnectAttempts = 0;

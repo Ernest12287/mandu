@@ -14,9 +14,12 @@
   <a href="https://www.npmjs.com/package/@mandujs/cli"><img src="https://img.shields.io/npm/v/@mandujs/cli?label=cli" alt="npm cli" /></a>
   <a href="https://www.npmjs.com/package/@mandujs/mcp"><img src="https://img.shields.io/npm/v/@mandujs/mcp?label=mcp" alt="npm mcp" /></a>
   <a href="https://www.npmjs.com/package/@mandujs/ate"><img src="https://img.shields.io/npm/v/@mandujs/ate?label=ate" alt="npm ate" /></a>
+  <a href="https://www.npmjs.com/package/@mandujs/skills"><img src="https://img.shields.io/npm/v/@mandujs/skills?label=skills" alt="npm skills" /></a>
   <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun" alt="Bun" />
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6?logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/frontend-React-61dafb?logo=react" alt="React" />
+  <img src="https://img.shields.io/badge/tests-1728%20pass-success" alt="tests" />
+  <img src="https://img.shields.io/badge/license-MPL--2.0-blue" alt="license" />
 </p>
 
 <p align="center">
@@ -330,31 +333,73 @@ bunx mandu guard arch --watch
 
 ## 주요 기능
 
-### 핵심 아키텍처
+### 🏗️ 아키텍처 & 라우팅
 
 | 기능 | 설명 |
 |------|------|
-| **FS Routes 기반 개발** | app/ 디렉토리가 라우트의 단일 소스 |
-| **코드 생성** | 매니페스트에서 라우트, 핸들러, 컴포넌트 자동 생성 |
-| **슬롯 시스템** | 에이전트가 안전하게 비즈니스 로직을 작성하는 격리 영역 |
-| **Guard 시스템** | 아키텍처 규칙 강제 및 오염 방지 |
-| **Self-Healing Guard** | 위반 감지 + 자동 수정 제안 + 설명 제공 |
-| **트랜잭션 API** | 스냅샷 기반 롤백이 가능한 원자적 변경 |
-| **SEO 모듈** | Next.js Metadata API 호환, sitemap/robots 생성, JSON-LD 헬퍼 |
-| **MCP 서버** | AI 에이전트가 프레임워크를 직접 조작 (44+ 도구, ATE 9개 포함) |
-| **ATE (자동화 테스트 엔진)** | AI 기반 E2E 테스팅: 라우트 추출 → 테스트 생성 → 자동 복구 |
-| **실시간 Watch** | 아키텍처 위반 시 MCP push notification으로 에이전트에 실시간 알림 |
-| **Island Hydration** | 선택적 클라이언트 JavaScript로 성능 최적화 |
-| **HMR 지원** | 빠른 개발을 위한 핫 모듈 교체 |
-| **에러 분류 시스템** | 지능적 에러 분류와 수정 가이드 제공 |
-
-### AI 가이드 시스템 (RFC-001) 🆕
-
-| 기능 | 설명 |
-|------|------|
-| **Decision Memory** | ADR 저장 및 일관성 검사 - AI가 과거 결정을 참조 |
-| **Semantic Slots** | 슬롯에 목적과 제약 명시 - AI 코드 검증 |
+| **FS Routes** | `app/users/page.tsx` → `/users` 파일 기반 라우팅 |
+| **Mandu Guard** | **6개 프리셋** (FSD, Clean, Hexagonal, Atomic, **CQRS**, Mandu) 실시간 아키텍처 감시 |
+| **Self-Healing Guard** | 위반 감지 + 자동 수정 제안 + 설명 |
+| **Decision Memory** | ADR 저장 — AI가 과거 결정을 참조 |
 | **Architecture Negotiation** | 구현 전 AI-프레임워크 협상 다이얼로그 |
+| **Slot 시스템** | 에이전트가 안전하게 비즈니스 로직을 작성하는 격리 영역 |
+| **Semantic Slots** | 목적/제약 검증 — AI 생성 코드 안전성 |
+
+### ⚡ 런타임 & 성능
+
+| 기능 | 설명 |
+|------|------|
+| **Filling API** | 8단계 lifecycle (loader → guard → action → render) fluent 체이닝 |
+| **Island Architecture** | **5가지 hydration 전략**: `load`, `idle`, `visible`, `media`, `never` — 기본 Zero-JS |
+| **ISR/SWR 캐시** | `revalidatePath` / `revalidateTag` 내장 |
+| **PPR (Partial Prerendering)** | 캐시된 shell + 동적 데이터 요청별 fresh |
+| **Streaming SSR** | React 19 streaming + deferred data |
+| **Per-Island Code Splitting** | 아일랜드별 독립 JS 번들 |
+| **WebSocket** | `filling.ws()` 체이닝 핸들러 |
+| **세션 관리** | HMAC 서명 + secret rotation 쿠키 세션 |
+| **Image 핸들러** | 내장 `/_mandu/image` 최적화 |
+| **Middleware** | CORS, JWT, compress, logger, timeout — 전부 내장 |
+| **Form (Progressive Enhancement)** | JS 없어도 작동, 로드 시 강화 |
+| **View Transitions API** | 부드러운 페이지 전환 + 상태 보존 |
+
+### 🔒 타입 안전성 & Contract
+
+| 기능 | 설명 |
+|------|------|
+| **Contract API** | Zod 스키마 1개 → 타입 추론 + 런타임 검증 + OpenAPI 3.0 |
+| **클라이언트/서버 타입 추론** | Contract → ctx → 클라이언트 fetch까지 end-to-end |
+| **SEO 모듈** | Next.js Metadata 호환, sitemap/robots, JSON-LD 헬퍼 |
+
+### 🤖 AI 네이티브 통합
+
+| 기능 | 설명 |
+|------|------|
+| **MCP 서버** | **85+ 도구, 4 리소스, 3 프롬프트** 로 AI 에이전트가 프레임워크 직접 조작 |
+| **Claude Code Skills** | **9개 SKILL.md 플러그인** (`@mandujs/skills`) AI 워크플로우 가이드 |
+| **트랜잭션 API** | 스냅샷 기반 롤백이 가능한 원자적 변경 |
+| **Activity Log Observability** | EventBus + correlation ID + SQLite + OpenTelemetry 내보내기 |
+| **`mandu://activity` 리소스** | AI 에이전트가 관찰성 데이터 직접 조회 |
+
+### 🧪 테스트 & 품질 (ATE)
+
+| 기능 | 설명 |
+|------|------|
+| **ATE (자동화 테스트 엔진)** | AI 기반 E2E 테스팅 — Extract → Generate → Run → Heal |
+| **Smart 테스트 선택** | git diff 기반 라우트 우선순위 점수화 |
+| **커버리지 갭 감지** | 미테스트된 route transition, API 호출, form action 탐지 |
+| **Pre-commit 훅** | 변경사항 자동 감지 + 테스트 필요 여부 판단 |
+| **Self-Healing 테스트** | 7종 실패 분류 + 이력 기반 신뢰도 보정 |
+| **L0/L1/L2/L3 Oracle 레벨** | smoke → 구조 → contract → 행동 검증 |
+
+### 🔥 개발자 경험
+
+| 기능 | 설명 |
+|------|------|
+| **HMR 지원** | SSR 페이지, API route, CSS, island 모두 hot reload |
+| **Kitchen DevTools** | `/__kitchen` 7개 탭 (Errors, Network, Islands, Requests, MCP, Cache, Metrics) |
+| **`mandu monitor` CLI** | EventBus 기반 관찰성 스트림 + 필터링 + 통계 |
+| **Tailwind v4 자동 빌드** | 자체 관리 CSS watcher (`--watch` 불필요) |
+| **Lockfile 검증** | dev/build 전 config 무결성 체크 |
 
 ---
 
@@ -1264,37 +1309,54 @@ Mandu는 자동으로 에러를 세 가지 유형으로 분류합니다:
 
 ## 로드맵
 
-### v0.10.x (현재)
+### v0.20.x (현재 — 출시됨)
 
 **Core Runtime**
-- [x] 미들웨어 compose & 라이프사이클 훅
-- [x] Streaming SSR
-- [x] Filling API (guard, hooks, middleware)
-- [x] 런타임 로거 & trace 시스템
+- [x] Filling API: 8단계 lifecycle + 명명 액션 + 자동 revalidation
+- [x] React 19 기반 Streaming SSR
+- [x] Middleware 컴포지션 (cors, jwt, compress, logger, timeout)
+- [x] HMAC 서명 + secret rotation 쿠키 세션
+- [x] WebSocket (`filling.ws()` 체이닝)
+- [x] Image 핸들러 (`/_mandu/image`)
+- [x] Form Progressive Enhancement
+- [x] View Transitions API 통합
 
-**Routing**
+**Routing & Layout**
 - [x] FS Routes (스캐너, 패턴, 제너레이터, 와처)
-- [x] 레이아웃 시스템 (layoutChain, loading, error)
-- [x] 고급 라우트 (catch-all, optional params)
-- [x] 클라이언트 라우터 (Link, NavLink, hooks)
+- [x] 중첩 layout chain + 병렬 데이터 로딩
+- [x] 고급 라우트 (catch-all, optional params, route groups)
+- [x] 클라이언트 라우터 (Link, NavLink, hooks, prefetch)
+- [x] AbortController 기반 race-condition-free 네비게이션
 
-**Architecture**
-- [x] Mandu Guard 5가지 프리셋 (mandu, fsd, clean, hexagonal, atomic)
+**Architecture (Guard)**
+- [x] **6개 프리셋** (mandu, fsd, clean, hexagonal, atomic, **cqrs**)
 - [x] AST 기반 import 분석
-- [x] 통계 & 트렌드 추적
-- [x] 실시간 위반 감지
+- [x] 파일 와처 기반 실시간 위반 감지
+- [x] Self-Healing Guard 자동 수정 제안
+- [x] Decision Memory (ADR 저장 + 일관성 체크)
+- [x] Semantic Slots (목적/제약 검증)
+- [x] Architecture Negotiation (구현 전 AI-프레임워크 협상)
 
-**API & Types**
-- [x] Zod 기반 Contract API
-- [x] 타입 안전 핸들러 & 클라이언트
-- [x] OpenAPI 3.0 생성기
-- [x] 스키마 정규화
+**Cache & Performance**
+- [x] **ISR** (Incremental Static Regeneration) + 태그 무효화
+- [x] **SWR** (stale-while-revalidate) + 백그라운드 재생성
+- [x] **PPR** (Partial Prerendering) — shell 캐시 + fresh 데이터
+- [x] `revalidatePath` / `revalidateTag` 글로벌 API
+- [x] LRU 메모리 캐시 + 태그 인덱스
+- [x] ETag + 304 Not Modified
 
 **Hydration**
-- [x] Island hydration (visible, idle, interaction)
-- [x] Partials & slots
-- [x] Error boundary & loading states
-- [x] HMR 지원
+- [x] **5가지 island 전략** (load, idle, visible, media, never)
+- [x] Per-island 코드 스플리팅 (독립 JS 번들)
+- [x] 선언적 + client island 패턴
+- [x] Bun 호환을 위한 React Internals shim
+- [x] HMR 지원 (SSR 페이지, API route, CSS, island)
+
+**Type Safety & Contracts**
+- [x] Zod 기반 Contract API
+- [x] end-to-end 타입 추론 (handler ↔ client)
+- [x] OpenAPI 3.0 생성기
+- [x] 스키마 정규화 (strip/strict/passthrough)
 
 **SEO (검색 엔진 최적화)**
 - [x] Next.js Metadata API 호환 타입
@@ -1302,68 +1364,118 @@ Mandu는 자동으로 에러를 세 가지 유형으로 분류합니다:
 - [x] Open Graph & Twitter Cards
 - [x] JSON-LD 구조화 데이터 (12개 헬퍼)
 - [x] sitemap.xml & robots.txt 생성
-- [x] Google SEO 최적화 (viewport, theme-color, resource hints)
 - [x] SSR 통합
 
-**AI Integration (RFC-001: Guard → Guide)** 🆕
-- [x] MCP 서버 (35+ 도구, 7 리소스)
+**AI Integration (RFC-001: Guard → Guide)**
+- [x] **MCP 서버: 85+ 도구, 4 리소스, 3 프롬프트**
+- [x] 도구 프로파일 (minimal/standard/full) `MANDU_MCP_PROFILE`
 - [x] Brain (Doctor, Watcher, Architecture analyzer)
-- [x] 스냅샷 포함 트랜잭션 API
-- [x] 실시간 push 알림
-- [x] **Decision Memory** - ADR 저장 & 일관성 검사
-- [x] **Semantic Slots** - 목적 & 제약 검증
-- [x] **Architecture Negotiation** - AI-프레임워크 협상
-- [x] **Self-Healing Guard** - 자동 수정 제안
+- [x] 트랜잭션 API + 스냅샷 (`tx-lock` 다중 에이전트 안전성)
+- [x] **9개 Claude Code skills** (`@mandujs/skills`)
+
+**ATE (자동화 테스트 엔진)**
+- [x] **Phase 1-3**: Extract → Generate → Run → Report → Heal 파이프라인
+- [x] **Phase 1**: L0/L1/L2/L3 Oracle 레벨
+- [x] **Phase 2**: Mandu 시나리오 종류 (ssr-verify, island-hydration, sse-stream, form-action)
+- [x] **Phase 3**: testFilling 유닛 codegen + `--grep` 필터링
+- [x] **Phase 4**: Heal 7종 분류 + 이력 기반 신뢰도 보정
+- [x] **Phase 5.1**: Smart 테스트 선택 (git diff → 우선순위 점수)
+- [x] **Phase 5.2**: 커버리지 갭 감지
+- [x] **Phase 5.3**: Pre-commit 훅 헬퍼
+- [x] **Phase 6.1**: SSR 렌더링 테스트 (36개)
+- [x] 12개 MCP 도구 (9 ATE + 3 Phase 5)
+
+**Activity Log & Observability (NEW)**
+- [x] **Phase 1**: EventBus 코어 + correlation ID + Logger/MCP 어댑터
+- [x] **Phase 2**: dev 터미널 1줄 로그 + `m` 키 MCP 토글
+- [x] **Phase 3**: Monitor CLI 필터링 + 통계 + SSE 스트리밍
+- [x] **Phase 4**: Kitchen DevTools 5개 신규 탭 (Requests, MCP, Cache, Metrics, Errors 영속화)
+- [x] **Phase 5**: AI 에이전트 관찰성 (sessionId, `mandu://activity` 리소스)
+- [x] **Phase 6**: SQLite 영구 저장 + 시계열 쿼리 + JSONL/OTLP 내보내기
 
 **Security**
-- [x] Path traversal 방지
+- [x] Path traversal 방지 (realpath 검증)
 - [x] 포트 유효성 검사
 - [x] LFI 취약점 방어
-- [x] ReDoS 방어
+- [x] Null byte 공격 감지
+- [x] JWT algorithm allowlist + nbf 검증 + 8KB 토큰 제한
+- [x] HMAC 세션 서명 + secret rotation
+- [x] Rate limiting (per-IP + per-route)
 
-### v0.11.x (다음)
+**개발자 경험**
+- [x] SSR 전용 페이지 HMR (island 없어도 동작)
+- [x] API route hot-reload (route.ts 변경 자동 반영)
+- [x] Tailwind v4 자체 관리 CSS 와처
+- [x] 에러 메시지 개선 (10개 critical path)
+- [x] `.well-known/` 정적 파일 서빙 (RFC 8615)
+- [x] dev 모드 Cache-Control 헤더
+- [x] `<link>` 태그 자동 head 호이스팅
 
-**Data Layer** *(Astro 패턴)*
-- [ ] Loader API (store, meta, logger, watcher 컨텍스트)
-- [ ] File Loader & API Loader 구현
-- [ ] DataStore & MetaStore (digest 추적)
-- [ ] Cache Store 어댑터 (Redis, in-memory)
-- [ ] ISR (Incremental Static Regeneration)
+### v0.21.x (다음)
 
-**Realtime** *(Phoenix 패턴)*
-- [ ] WebSocket Channels (join/handle_in/handle_out)
-- [ ] Channel/Socket 분리 모델
-- [ ] Serializer 기반 메시지 프로토콜
-- [ ] Server-sent events (SSE)
+**ATE 고도화**
+- [ ] L2 Oracle 심층 contract 검증 (Zod 스키마 파싱 + 엣지 케이스 자동 생성)
+- [ ] L3 Oracle 행동 검증 (LLM 기반 상태 변화 assertion)
+- [ ] ATE Watch 모드 (`mandu test --watch`)
+- [ ] 접근성(a11y) 테스트 (`@axe-core/playwright`)
+- [ ] devtools/brain/watcher 테스트 커버리지 (현재 0)
+- [ ] CI E2E job + codecov 통합
 
 **Build & Integration** *(Astro/Fresh 패턴)*
 - [ ] Build Hooks (start/setup/done 라이프사이클)
 - [ ] 빌드 확장 Plugin API
-- [ ] 타임아웃 경고 포함 통합 훅 & 전용 로거
+- [ ] 통합 훅 + 타임아웃 경고
 - [ ] 번들 분석기
+- [ ] `bun --hot` 서버 모듈 통합
 
-**Observability**
-- [ ] 성능 벤치마크 (라우팅, SSR, hydration)
-- [ ] TTFB & TTI 측정
-- [ ] 자동화된 성능 테스트 모음
+**Data Layer** *(Astro 패턴)*
+- [ ] Loader API + LoaderContext (store, meta, logger, watcher)
+- [ ] File Loader & API Loader 구현
+- [ ] Cache Store 어댑터 (Redis, KV)
+- [ ] Content Collections + 타입 안전 쿼리
 
-### v0.12.x (예정)
+### v0.22.x (예정)
 
 **AOT 최적화** *(Elysia 패턴)*
 - [ ] AOT 핸들러 생성 (런타임 프리컴파일)
-- [ ] Sucrose 스타일 컨텍스트 추론
+- [ ] 컨텍스트 추론 + 런타임 오버헤드 최소화
 - [ ] JIT/AOT 모드 선택 (`mandu build --aot`)
 
 **고급 Hydration** *(Qwik/Fresh 패턴)*
+- [ ] React Fast Refresh 통합 (state 보존 HMR)
 - [ ] Client Reviver (DOM marker 기반 복원)
 - [ ] Resumable POC / QRL-lite (지연 이벤트 핸들러 로딩)
 - [ ] Serializer Registry (플러그인 타입 직렬화)
-- [ ] Progressive Hydration 개선
+
+**Realtime** *(Phoenix 패턴)*
+- [ ] WebSocket Channels (join/handle_in/handle_out)
+- [ ] Channel/Socket 분리 모델
+- [ ] Presence 추적
+- [ ] Pub/Sub + 어댑터
 
 **개발자 경험**
-- [ ] 개발 환경 에러 오버레이
-- [ ] 향상된 TypeScript 추론
-- [ ] 프로젝트 템플릿 & 스캐폴딩
+- [ ] 개발 환경 에러 오버레이 + 소스맵
+- [ ] Filling 체인 향상된 TypeScript 추론
+- [ ] 더 많은 프로젝트 템플릿 (e-commerce, blog, dashboard)
+- [ ] 시각적 라우트 인스펙터
+
+---
+
+## 테스트 커버리지
+
+| 패키지 | 테스트 수 | 파일 수 |
+|--------|----------|---------|
+| `@mandujs/core` (src) | 543 | 35 |
+| `@mandujs/core` (tests) | 874 | 62 |
+| `@mandujs/ate` | 242 | 19 |
+| `@mandujs/mcp` | 69 | 6 |
+| **총계** | **1728** | **122** |
+
+```bash
+bun test                          # 전체 테스트 실행
+bun test packages/core/src        # 특정 패키지만
+bun test --watch                  # watch 모드
+```
 
 ---
 

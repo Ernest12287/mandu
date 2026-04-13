@@ -1,6 +1,6 @@
 {
   "name": "@mandujs/ate",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "description": "Mandu ATE (Automation Test Engine) - extract/generate/run/report/heal/impact in one package",
   "type": "module",
   "sideEffects": false,
@@ -18,7 +18,10 @@
     "./trace-parser": "./src/trace-parser.ts",
     "./impact": "./src/impact.ts",
     "./fs": "./src/fs.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./smart-select": "./src/smart-select.ts",
+    "./coverage-gap": "./src/coverage-gap.ts",
+    "./precommit": "./src/precommit.ts"
   },
   "files": [
     "src/**/*"

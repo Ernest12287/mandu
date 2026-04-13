@@ -1,0 +1,91 @@
+---
+title: Island Architecture
+description: Learn about Mandu's Islands Architecture. Deliver JavaScript only where needed with 5 hydration strategies.
+---
+
+Mandu sends **zero bytes of JavaScript** to the client by default. All components render as HTML on the server. Only components declared as Islands are selectively hydrated on the client.
+
+## 5 Hydration Strategies
+
+| Strategy | Trigger | Use Case |
+|----------|---------|----------|
+| `load` | Immediately on page load | UI requiring instant interaction (header nav, forms) |
+| `idle` | When the browser is idle | Important but not urgent UI (sidebars, filters) |
+| `visible` | When element enters the viewport | Below-the-fold UI (comments, charts) |
+| `media` | When a media query matches | Responsive-only UI (mobile menus) |
+| `never` | Never hydrated | Pure static content (SSR HTML only) |
+
+## Usage
+
+### Declarative with Strategy String
+
+```tsx
+import { island } from "@mandujs/core";
+import { useState } from "react";
+
+export default island("visible", ({ name }: { name: string }) => {
+  const [count, setCount] = useState(0);
+  return (
+    <button onClick={() => setCount((c) => c + 1)}>
+      {name}: {count}
+    </button>
+  );
+});
+```
+
+### With Options Object
+
+```tsx
+import { island } from "@mandujs/core";
+import { z } from "zod";
+
+export default island(
+  {
+    hydrate: "media",
+    media: "(max-width: 768px)",
+    fallback: <div className="skeleton h-12" />,
+    props: z.object({ userId: z.string() }),
+  },
+  ({ userId }) => <MobileNav userId={userId} />
+);
+```
+
+### Setup/Render Pattern (Client Island)
+
+```tsx
+import { island } from "@mandujs/core/client";
+
+export default island<{ todos: Todo[] }>({
+  setup: (serverData) => {
+    const [todos, setTodos] = useState(serverData.todos);
+    return { todos, setTodos };
+  },
+  render: ({ todos }) => (
+    <ul>
+      {todos.map((t) => <li key={t.id}>{t.title}</li>)}
+    </ul>
+  ),
+});
+```
+
+:::caution
+Client islands must be imported from `@mandujs/core/client`. The main module (`@mandujs/core`) includes server dependencies that would increase client bundle size.
+:::
+
+## File Naming
+
+Island components must include `.island.` in the filename. The Mandu bundler detects this pattern to include them in the client bundle.
+
+## Strategy Selection Guide
+
+```
+Does the user click it immediately?
+  ├── Yes → load
+  └── No → Must they scroll to see it?
+       ├── Yes → visible
+       └── No → Only needed at a specific screen size?
+            ├── Yes → media
+            └── No → Does it need interaction?
+                 ├── Yes → idle
+                 └── No → never
+```

@@ -11,7 +11,7 @@ export { composeSummary, writeSummary, generateReport } from "./report";
 export type { ReportFormat, GenerateReportOptions } from "./report";
 export { generateHtmlReport } from "./reporter/html";
 export type { HtmlReportOptions, HtmlReportResult } from "./reporter/html";
-export { heal, analyzeFeedback, applyHeal } from "./heal";
+export { heal, analyzeFeedback, applyHeal, recordHealResult } from "./heal";
 export type {
   HealSuggestion,
   FeedbackAnalysis,
@@ -113,3 +113,11 @@ export async function ateHeal(input: HealInput) {
 
 export { runFullPipeline } from "./pipeline";
 export type { AutoPipelineOptions, AutoPipelineResult } from "./pipeline";
+
+// Phase 5: AI Agent Integration
+export { smartSelectRoutes } from "./smart-select";
+export type { SmartSelectInput, SmartSelectResult } from "./smart-select";
+export { detectCoverageGaps } from "./coverage-gap";
+export type { CoverageGap, CoverageGapType, CoverageGapResult } from "./coverage-gap";
+export { precommitCheck } from "./precommit";
+export type { PrecommitInput, PrecommitResult } from "./precommit";

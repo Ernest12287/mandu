@@ -56,7 +56,7 @@ describe("heal integration - feedback & apply", () => {
 
     const result = analyzeFeedback(input);
 
-    expect(result.category).toBe("selector");
+    expect(result.category).toBe("selector-stale");
     expect(result.priority).toBeGreaterThan(5);
     expect(result.autoApplicable).toBe(false); // autoApply is false
     expect(result.suggestions.length).toBeGreaterThan(0);
@@ -103,7 +103,7 @@ describe("heal integration - feedback & apply", () => {
 
     const result = analyzeFeedback(input);
 
-    expect(result.category).toBe("selector");
+    expect(result.category).toBe("selector-stale");
     expect(result.autoApplicable).toBe(true); // selector-map safe + autoApply=true
     expect(result.priority).toBe(8);
   });

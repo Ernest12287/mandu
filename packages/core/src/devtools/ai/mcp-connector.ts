@@ -84,13 +84,29 @@ export type MCPConnectionStatus =
 // Constants
 // ============================================================================
 
+/**
+ * #176: 런타임에 현재 페이지 호스트/포트에서 MCP WebSocket URL을 유추한다.
+ * Bun 번들러가 `typeof window`를 컴파일 시 dead-code 제거하므로
+ * 함수로 감싸서 런타임 평가를 보장한다.
+ */
+function resolveDefaultServerUrl(): string {
+  try {
+    // eslint-disable-next-line no-restricted-globals
+    if (globalThis.document && globalThis.location) {
+      return `ws://${globalThis.location.hostname}:${globalThis.location.port}/mcp`;
+    }
+  } catch { /* SSR / Node / Bun 환경 */ }
+  return 'ws://localhost:3333/mcp';
+}
+
 const DEFAULT_OPTIONS: Required<MCPConnectorOptions> = {
-  serverUrl: 'ws://localhost:3333/mcp',
+  serverUrl: '',  // connect() 시 resolveDefaultServerUrl()로 대체
   connectionTimeout: 5000,
   requestTimeout: 30000,
-  autoReconnect: true,
-  reconnectInterval: 3000,
-  maxReconnectAttempts: 5,
+  // #175: MCP 서버가 없을 수 있으므로 기본 비활성화
+  autoReconnect: false,
+  reconnectInterval: 1000,
+  maxReconnectAttempts: 3,
 };
 
 // ============================================================================
@@ -142,7 +158,9 @@ export class MCPConnector {
       }, this.options.connectionTimeout);
 
       try {
-        this.ws = new WebSocket(this.options.serverUrl);
+        // #176: 빈 serverUrl이면 런타임에서 현재 페이지 기준으로 유추
+        const url = this.options.serverUrl || resolveDefaultServerUrl();
+        this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
           clearTimeout(timeout);
@@ -377,10 +395,11 @@ export class MCPConnector {
   private handleDisconnect(): void {
     this.ws = null;
 
-    if (this.options.autoReconnect && this.status !== 'disconnected') {
+    // #175: handleConnectionError에서 이미 reconnect 예약한 경우 중복 방지
+    if (this.options.autoReconnect && this.status !== 'disconnected' && !this.reconnectTimer) {
       this.setStatus('error');
       this.scheduleReconnect();
-    } else {
+    } else if (!this.reconnectTimer) {
       this.setStatus('disconnected');
     }
   }
@@ -389,12 +408,18 @@ export class MCPConnector {
     console.warn('[Mandu Kitchen] MCP connection error:', error.message);
     this.setStatus('error');
 
-    if (this.options.autoReconnect) {
+    if (this.options.autoReconnect && !this.reconnectTimer) {
       this.scheduleReconnect();
     }
   }
 
   private scheduleReconnect(): void {
+    // #175: 기존 타이머 취소 (중복 방지)
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
       console.warn('[Mandu Kitchen] Max reconnection attempts reached');
       this.setStatus('disconnected');
@@ -402,15 +427,21 @@ export class MCPConnector {
     }
 
     this.reconnectAttempts++;
+    // #175: exponential backoff (1s → 2s → 4s → ... → max 30s)
+    const delay = Math.min(
+      this.options.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1),
+      30_000,
+    );
     console.log(
-      `[Mandu Kitchen] Reconnecting in ${this.options.reconnectInterval}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`
+      `[Mandu Kitchen] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts})`
     );
 
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.connect().catch(() => {
         // 에러는 handleConnectionError에서 처리됨
       });
-    }, this.options.reconnectInterval);
+    }, delay);
   }
 
   private async sendRequest<T>(method: string, params: unknown): Promise<T> {

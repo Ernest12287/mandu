@@ -673,9 +673,10 @@ async function setupMcpConfig(
   const geminiDir = path.join(targetDir, ".gemini");
   const geminiPath = path.join(geminiDir, "settings.json");
 
+  // #174: Python mcp CLI 충돌 방지 — bin 이름 직접 지정
   const manduServer = {
     command: "bunx",
-    args: ["@mandujs/mcp"],
+    args: ["mandu-mcp"],
     cwd: ".",
   };
 

@@ -6,24 +6,24 @@
  * - Tailwind v4 Oxide Engine (Rust) 사용
  * - Zero Config: @import "tailwindcss" 자동 감지
  * - 출력: .mandu/client/globals.css
+ *
+ * #152: Tailwind CLI --watch 모드가 Bun.spawn에서 hang되는 문제 수정
+ * - 원인: @tailwindcss/cli v4 --watch 모드가 Bun subprocess에서 파일 미생성
+ * - 해결: 자체 파일 감시 + 단발 빌드 반복 방식으로 전환
  */
 
-import { spawn, which, type Subprocess } from "bun";
+import { spawn } from "bun";
 import path from "path";
 import fs from "fs/promises";
 import { watch as fsWatch, type FSWatcher } from "fs";
 
 /**
  * Tailwind CLI 실행 명령어를 결정한다.
- * bunx가 PATH에 없는 환경(일부 Windows/CI)에서도 동작하도록
- * `bun x`로 fallback한다.
+ * Windows에서 Bun.spawn은 PATH 기반 명령어 해석이 불안정하므로 (#152)
+ * process.execPath (절대 경로)를 사용해 안정적으로 실행한다.
  */
 function getTailwindCommand(args: string[]): string[] {
-  if (which("bunx")) {
-    return ["bunx", ...args];
-  }
-  // bunx shim이 없어도 `bun x`는 동작함
-  return ["bun", "x", ...args];
+  return [process.execPath, "x", ...args];
 }
 
 // ========== Types ==========
@@ -53,13 +53,11 @@ export interface CSSBuildResult {
 }
 
 export interface CSSWatcher {
-  /** Tailwind CLI 프로세스 */
-  process: Subprocess;
   /** 출력 파일 경로 (절대 경로) */
   outputPath: string;
   /** 서버 경로 (/.mandu/client/globals.css) */
   serverPath: string;
-  /** 프로세스 종료 */
+  /** 감시 중지 */
   close: () => void;
 }
 
@@ -68,6 +66,7 @@ export interface CSSWatcher {
 const DEFAULT_INPUT = "app/globals.css";
 const DEFAULT_OUTPUT = ".mandu/client/globals.css";
 const SERVER_CSS_PATH = "/.mandu/client/globals.css";
+const CSS_REBUILD_DEBOUNCE = 150; // ms
 
 // ========== Detection ==========
 
@@ -80,8 +79,6 @@ export async function isTailwindProject(rootDir: string): Promise<boolean> {
 
   try {
     const content = await fs.readFile(cssPath, "utf-8");
-    // Tailwind v4: @import "tailwindcss"
-    // Tailwind v3: @tailwind base; @tailwind components; @tailwind utilities;
     return (
       content.includes('@import "tailwindcss"') ||
       content.includes("@import 'tailwindcss'") ||
@@ -108,6 +105,59 @@ export async function hasCSSEntry(rootDir: string, input?: string): Promise<bool
 // ========== Build ==========
 
 /**
+ * CSS 단발 빌드 (--watch 없이)
+ * Tailwind CLI --watch가 Bun.spawn에서 hang되므로 (#152) 단발 빌드만 사용
+ */
+async function runCSSBuild(
+  rootDir: string,
+  inputPath: string,
+  outputPath: string,
+  minify: boolean,
+): Promise<CSSBuildResult> {
+  const startTime = performance.now();
+  const args = ["@tailwindcss/cli", "-i", inputPath, "-o", outputPath];
+  if (minify) args.push("--minify");
+
+  try {
+    const proc = spawn(getTailwindCommand(args), {
+      cwd: rootDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      const rawStderr = await new Response(proc.stderr).text();
+      // ANSI escape + 환경 경고 필터링
+      const stderr = rawStderr
+        .replace(/\u001b\[[0-9;]*m/g, "")
+        .split("\n")
+        .filter((l) => l.trim() && !l.includes(".bash_profile") && !l.includes("$'\\377"))
+        .join("\n")
+        .trim();
+      return {
+        success: false,
+        outputPath,
+        error: stderr || `Tailwind CLI exited with code ${exitCode}`,
+      };
+    }
+
+    return {
+      success: true,
+      outputPath,
+      buildTime: performance.now() - startTime,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      outputPath,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * CSS 일회성 빌드 (production용)
  */
 export async function buildCSS(options: CSSBuildOptions): Promise<CSSBuildResult> {
@@ -120,62 +170,23 @@ export async function buildCSS(options: CSSBuildOptions): Promise<CSSBuildResult
 
   const inputPath = path.join(rootDir, input);
   const outputPath = path.join(rootDir, output);
-  const startTime = performance.now();
 
-  // 출력 디렉토리 생성
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
-
-  // Tailwind CLI 실행
-  const args = [
-    "@tailwindcss/cli",
-    "-i", inputPath,
-    "-o", outputPath,
-  ];
-
-  if (minify) {
-    args.push("--minify");
-  }
-
-  try {
-    const proc = spawn(getTailwindCommand(args), {
-      cwd: rootDir,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    // 프로세스 완료 대기
-    const exitCode = await proc.exited;
-
-    if (exitCode !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      return {
-        success: false,
-        outputPath,
-        error: stderr || `Tailwind CLI exited with code ${exitCode}`,
-      };
-    }
-
-    const buildTime = performance.now() - startTime;
-
-    return {
-      success: true,
-      outputPath,
-      buildTime,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      outputPath,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return runCSSBuild(rootDir, inputPath, outputPath, minify);
 }
 
 // ========== Watch ==========
 
 /**
  * CSS 감시 모드 시작 (development용)
- * Tailwind CLI --watch 모드로 실행
+ *
+ * #152: Tailwind CLI --watch 모드가 Bun.spawn에서 파일을 생성하지 않는 문제로 인해
+ * 자체 파일 감시 + 단발 빌드 반복 방식을 사용한다.
+ *
+ * 동작:
+ * 1. 초기 단발 빌드 실행 (await — 서버 시작 전 CSS 준비 보장)
+ * 2. app/, src/ 디렉토리 및 입력 CSS 파일 감시
+ * 3. 관련 파일 변경 시 debounce 후 단발 빌드 재실행
  */
 export async function startCSSWatch(options: CSSBuildOptions): Promise<CSSWatcher> {
   const {
@@ -190,8 +201,8 @@ export async function startCSSWatch(options: CSSBuildOptions): Promise<CSSWatche
   const inputPath = path.join(rootDir, input);
   const outputPath = path.join(rootDir, output);
 
+  // 출력 디렉토리 생성
   try {
-    // 출력 디렉토리 생성
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
   } catch (error) {
     const err = new Error(`CSS 출력 디렉토리 생성 실패: ${error instanceof Error ? error.message : error}`);
@@ -200,139 +211,98 @@ export async function startCSSWatch(options: CSSBuildOptions): Promise<CSSWatche
     throw err;
   }
 
-  // Tailwind CLI 인자 구성
-  const args = [
-    "@tailwindcss/cli",
-    "-i", inputPath,
-    "-o", outputPath,
-    "--watch",
-  ];
-
-  if (minify) {
-    args.push("--minify");
-  }
-
   console.log(`🎨 Tailwind CSS v4 빌드 시작...`);
   console.log(`   입력: ${input}`);
   console.log(`   출력: ${output}`);
 
-  // Bun subprocess로 Tailwind CLI 실행
-  let proc;
-  try {
-    proc = spawn(getTailwindCommand(args), {
-      cwd: rootDir,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch (error) {
-    const err = new Error(
-      `Tailwind CLI 실행 실패. @tailwindcss/cli가 설치되어 있는지 확인하세요.\n` +
-      `설치: bun add -d @tailwindcss/cli tailwindcss\n` +
-      `원인: ${error instanceof Error ? error.message : error}`
-    );
-    console.error(`❌ ${err.message}`);
-    onError?.(err);
-    throw err;
+  // 1. 초기 빌드 (await — 서버 시작 전 CSS 준비 보장)
+  const initialResult = await runCSSBuild(rootDir, inputPath, outputPath, minify);
+
+  if (initialResult.success) {
+    console.log(`   ✅ CSS built (${Math.round(initialResult.buildTime ?? 0)}ms)`);
+  } else {
+    console.error(`   ❌ CSS build failed: ${initialResult.error}`);
+    onError?.(new Error(initialResult.error));
   }
 
-  // 출력 파일 워처로 빌드 완료 감지 (stdout 패턴보다 신뢰성 높음, #111)
-  // Tailwind CLI stdout 출력 형식은 버전마다 달라질 수 있으므로 파일 변경으로 감지
-  let fsWatcher: FSWatcher | null = null;
-  let lastMtime = 0;
+  // 2. 파일 감시 설정 (CSS 소스, app/, src/ 디렉토리)
+  const watchers: FSWatcher[] = [];
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let isBuilding = false;
+  let pendingRebuild = false;
 
-  const startFileWatcher = () => {
-    try {
-      fsWatcher = fsWatch(outputPath, () => {
-        // 연속 이벤트 중복 방지 (50ms 이내 재발생 무시)
-        const now = Date.now();
-        if (now - lastMtime < 50) return;
-        lastMtime = now;
-        console.log(`   ✅ CSS rebuilt`);
-        onBuild?.({ success: true, outputPath });
-      });
-    } catch {
-      // 파일이 아직 없으면 500ms 후 재시도
-      setTimeout(startFileWatcher, 500);
-    }
+  const triggerRebuild = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+
+    debounceTimer = setTimeout(async () => {
+      if (isBuilding) {
+        pendingRebuild = true;
+        return;
+      }
+
+      isBuilding = true;
+      try {
+        const result = await runCSSBuild(rootDir, inputPath, outputPath, minify);
+        if (result.success) {
+          console.log(`   ✅ CSS rebuilt (${Math.round(result.buildTime ?? 0)}ms)`);
+          onBuild?.(result);
+        } else {
+          console.error(`   ❌ CSS rebuild failed: ${result.error}`);
+          onError?.(new Error(result.error));
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error(`   ❌ CSS rebuild error: ${error.message}`);
+        onError?.(error);
+      } finally {
+        isBuilding = false;
+        if (pendingRebuild) {
+          pendingRebuild = false;
+          triggerRebuild();
+        }
+      }
+    }, CSS_REBUILD_DEBOUNCE);
   };
 
-  // stdout 로그용 (빌드 시작/완료 메시지 표시)
-  (async () => {
-    const reader = proc.stdout.getReader();
-    const decoder = new TextDecoder();
+  // CSS/TSX/HTML 파일 변경 시 리빌드 트리거
+  const isRelevantChange = (filename: string | null): boolean => {
+    if (!filename) return false;
+    const ext = path.extname(filename).toLowerCase();
+    return [".css", ".tsx", ".ts", ".jsx", ".js", ".html"].includes(ext);
+  };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+  // 감시 대상 디렉토리
+  const watchTargets = ["app", "src"];
 
-      const text = decoder.decode(value);
-      const lines = text.split("\n").filter((l) => l.trim());
-
-      for (const line of lines) {
-        if (line.includes("warn") || line.includes("Warning")) {
-          console.log(`   ⚠️  CSS ${line.trim()}`);
+  for (const dir of watchTargets) {
+    const absDir = path.join(rootDir, dir);
+    try {
+      await fs.access(absDir);
+      const watcher = fsWatch(absDir, { recursive: true }, (_event, filename) => {
+        if (isRelevantChange(filename)) {
+          triggerRebuild();
         }
-      }
+      });
+      watchers.push(watcher);
+    } catch {
+      // 디렉토리 없으면 무시
     }
-  })();
+  }
 
-  // 초기 빌드 완료 후 파일 워처 시작
-  startFileWatcher();
-
-  // stderr 모니터링 (에러 감지)
-  (async () => {
-    const reader = proc.stderr.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const rawText = decoder.decode(value).trim();
-      // ANSI 이스케이프 코드 제거 후 비교 (Tailwind CLI가 컬러 출력)
-      const text = rawText.replace(/\u001b\[[0-9;]*m/g, "").trim();
-      if (text) {
-        // 환경 경고 무시
-        if (text.includes(".bash_profile") || text.includes("$'\\377")) {
-          continue;
-        }
-        // Tailwind CLI 정상 진행 메시지는 info 레벨로 처리
-        // (패키지 해석, 다운로드, 잠금 파일 등은 정상 동작)
-        if (
-          text.includes("Resolving dependencies") ||
-          text.includes("Resolved, downloaded") ||
-          text.includes("Saved lockfile") ||
-          text.includes("tailwindcss") ||
-          text.match(/^v?\d+\.\d+\.\d+/) // 버전 출력
-        ) {
-          if (text) console.log(`   ℹ️  CSS: ${text}`);
-          continue;
-        }
-        console.error(`   ❌ CSS Error: ${text}`);
-        onError?.(new Error(text));
-      }
-    }
-  })();
-
-  // 프로세스 종료 감지
-  proc.exited.then((code) => {
-    if (code !== 0 && code !== null) {
-      console.error(`   ❌ Tailwind CLI exited with code ${code}`);
-    }
-  });
+  // 입력 CSS 파일 직접 감시 (app/ 외부에 있을 수도 있으므로)
+  try {
+    const cssWatcher = fsWatch(inputPath, () => triggerRebuild());
+    watchers.push(cssWatcher);
+  } catch {
+    // 무시
+  }
 
   return {
-    process: proc,
     outputPath,
     serverPath: SERVER_CSS_PATH,
     close: () => {
-      fsWatcher?.close();
-      // Windows에서는 SIGTERM이 무시될 수 있으므로 SIGKILL 사용 (#117)
-      if (process.platform === "win32") {
-        proc.kill("SIGKILL");
-      } else {
-        proc.kill();
-      }
+      if (debounceTimer) clearTimeout(debounceTimer);
+      for (const w of watchers) w.close();
     },
   };
 }

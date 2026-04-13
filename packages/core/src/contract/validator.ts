@@ -248,18 +248,23 @@ export class ContractValidator {
 
         const result = methodSchema.body.safeParse(body);
         if (!result.success) {
+          const enrichedIssues = zodErrorToIssues(result.error).map((issue) => ({
+            ...issue,
+            message: `${issue.path.length > 0 ? `At '${issue.path.join(".")}': ` : ""}${issue.message}`,
+          }));
           errors.push({
             type: "body",
-            issues: zodErrorToIssues(result.error),
+            issues: enrichedIssues,
           });
         }
       } catch (error) {
+        const contentType = req.headers.get("content-type") || "(not set)";
         errors.push({
           type: "body",
           issues: [
             {
               path: [],
-              message: `Failed to parse request body: ${error instanceof Error ? error.message : "Unknown error"}`,
+              message: `Failed to parse request body (received Content-Type: '${contentType}'): ${error instanceof Error ? error.message : "Unknown error"}. Ensure the body matches the declared Content-Type and is well-formed.`,
               code: "invalid_type",
             },
           ],
@@ -420,20 +425,25 @@ export class ContractValidator {
         const bodySchema = normalizeSchema(methodSchema.body, normalizeOpts);
         const result = bodySchema.safeParse(body);
         if (!result.success) {
+          const enrichedIssues = zodErrorToIssues(result.error).map((issue) => ({
+            ...issue,
+            message: `${issue.path.length > 0 ? `At '${issue.path.join(".")}': ` : ""}${issue.message}`,
+          }));
           errors.push({
             type: "body",
-            issues: zodErrorToIssues(result.error),
+            issues: enrichedIssues,
           });
         } else {
           normalizedData.body = result.data;
         }
       } catch (error) {
+        const contentType = req.headers.get("content-type") || "(not set)";
         errors.push({
           type: "body",
           issues: [
             {
               path: [],
-              message: `Failed to parse request body: ${error instanceof Error ? error.message : "Unknown error"}`,
+              message: `Failed to parse request body (received Content-Type: '${contentType}'): ${error instanceof Error ? error.message : "Unknown error"}. Ensure the body matches the declared Content-Type and is well-formed.`,
               code: "invalid_type",
             },
           ],

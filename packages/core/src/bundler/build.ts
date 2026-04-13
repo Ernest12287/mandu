@@ -64,7 +64,10 @@ async function buildPerIslandBundle(
       define: { "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"), ...options.define },
     });
     await fs.unlink(entryPath).catch(() => {});
-    if (!result.success) throw new Error(result.logs.map((l) => l.message).join("\n"));
+    if (!result.success) {
+      const grouped = result.logs.map((l) => `  - ${l.message}`).join("\n");
+      throw new Error(`Island build failed for '${entry.name}' (source: ${entry.filePath}):\n${grouped}\n  Hint: Check the import paths and TypeScript types in this island file.`);
+    }
     return { name: entry.name, js: `/.mandu/client/${outputName}`, route: entry.routeId, priority: entry.priority };
   } catch (error) {
     await fs.unlink(entryPath).catch(() => {});
@@ -986,10 +989,11 @@ if (typeof window !== 'undefined') {
     await fs.unlink(srcPath).catch(() => {});
 
     if (!result.success) {
+      const grouped = result.logs.map((l) => `  - ${l.message}`).join("\n");
       return {
         success: false,
         outputPath: "",
-        errors: result.logs.map((l) => l.message),
+        errors: [`DevTools client build failed (source: ${srcPath}):\n${grouped}\n  Hint: Check the import paths and TypeScript types.`],
       };
     }
 
@@ -1003,7 +1007,7 @@ if (typeof window !== 'undefined') {
     return {
       success: false,
       outputPath: "",
-      errors: [String(error)],
+      errors: [`DevTools client build threw an exception (source: ${srcPath}): ${String(error)}`],
     };
   }
 }
@@ -1037,10 +1041,11 @@ async function buildRouterRuntime(
     await fs.unlink(routerPath).catch(() => {});
 
     if (!result.success) {
+      const grouped = result.logs.map((l) => `  - ${l.message}`).join("\n");
       return {
         success: false,
         outputPath: "",
-        errors: result.logs.map((l) => l.message),
+        errors: [`Router runtime build failed (source: ${routerPath}):\n${grouped}\n  Hint: Check the import paths and TypeScript types.`],
       };
     }
 
@@ -1054,7 +1059,7 @@ async function buildRouterRuntime(
     return {
       success: false,
       outputPath: "",
-      errors: [String(error)],
+      errors: [`Router runtime build threw an exception (source: ${routerPath}): ${String(error)}`],
     };
   }
 }
@@ -1111,10 +1116,11 @@ async function buildRuntime(
 
     if (!result.success) {
       // 실패 시 디버깅을 위해 소스 파일을 남겨둠 (_runtime.src.js)
+      const grouped = result.logs.map((l) => `  - ${l.message}`).join("\n");
       return {
         success: false,
         outputPath: "",
-        errors: result.logs.map((l) => l.message),
+        errors: [`Runtime bundle build failed (source: ${runtimePath}):\n${grouped}\n  Hint: Check the import paths and TypeScript types. The source file has been kept for debugging.`],
       };
     }
 
@@ -1140,7 +1146,7 @@ async function buildRuntime(
     return {
       success: false,
       outputPath: "",
-      errors: [String(error), ...extra].filter(Boolean),
+      errors: [`Runtime bundle build threw an exception (source: ${runtimePath}): ${String(error)}`, ...extra].filter(Boolean),
     };
   }
 }
@@ -1219,9 +1225,10 @@ async function buildVendorShims(
       await fs.unlink(srcPath).catch(() => {});
 
       if (!result.success) {
+        const grouped = result.logs.map((l) => `  - ${l.message}`).join("\n");
         return {
           key: shim.key,
-          error: `[${shim.name}] ${result.logs.map((l) => l.message).join(", ")}`,
+          error: `Vendor shim '${shim.name}' build failed (source: ${srcPath}):\n${grouped}\n  Hint: Check the import paths and ensure the vendor package is installed.`,
         };
       }
 
@@ -1296,7 +1303,8 @@ async function buildIsland(
     await fs.unlink(entryPath).catch(() => {});
 
     if (!result.success) {
-      throw new Error(result.logs.map((l) => l.message).join("\n"));
+      const grouped = result.logs.map((l) => `  - ${l.message}`).join("\n");
+      throw new Error(`Island build failed for route '${route.id}' (source: ${clientModulePath}):\n${grouped}\n  Hint: Check the import paths and TypeScript types in this island file.`);
     }
 
     // 출력 파일 정보

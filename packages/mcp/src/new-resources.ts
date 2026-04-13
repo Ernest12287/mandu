@@ -8,6 +8,7 @@ import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import path from "path";
 import { readConfig, readJsonFile } from "./utils/project.js";
 import { loadManduConfig, loadManifest } from "@mandujs/core";
+import { eventBus } from "@mandujs/core/observability";
 import { getDevServerState } from "./tools/project.js";
 
 export const manduResourceDefinitions: Resource[] = [
@@ -27,6 +28,12 @@ export const manduResourceDefinitions: Resource[] = [
     uri: "mandu://errors",
     name: "Recent Errors",
     description: "Recent build and runtime errors",
+    mimeType: "application/json",
+  },
+  {
+    uri: "mandu://activity",
+    name: "Recent Activity",
+    description: "Recent observability events (HTTP, MCP, Guard) from EventBus + 5-minute stats",
     mimeType: "application/json",
   },
 ];
@@ -79,6 +86,25 @@ export function manduResourceHandlers(projectRoot: string): Record<string, Resou
           hint: "Create a mandu.config.ts in the project root.",
         });
       }
+    },
+
+    "mandu://activity": async () => {
+      // Phase 5-3: AI 에이전트가 EventBus 활동을 직접 조회 가능
+      const recent = eventBus.getRecent(20);
+      const stats = eventBus.getStats(5 * 60 * 1000); // last 5 minutes
+      return jsonResult("mandu://activity", {
+        recent: recent.map((e) => ({
+          ts: new Date(e.timestamp).toISOString(),
+          type: e.type,
+          severity: e.severity,
+          source: e.source,
+          message: e.message,
+          duration: e.duration,
+          correlationId: e.correlationId,
+        })),
+        stats,
+        windowMs: 5 * 60 * 1000,
+      });
     },
 
     "mandu://errors": async () => {

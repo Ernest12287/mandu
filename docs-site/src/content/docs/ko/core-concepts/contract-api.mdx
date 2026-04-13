@@ -1,0 +1,261 @@
+---
+title: Contract API
+description: Mandu Contract API로 Zod 스키마 기반의 타입 안전한 API를 정의하세요. TypeScript 타입 추론, 런타임 검증, OpenAPI 문서 생성을 한 번에 해결합니다.
+---
+
+Contract는 API의 명세(specification)입니다. Zod 스키마로 요청과 응답을 정의하면, Mandu가 TypeScript 타입 추론, 런타임 검증, OpenAPI 문서 생성을 자동으로 처리합니다.
+
+## 기본 사용법
+
+```typescript
+import { Mandu } from "@mandujs/core";
+import { z } from "zod";
+
+const TodoSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  done: z.boolean(),
+});
+
+export default Mandu.contract({
+  description: "Todo 관리 API",
+  tags: ["todos"],
+
+  request: {
+    GET: {
+      query: z.object({
+        page: z.coerce.number().default(1),
+        limit: z.coerce.number().default(10),
+      }),
+    },
+    POST: {
+      body: TodoSchema.omit({ id: true }),
+    },
+  },
+
+  response: {
+    200: z.object({ data: z.array(TodoSchema) }),
+    201: z.object({ data: TodoSchema }),
+    400: z.object({ error: z.string() }),
+    404: z.object({ error: z.string() }),
+  },
+});
+```
+
+## Contract가 해결하는 문제
+
+| 문제 | Contract 없이 | Contract 있으면 |
+|------|---------------|-----------------|
+| 타입 안전성 | `any` 또는 수동 타입 정의 | 스키마에서 자동 추론 |
+| 런타임 검증 | `if (!req.body.title)` 수동 체크 | 자동 검증 |
+| API 문서 | Swagger/OpenAPI 수동 작성 | 스키마에서 자동 생성 |
+| 클라이언트 타입 | API 응답 수동 타입 정의 | Contract에서 자동 추론 |
+
+## Contract + Handler
+
+Contract를 정의한 후 Handler를 연결하면, 요청과 응답에 대한 타입 추론이 자동으로 적용됩니다.
+
+```typescript
+import { Mandu } from "@mandujs/core";
+import { z } from "zod";
+
+// 1. Contract 정의
+const userContract = Mandu.contract({
+  request: {
+    GET: {
+      query: z.object({ id: z.string() }),
+    },
+    POST: {
+      body: z.object({
+        name: z.string(),
+        email: z.string().email(),
+      }),
+    },
+  },
+  response: {
+    200: z.object({
+      user: z.object({ id: z.string(), name: z.string() }),
+    }),
+    201: z.object({
+      user: z.object({ id: z.string(), name: z.string() }),
+    }),
+  },
+});
+
+// 2. Handler 정의 (타입 자동 추론)
+const handlers = Mandu.handler(userContract, {
+  GET: async (ctx) => {
+    // ctx.query.id 는 string 타입
+    const user = await db.users.findUnique({
+      where: { id: ctx.query.id },
+    });
+    return { user };
+  },
+  POST: async (ctx) => {
+    // ctx.body.name, ctx.body.email 자동 추론
+    const user = await db.users.create({ data: ctx.body });
+    return { user };
+  },
+});
+```
+
+## Route (Contract + Handler 통합)
+
+Contract와 Handler를 한 번에 정의하려면 `route`를 사용합니다.
+
+```typescript
+export default Mandu.route({
+  contract: {
+    request: {
+      GET: {
+        query: z.object({ id: z.string() }),
+      },
+    },
+    response: {
+      200: z.object({ data: z.string() }),
+    },
+  },
+  handler: {
+    GET: (ctx) => ({ data: ctx.query.id }),
+  },
+});
+```
+
+## 타입 안전한 클라이언트
+
+Contract에서 타입 안전한 API 클라이언트를 생성할 수 있습니다.
+
+```typescript
+import { Mandu } from "@mandujs/core";
+import userContract from "./contracts/user.contract";
+
+const client = Mandu.client(userContract, {
+  baseUrl: "http://localhost:3333/api/users",
+});
+
+// 타입 추론이 적용된 API 호출
+const users = await client.GET({ query: { page: 1 } });
+const newUser = await client.POST({
+  body: { name: "Alice", email: "alice@example.com" },
+});
+```
+
+단일 요청에는 `fetch`를 사용합니다.
+
+```typescript
+const result = await Mandu.fetch(userContract, "GET", "/api/users", {
+  query: { page: 1 },
+});
+```
+
+## Client-Safe Contract
+
+서버 전용 로직을 제외하고 클라이언트에 노출할 스키마만 선택할 수 있습니다.
+
+```typescript
+import { Mandu } from "@mandujs/core";
+
+const clientContract = Mandu.clientContract(fullContract);
+```
+
+## OpenAPI 자동 생성
+
+Contract에서 OpenAPI 3.0 스펙을 자동으로 생성합니다.
+
+```typescript
+import { generateOpenAPISpec } from "@mandujs/core";
+
+const spec = generateOpenAPISpec(todoContract, {
+  title: "Todo API",
+  version: "1.0.0",
+  servers: [
+    { url: "http://localhost:3333", description: "개발 서버" },
+    { url: "https://api.example.com", description: "프로덕션" },
+  ],
+});
+
+// spec은 OpenAPI 3.0.3 호환 JSON 객체
+```
+
+생성되는 스펙 구조:
+
+```json
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Todo API", "version": "1.0.0" },
+  "paths": {
+    "/api/todos": {
+      "get": {
+        "operationId": "listTodos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/listTodosOutput" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": { "..." : "Zod 스키마에서 자동 변환" }
+  }
+}
+```
+
+## 코드 생성
+
+Contract에서 다양한 코드를 자동 생성할 수 있습니다.
+
+```typescript
+import { generateAllFromContract } from "@mandujs/core";
+
+const { handlers, hooks, types } = generateAllFromContract(userContract);
+
+// handlers: 각 엔드포인트의 Filling 핸들러 코드
+// hooks: React Query 기반 클라이언트 훅 코드
+// types: TypeScript 타입 정의
+```
+
+## defineContract (저수준 API)
+
+세밀한 제어가 필요한 경우 `defineContract`를 직접 사용합니다.
+
+```typescript
+import { defineContract } from "@mandujs/core";
+import { z } from "zod";
+
+export const userContract = defineContract({
+  getUser: {
+    method: "GET",
+    path: "/api/users/:id",
+    params: z.object({ id: z.string() }),
+    output: z.object({ name: z.string(), email: z.string() }),
+  },
+  createUser: {
+    method: "POST",
+    path: "/api/users",
+    input: z.object({ name: z.string(), email: z.string() }),
+    output: z.object({ id: z.string() }),
+    errors: ["BAD_REQUEST"],
+    tags: ["users"],
+  },
+});
+```
+
+## Zod 스키마 변환 지원
+
+Contract의 OpenAPI 생성에서 지원하는 Zod 타입:
+
+| Zod 타입 | OpenAPI 변환 |
+|----------|-------------|
+| `z.string()` | `{ type: "string" }` |
+| `z.number()` | `{ type: "number" }` |
+| `z.boolean()` | `{ type: "boolean" }` |
+| `z.array()` | `{ type: "array", items: ... }` |
+| `z.object()` | `{ type: "object", properties: ... }` |
+| `z.optional()` | required에서 제외 |
+| `z.nullable()` | `{ nullable: true }` |
+| `z.enum()` | `{ type: "string", enum: [...] }` |

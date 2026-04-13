@@ -1,0 +1,177 @@
+---
+title: Guard System
+description: Mandu Guard는 프로젝트의 아키텍처 규칙을 정의하고 실시간으로 import 위반을 감시합니다. 6개의 내장 프리셋을 제공합니다.
+---
+
+Guard는 프로젝트의 아키텍처 규칙을 정의하고 실시간으로 import 경로를 감시합니다. 잘못된 의존성 방향을 즉시 감지하여 아키텍처 붕괴를 방지합니다.
+
+## 설정
+
+`mandu.config.ts`에서 Guard 프리셋을 선택합니다.
+
+```typescript
+// mandu.config.ts
+import { defineConfig } from "@mandujs/core";
+
+export default defineConfig({
+  guard: {
+    preset: "mandu",        // 6개 프리셋 중 선택
+    severity: {
+      layerViolation: "error",
+      circularDependency: "warn",
+      crossSliceDependency: "warn",
+      deepNesting: "info",
+      fileType: "error",
+    },
+  },
+});
+```
+
+## 6개 내장 프리셋
+
+### FSD (Feature-Sliced Design)
+
+프론트엔드에 특화된 수직 슬라이스 아키텍처입니다.
+
+```
+app → pages → widgets → features → entities → shared
+```
+
+각 레이어는 아래 방향으로만 import할 수 있습니다. `features`에서 `pages`를 import하면 위반입니다.
+
+```typescript
+// mandu.config.ts
+export default defineConfig({
+  guard: { preset: "fsd" },
+});
+```
+
+### Clean Architecture
+
+도메인 중심의 전통적인 계층 구조입니다.
+
+```
+api → application → domain ← infrastructure
+```
+
+`domain`은 외부 의존성이 없는 순수 레이어입니다. `infrastructure`는 `domain`의 인터페이스를 구현합니다.
+
+```typescript
+export default defineConfig({
+  guard: { preset: "clean" },
+});
+```
+
+### Hexagonal Architecture
+
+포트/어댑터 패턴 기반의 구조입니다.
+
+```
+adapters → ports → domain
+```
+
+외부 시스템과의 연결은 반드시 어댑터를 통해야 합니다.
+
+```typescript
+export default defineConfig({
+  guard: { preset: "hexagonal" },
+});
+```
+
+### Atomic Design
+
+UI 컴포넌트를 단위별로 분류하는 구조입니다.
+
+```
+templates → organisms → molecules → atoms
+```
+
+```typescript
+export default defineConfig({
+  guard: { preset: "atomic" },
+});
+```
+
+### CQRS (Command Query Responsibility Segregation)
+
+읽기와 쓰기 경로를 분리하는 구조입니다.
+
+```
+commands (쓰기) / queries (읽기) → domain ← events
+```
+
+```typescript
+export default defineConfig({
+  guard: { preset: "cqrs" },
+});
+```
+
+### Mandu (권장)
+
+Mandu가 풀스택 프로젝트를 위해 설계한 프리셋입니다. FSD(클라이언트) + Clean(서버) + Strict Shared를 조합한 구조입니다.
+
+```
+Client (FSD)                     Shared                    Server (Clean)
+client/app                       shared/contracts          server/api
+client/pages                     shared/types              server/application
+client/widgets                   shared/utils/client       server/domain
+client/features                  shared/utils/server       server/infra
+client/entities                  shared/schema             server/core
+client/shared                    shared/env
+```
+
+규칙 예시:
+
+- `client/*` 레이어는 `server/*`를 import할 수 없습니다.
+- `shared/contracts`는 클라이언트와 서버 모두 사용 가능합니다.
+- `shared/utils/server`는 서버에서만 import 가능합니다.
+- `server/domain`은 외부 의존성 없이 순수합니다.
+
+```typescript
+export default defineConfig({
+  guard: { preset: "mandu" },
+});
+```
+
+## 위반 유형과 심각도
+
+| 위반 유형 | 설명 | 기본 심각도 |
+|-----------|------|-------------|
+| `layerViolation` | 상위 레이어가 하위 레이어를 import | error |
+| `circularDependency` | 순환 의존성 | warn |
+| `crossSliceDependency` | 같은 계층의 다른 슬라이스를 직접 import | warn |
+| `deepNesting` | 과도한 디렉토리 깊이 | info |
+| `fileType` | 허용되지 않는 파일 확장자 | error |
+
+## 심각도 수준
+
+| 수준 | 동작 |
+|------|------|
+| `error` | 빌드 실패, 개발 서버에서 경고 표시 |
+| `warn` | 경고 출력, 빌드는 성공 |
+| `info` | 정보 출력 |
+
+## 작동 방식
+
+1. Guard는 `mandu.config.ts`에서 프리셋을 읽습니다.
+2. 프리셋은 레이어 목록과 각 레이어의 import 허용 규칙을 정의합니다.
+3. 개발 서버에서 파일이 변경될 때마다 해당 파일의 import를 분석합니다.
+4. 위반이 감지되면 설정된 심각도에 따라 에러 또는 경고를 출력합니다.
+
+## 프리셋 목록 확인
+
+코드에서 사용 가능한 프리셋 목록을 확인할 수 있습니다.
+
+```typescript
+import { listPresets } from "@mandujs/core";
+
+const presets = listPresets();
+// [
+//   { name: "fsd",        description: "Feature-Sliced Design" },
+//   { name: "clean",      description: "Clean Architecture" },
+//   { name: "hexagonal",  description: "Hexagonal Architecture" },
+//   { name: "atomic",     description: "Atomic Design" },
+//   { name: "cqrs",       description: "CQRS" },
+//   { name: "mandu",      description: "Mandu 권장 아키텍처" },
+// ]
+```
