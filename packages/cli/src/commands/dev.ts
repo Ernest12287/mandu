@@ -26,7 +26,7 @@ import {
 import { resolveFromCwd } from "../util/fs";
 import { resolveOutputFormat } from "../util/output";
 import { CLI_ERROR_CODES, printCLIError } from "../errors";
-import { importFresh } from "../util/bun";
+import { createBundledImporter } from "../util/bun";
 import { resolveManifest } from "../util/manifest";
 import { resolveAvailablePort } from "../util/port";
 import {
@@ -162,10 +162,17 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   // Track layout paths (prevent duplicate registration)
   const registeredLayouts = new Set<string>();
 
+  // #184/#187: bundle-and-import 패턴으로 transitive ESM 캐시 우회.
+  // Bun의 ESM 캐시는 프로세스 레벨이라 importFresh로 entry만 cache-bust해도
+  // src/shared/* 같은 transitive 의존성은 첫 boot의 캐시된 버전을 계속 반환함.
+  // bundled importer는 매 호출마다 user 코드를 단일 ESM bundle로 합쳐 새 파일로
+  // 출력 → 새 URL로 import → Bun이 전혀 새 모듈로 인식 → 모든 변경이 반영.
+  const bundledImport = createBundledImporter({ rootDir });
+
   // Handler registration function (uses shared utility)
   const registerHandlers = async (m: RoutesManifest, isReload = false) => {
     await registerManifestHandlers(m, rootDir, {
-      importFn: importFresh,
+      importFn: bundledImport,
       registeredLayouts,
       isReload,
     });
