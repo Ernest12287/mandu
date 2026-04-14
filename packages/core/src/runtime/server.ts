@@ -5,6 +5,14 @@ import type { ManduFilling, RenderMode } from "../filling/filling";
 import { ManduContext, type CookieManager } from "../filling/context";
 import { Router } from "./router";
 import { renderSSR, renderStreamingResponse } from "./ssr";
+import {
+  resolveMetadata,
+  renderMetadata,
+  renderTitle,
+  type Metadata,
+  type MetadataItem,
+  type GenerateMetadata,
+} from "../seo";
 import { type ErrorFallbackProps } from "./boundary";
 import React, { type ReactNode } from "react";
 import path from "path";
@@ -466,6 +474,17 @@ export class ServerRegistry {
   readonly layoutSlotPaths: Map<string, string | null> = new Map();
   /** WebSocket 핸들러 (라우트 ID → WSHandlers) */
   readonly wsHandlers: Map<string, import("../filling/ws").WSHandlers> = new Map();
+  /**
+   * Metadata API 캐시 (#186)
+   * - pageMetadata: routeId → page 모듈의 static `metadata` export
+   * - pageGenerateMetadata: routeId → `generateMetadata` 함수
+   * - layoutMetadata: layout 모듈 경로 → static `metadata` export (null = 시도했지만 없음)
+   * - layoutGenerateMetadata: layout 모듈 경로 → `generateMetadata` 함수
+   */
+  readonly pageMetadata: Map<string, import("../seo").Metadata> = new Map();
+  readonly pageGenerateMetadata: Map<string, import("../seo").GenerateMetadata> = new Map();
+  readonly layoutMetadata: Map<string, import("../seo").Metadata | null> = new Map();
+  readonly layoutGenerateMetadata: Map<string, import("../seo").GenerateMetadata> = new Map();
   settings: ServerRegistrySettings = {
     isDev: false,
     rootDir: process.cwd(),
@@ -537,6 +556,22 @@ export class ServerRegistry {
     const cached = cacheMap.get(modulePath);
     if (cached) return cached;
 
+    // #186: layout인 경우 metadata / generateMetadata export를 함께 캐싱
+    const cacheLayoutMetadata = (mod: unknown) => {
+      if (type !== "layout") return;
+      if (this.layoutMetadata.has(modulePath)) return;
+      const modObj = (mod && typeof mod === "object" ? (mod as Record<string, unknown>) : null);
+      const staticMeta = modObj?.metadata;
+      const generateFn = modObj?.generateMetadata;
+      this.layoutMetadata.set(
+        modulePath,
+        staticMeta && typeof staticMeta === "object" ? (staticMeta as Metadata) : null,
+      );
+      if (typeof generateFn === "function") {
+        this.layoutGenerateMetadata.set(modulePath, generateFn as GenerateMetadata);
+      }
+    };
+
     // 2. 등록된 로더 시도
     const loader = loaderMap.get(modulePath);
     if (loader) {
@@ -544,6 +579,7 @@ export class ServerRegistry {
         const module = await loader();
         const component = module.default;
         cacheMap.set(modulePath, component);
+        cacheLayoutMetadata(module);
         return component;
       } catch (error) {
         console.error(`[Mandu] Failed to load ${type}: ${modulePath}`, error);
@@ -562,6 +598,7 @@ export class ServerRegistry {
       const module = await import(validation.value);
       const component = module.default;
       cacheMap.set(modulePath, component);
+      cacheLayoutMetadata(module);
       return component;
     } catch (error) {
       // layout은 에러 로깅, loading/error는 조용히 실패
@@ -611,6 +648,10 @@ export class ServerRegistry {
     this.loadingLoaders.clear();
     this.errorComponents.clear();
     this.errorLoaders.clear();
+    this.pageMetadata.clear();
+    this.pageGenerateMetadata.clear();
+    this.layoutMetadata.clear();
+    this.layoutGenerateMetadata.clear();
     this.createAppFn = null;
     this.rateLimiter = null;
   }
@@ -1270,6 +1311,18 @@ async function loadPageData(
         : (exportedObj?.component ?? exported);
       registry.registerRouteComponent(route.id, component as RouteComponent);
 
+      // #186: page 모듈에서 metadata / generateMetadata export 캐싱
+      const modObj = module as Record<string, unknown>;
+      if (modObj.metadata && typeof modObj.metadata === "object") {
+        registry.pageMetadata.set(route.id, modObj.metadata as Metadata);
+      }
+      if (typeof modObj.generateMetadata === "function") {
+        registry.pageGenerateMetadata.set(
+          route.id,
+          modObj.generateMetadata as GenerateMetadata,
+        );
+      }
+
       // filling이 있으면 캐시 옵션 등록 + loader 실행
       let cookies: CookieManager | undefined;
       const filling = typeof exported === "object" && exported !== null ? (exportedObj as Record<string, unknown>)?.filling as ManduFilling | null : null;
@@ -1386,6 +1439,92 @@ async function loadLayoutData(
 // ---------- SSR Renderer ----------
 
 /**
+ * #186: URL에서 searchParams를 Record<string, string>로 추출 (SEO 모듈 시그니처)
+ */
+function extractSearchParams(url: string): Record<string, string> {
+  try {
+    const u = new URL(url);
+    const result: Record<string, string> = {};
+    for (const [key, value] of u.searchParams.entries()) {
+      if (!(key in result)) result[key] = value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * #186: layout chain + page metadata를 순서대로 수집해 MetadataItem[] 구성
+ * - 각 layout의 generateMetadata 우선, 없으면 static metadata
+ * - page 모듈의 generateMetadata 우선, 없으면 static metadata
+ * - 결과 배열을 SEO 모듈의 resolveMetadata에 전달
+ */
+async function collectMetadataItems(
+  route: { id: string; layoutChain?: string[] },
+  registry: ServerRegistry,
+): Promise<MetadataItem[]> {
+  const items: MetadataItem[] = [];
+
+  if (route.layoutChain) {
+    for (const layoutPath of route.layoutChain) {
+      // Layout 모듈 로드 → metadata / generateMetadata 캐시 채움
+      await registry.getLayoutComponent(layoutPath);
+      const dyn = registry.layoutGenerateMetadata.get(layoutPath);
+      if (dyn) {
+        items.push(dyn);
+        continue;
+      }
+      const staticMeta = registry.layoutMetadata.get(layoutPath);
+      if (staticMeta) items.push(staticMeta);
+    }
+  }
+
+  const pageDyn = registry.pageGenerateMetadata.get(route.id);
+  if (pageDyn) {
+    items.push(pageDyn);
+  } else {
+    const pageStatic = registry.pageMetadata.get(route.id);
+    if (pageStatic) items.push(pageStatic);
+  }
+
+  return items;
+}
+
+/**
+ * #186: 해석된 Metadata를 SSR 옵션(title + headTags)으로 변환
+ */
+async function buildSSRMetadata(
+  route: { id: string; layoutChain?: string[] },
+  params: Record<string, string>,
+  url: string,
+  registry: ServerRegistry,
+): Promise<{ title: string; headTags: string }> {
+  try {
+    const items = await collectMetadataItems(route, registry);
+    if (items.length === 0) {
+      return { title: "Mandu App", headTags: "" };
+    }
+    const resolved = await resolveMetadata(items, params, extractSearchParams(url));
+    const titleHtml = renderTitle(resolved);
+    const headTags = renderMetadata(resolved);
+    // resolveMetadata는 <title>을 headTags 안에 이미 포함시키므로,
+    // 중복 방지를 위해 title은 문자열만 뽑고 headTags에서 <title>을 제거
+    const title = extractTitleText(titleHtml) ?? "Mandu App";
+    const headWithoutTitle = headTags.replace(/<title>[^<]*<\/title>\n?/i, "");
+    return { title, headTags: headWithoutTitle };
+  } catch (error) {
+    console.warn("[Mandu] metadata resolution failed:", error);
+    return { title: "Mandu App", headTags: "" };
+  }
+}
+
+function extractTitleText(titleHtml: string): string | null {
+  const match = /<title>([^<]*)<\/title>/i.exec(titleHtml);
+  return match ? match[1] : null;
+}
+
+/**
  * SSR 렌더링 (Streaming/Non-streaming)
  */
 async function renderPageSSR(
@@ -1437,6 +1576,9 @@ async function renderPageSSR(
       ? { [route.id]: { serverData: loaderData } }
       : undefined;
 
+    // #186: layout chain + page metadata 병합
+    const builtMeta = await buildSSRMetadata(route, params, url, registry);
+
     // Streaming SSR 모드 결정
     const useStreaming = route.streaming !== undefined
       ? route.streaming
@@ -1444,9 +1586,8 @@ async function renderPageSSR(
 
     if (useStreaming) {
       const streamingResponse = await renderStreamingResponse(app, {
-        // #182: route.id는 동적 세그먼트(`$lang` 등)를 그대로 포함하므로
-        // metadata가 없을 때 사용자에게 노출하지 않는다.
-        title: 'Mandu App',
+        title: builtMeta.title,
+        headTags: builtMeta.headTags,
         isDev: settings.isDev,
         hmrPort: settings.hmrPort,
         routeId: route.id,
@@ -1479,8 +1620,8 @@ async function renderPageSSR(
     // renderToHTML에서 중복 래핑하지 않도록 hydration을 전달하되 strategy를 "none"으로 설정
     // 단, hydration 스크립트(importmap, runtime 등)는 여전히 필요하므로 bundleManifest는 유지
     const ssrResponse = renderSSR(app, {
-      // #182: route.id의 동적 세그먼트(`$lang` 등) 노출 방지
-      title: 'Mandu App',
+      title: builtMeta.title,
+      headTags: builtMeta.headTags,
       isDev: settings.isDev,
       hmrPort: settings.hmrPort,
       routeId: route.id,
@@ -1515,8 +1656,8 @@ async function renderPageSSR(
           }
 
           const errorHtml = renderSSR(errorApp, {
-            // #182: 동적 세그먼트가 포함된 route.id를 사용자 facing string으로 노출하지 않음
-            title: 'Mandu App — Error',
+            // 에러 상태에서는 resolveMetadata 결과를 신뢰할 수 없을 수 있으므로 리터럴 사용
+            title: "Mandu App — Error",
             isDev: settings.isDev,
             cssPath: settings.cssPath,
           });
