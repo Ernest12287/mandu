@@ -16,7 +16,9 @@ import { readFile, writeFile, unlink } from "fs/promises";
 import { join } from "path";
 import { execSync } from "child_process";
 
-const PACKAGES = ["packages/core", "packages/cli", "packages/mcp"];
+// Publish 순서: 의존성 위상 순서대로 (의존되는 것이 먼저)
+// core → skills (peerDep core) → mcp (deps core+ate) → cli (deps core+mcp+skills)
+const PACKAGES = ["packages/core", "packages/skills", "packages/mcp", "packages/cli"];
 const ROOT = join(import.meta.dir, "..");
 const isDryRun = process.argv.includes("--dry-run");
 const skipCheck = process.argv.includes("--skip-check");

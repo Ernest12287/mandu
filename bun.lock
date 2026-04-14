@@ -61,23 +61,25 @@
       "name": "mandu-todo-app",
       "version": "0.1.0",
       "dependencies": {
-        "@mandujs/core": "^0.19.0",
+        "@mandujs/core": "^0.19.2",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
       },
       "devDependencies": {
         "@mandujs/cli": "^0.20.0",
-        "@mandujs/mcp": "^0.18.9",
+        "@mandujs/mcp": "^0.18.10",
+        "@playwright/test": "^1.59.1",
         "@tailwindcss/cli": "^4.1.0",
         "@types/react": "^19.2.0",
         "@types/react-dom": "^19.2.0",
+        "playwright": "^1.59.1",
         "tailwindcss": "^4.1.0",
         "typescript": "^5.0.0",
       },
     },
     "packages/ate": {
       "name": "@mandujs/ate",
-      "version": "0.17.3",
+      "version": "0.18.1",
       "dependencies": {
         "fast-glob": "^3.3.2",
         "ts-morph": "^26.0.0",
@@ -89,20 +91,21 @@
     },
     "packages/cli": {
       "name": "@mandujs/cli",
-      "version": "0.20.0",
+      "version": "0.22.0",
       "bin": {
         "mandu": "src/main.ts",
       },
       "dependencies": {
-        "@mandujs/ate": "^0.17.2",
-        "@mandujs/core": "^0.19.0",
-        "@mandujs/mcp": "^0.18.10",
+        "@mandujs/ate": "^0.18.0",
+        "@mandujs/core": "^0.21.0",
+        "@mandujs/mcp": "^0.19.5",
+        "@mandujs/skills": "^2.0.0",
         "cfonts": "^3.3.0",
       },
     },
     "packages/core": {
       "name": "@mandujs/core",
-      "version": "0.19.2",
+      "version": "0.21.0",
       "dependencies": {
         "chokidar": "^5.0.0",
         "fast-glob": "^3.3.2",
@@ -125,15 +128,30 @@
     },
     "packages/mcp": {
       "name": "@mandujs/mcp",
-      "version": "0.18.10",
+      "version": "0.19.5",
       "bin": {
         "mandu-mcp": "./src/index.ts",
+        "mandujs-mcp": "./src/index.ts",
+        "mcp": "./src/index.ts",
       },
       "dependencies": {
-        "@mandujs/ate": "^0.17.2",
-        "@mandujs/core": "^0.19.1",
+        "@mandujs/ate": "^0.18.0",
+        "@mandujs/core": "^0.21.0",
         "@modelcontextprotocol/sdk": "^1.25.3",
       },
+    },
+    "packages/skills": {
+      "name": "@mandujs/skills",
+      "version": "2.0.0",
+      "bin": {
+        "mandu-skills": "./src/cli.ts",
+      },
+      "peerDependencies": {
+        "@mandujs/core": ">=0.21.0",
+      },
+      "optionalPeers": [
+        "@mandujs/core",
+      ],
     },
   },
   "packages": {
@@ -204,6 +222,8 @@
     "@mandujs/core": ["@mandujs/core@workspace:packages/core"],
 
     "@mandujs/mcp": ["@mandujs/mcp@workspace:packages/mcp"],
+
+    "@mandujs/skills": ["@mandujs/skills@workspace:packages/skills"],
 
     "@manypkg/find-root": ["@manypkg/find-root@1.1.0", "https://verdaccio.lamysolution.com/@manypkg/find-root/-/find-root-1.1.0.tgz", { "dependencies": { "@babel/runtime": "^7.5.5", "@types/node": "^12.7.1", "find-up": "^4.1.0", "fs-extra": "^8.1.0" } }, "sha512-mki5uBvhHzO8kYYix/WRy2WX8S3B5wdVSc9D6KcU5lQNglP2yt58/VfLuAK49glRXChosY8ap2oJ1qgma3GUVA=="],
 
@@ -769,6 +789,14 @@
 
     "mandu-ai-chat/playwright": ["playwright@1.59.1", "https://verdaccio.lamysolution.com/playwright/-/playwright-1.59.1.tgz", { "dependencies": { "playwright-core": "1.59.1" }, "optionalDependencies": { "fsevents": "2.3.2" }, "bin": { "playwright": "cli.js" } }, "sha512-C8oWjPR3F81yljW9o5OxcWzfh6avkVwDD2VYdwIGqTkl+OGFISgypqzfu7dOe4QNLL2aqcWBmI3PMtLIK233lw=="],
 
+    "mandu-todo-app/@mandujs/cli": ["@mandujs/cli@0.20.0", "https://verdaccio.lamysolution.com/@mandujs/cli/-/cli-0.20.0.tgz", { "dependencies": { "@mandujs/ate": "^0.17.2", "@mandujs/core": "^0.19.0", "cfonts": "^3.3.0" }, "bin": { "mandu": "src/main.ts" } }, "sha512-JMaWgXmp+cdmbXbd2je3T0W7AlCxb1HkxOvRjACVm2nK3uAfkWuwq6v2hIUS082dLx3yJA2b85CJwM7cxUvlnw=="],
+
+    "mandu-todo-app/@mandujs/core": ["@mandujs/core@0.19.2", "https://verdaccio.lamysolution.com/@mandujs/core/-/core-0.19.2.tgz", { "dependencies": { "chokidar": "^5.0.0", "fast-glob": "^3.3.2", "glob": "^13.0.0", "minimatch": "^10.1.1", "ollama": "^0.6.3", "zod": "^3.23.8" }, "peerDependencies": { "@tailwindcss/cli": ">=4.0.0", "react": "^19.0.0", "react-dom": "^19.0.0" }, "optionalPeers": ["@tailwindcss/cli"] }, "sha512-KTmTMzkb8oHXaZrnJJt6VAVuBdO1ONBzvNCEvjXU+fTOVQNOqcOcH0k5cIuJqY8tjwYKNmfZy7WHqmn5gNX8dw=="],
+
+    "mandu-todo-app/@mandujs/mcp": ["@mandujs/mcp@0.18.10", "https://verdaccio.lamysolution.com/@mandujs/mcp/-/mcp-0.18.10.tgz", { "dependencies": { "@mandujs/ate": "^0.17.2", "@mandujs/core": "^0.19.1", "@modelcontextprotocol/sdk": "^1.25.3" }, "bin": { "mandu-mcp": "src/index.ts" } }, "sha512-ABkoJ1/kvCItpPTAB/7YyT0vCPXnuP6VMESHls+UJANvMq08eu1Tvbl0NrlAiG4AynxhQhSDFdLCdz5Ew0tU9Q=="],
+
+    "mandu-todo-app/playwright": ["playwright@1.59.1", "https://verdaccio.lamysolution.com/playwright/-/playwright-1.59.1.tgz", { "dependencies": { "playwright-core": "1.59.1" }, "optionalDependencies": { "fsevents": "2.3.2" }, "bin": { "playwright": "cli.js" } }, "sha512-C8oWjPR3F81yljW9o5OxcWzfh6avkVwDD2VYdwIGqTkl+OGFISgypqzfu7dOe4QNLL2aqcWBmI3PMtLIK233lw=="],
+
     "read-yaml-file/js-yaml": ["js-yaml@3.14.2", "https://verdaccio.lamysolution.com/js-yaml/-/js-yaml-3.14.2.tgz", { "dependencies": { "argparse": "^1.0.7", "esprima": "^4.0.0" }, "bin": { "js-yaml": "bin/js-yaml.js" } }, "sha512-PMSmkqxr106Xa156c2M265Z+FTrPl+oxd/rgOQy2tijQeK5TxQ43psO1ZCwhVOSdnn+RzkzlRz/eY4BgJBYVpg=="],
 
     "to-regex-range/is-number": ["is-number@7.0.0", "https://verdaccio.lamysolution.com/is-number/-/is-number-7.0.0.tgz", {}, "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng=="],
@@ -778,6 +806,12 @@
     "@playwright/test/playwright/playwright-core": ["playwright-core@1.59.1", "https://verdaccio.lamysolution.com/playwright-core/-/playwright-core-1.59.1.tgz", { "bin": { "playwright-core": "cli.js" } }, "sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg=="],
 
     "mandu-ai-chat/playwright/playwright-core": ["playwright-core@1.59.1", "https://verdaccio.lamysolution.com/playwright-core/-/playwright-core-1.59.1.tgz", { "bin": { "playwright-core": "cli.js" } }, "sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg=="],
+
+    "mandu-todo-app/@mandujs/cli/@mandujs/ate": ["@mandujs/ate@0.17.3", "https://verdaccio.lamysolution.com/@mandujs/ate/-/ate-0.17.3.tgz", { "dependencies": { "fast-glob": "^3.3.2", "ts-morph": "^26.0.0" }, "peerDependencies": { "@playwright/test": ">=1.40.0", "playwright": ">=1.40.0" } }, "sha512-tHpDx6uZF+wZto3JD5HCRjwlLRe3IPYH1Udfbya8qP4q1LcCRYi3JEsAgDgBKw5rbyav/YnzIS+HV8uFUolSMw=="],
+
+    "mandu-todo-app/@mandujs/mcp/@mandujs/ate": ["@mandujs/ate@0.17.3", "https://verdaccio.lamysolution.com/@mandujs/ate/-/ate-0.17.3.tgz", { "dependencies": { "fast-glob": "^3.3.2", "ts-morph": "^26.0.0" }, "peerDependencies": { "@playwright/test": ">=1.40.0", "playwright": ">=1.40.0" } }, "sha512-tHpDx6uZF+wZto3JD5HCRjwlLRe3IPYH1Udfbya8qP4q1LcCRYi3JEsAgDgBKw5rbyav/YnzIS+HV8uFUolSMw=="],
+
+    "mandu-todo-app/playwright/playwright-core": ["playwright-core@1.59.1", "https://verdaccio.lamysolution.com/playwright-core/-/playwright-core-1.59.1.tgz", { "bin": { "playwright-core": "cli.js" } }, "sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg=="],
 
     "read-yaml-file/js-yaml/argparse": ["argparse@1.0.10", "https://verdaccio.lamysolution.com/argparse/-/argparse-1.0.10.tgz", { "dependencies": { "sprintf-js": "~1.0.2" } }, "sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg=="],
   }

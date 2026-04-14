@@ -7,7 +7,9 @@
     "dev": "mandu dev",
     "build": "mandu build",
     "start": "mandu start",
-    "check": "mandu check"
+    "check": "mandu check",
+    "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
+    "test:e2e:ci": "playwright test --config=tests/e2e/playwright.config.ts --reporter=html,json,junit"
   },
   "dependencies": {
     "@mandujs/core": "workspace:*",
