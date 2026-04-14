@@ -398,6 +398,10 @@ export type ErrorLoader = () => Promise<{ default: ErrorComponent }>;
 export interface PageRegistration {
   component: React.ComponentType<{ params: Record<string, string>; loaderData?: unknown }>;
   filling?: ManduFilling<unknown>;
+  /** #186: page 모듈의 static `metadata` export (선택) */
+  metadata?: Metadata;
+  /** #186: page 모듈의 `generateMetadata` 함수 export (선택) */
+  generateMetadata?: GenerateMetadata;
 }
 
 /**
@@ -1895,6 +1899,15 @@ async function ensurePageRouteMetadata(
       registry.cacheOptions.set(routeId, cacheOptions);
     }
     registry.renderModes.set(routeId, registration.filling.getRenderMode());
+  }
+
+  // #186: pageHandlers 경로에서도 metadata / generateMetadata 캐싱
+  // (pageLoaders 경로는 loadPageData에서 이미 처리됨)
+  if (registration.metadata && typeof registration.metadata === "object") {
+    registry.pageMetadata.set(routeId, registration.metadata);
+  }
+  if (typeof registration.generateMetadata === "function") {
+    registry.pageGenerateMetadata.set(routeId, registration.generateMetadata);
   }
 
   return registration;

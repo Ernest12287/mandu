@@ -132,7 +132,18 @@ export async function registerManifestHandlers(
       if (route.slotModule) {
         registerPageHandler(route.id, async () => {
           const module = await importFn(componentPath);
-          return module.default;
+          // #186: page 모듈의 metadata / generateMetadata 를 registration에 실어서
+          // ensurePageRouteMetadata가 registry 캐시에 저장할 수 있게 전달.
+          // 원본을 mutation하지 않기 위해 새 객체 반환 (module.default가 frozen일 수 있음).
+          return {
+            ...module.default,
+            ...(module.metadata && typeof module.metadata === "object"
+              ? { metadata: module.metadata }
+              : {}),
+            ...(typeof module.generateMetadata === "function"
+              ? { generateMetadata: module.generateMetadata }
+              : {}),
+          };
         });
         console.log(
           `  📄 Page: ${route.pattern} -> ${route.id} (with loader)${isIsland ? " 🏝️" : ""}${hasLayout ? " 🎨" : ""}`
