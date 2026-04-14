@@ -35,7 +35,10 @@ const styles = {
     userSelect: 'none' as const,
     fontFamily: typography.fontFamily.mono,
     textTransform: 'uppercase' as const,
-    border: `1px solid ${colors.background.light}`,
+    // #183: borderColor longhand override 충돌을 피하기 위해 shorthand를 분리
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: colors.background.light,
   },
   content: {
     display: 'flex',

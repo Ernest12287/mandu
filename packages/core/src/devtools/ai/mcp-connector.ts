@@ -85,22 +85,13 @@ export type MCPConnectionStatus =
 // ============================================================================
 
 /**
- * #176: 런타임에 현재 페이지 호스트/포트에서 MCP WebSocket URL을 유추한다.
- * Bun 번들러가 `typeof window`를 컴파일 시 dead-code 제거하므로
- * 함수로 감싸서 런타임 평가를 보장한다.
+ * #181: 이전에는 `ws://{host}:{port}/mcp` 형태로 자동 유추했으나, dev 서버는
+ * 해당 엔드포인트를 제공하지 않아 브라우저가 reconnect 루프에 빠져 멈추는 문제가 있었음.
+ * 이제는 명시적인 `serverUrl`을 받지 못하면 connect() 자체가 실패하도록 한다.
+ * 호출자가 의도적으로 MCP 엔드포인트 URL을 넘겨야만 WebSocket을 시도한다.
  */
-function resolveDefaultServerUrl(): string {
-  try {
-    // eslint-disable-next-line no-restricted-globals
-    if (globalThis.document && globalThis.location) {
-      return `ws://${globalThis.location.hostname}:${globalThis.location.port}/mcp`;
-    }
-  } catch { /* SSR / Node / Bun 환경 */ }
-  return 'ws://localhost:3333/mcp';
-}
-
 const DEFAULT_OPTIONS: Required<MCPConnectorOptions> = {
-  serverUrl: '',  // connect() 시 resolveDefaultServerUrl()로 대체
+  serverUrl: '',
   connectionTimeout: 5000,
   requestTimeout: 30000,
   // #175: MCP 서버가 없을 수 있으므로 기본 비활성화
@@ -150,6 +141,19 @@ export class MCPConnector {
         return;
       }
 
+      // #181: 명시적 serverUrl이 없으면 즉시 실패. 자동 URL 유추는
+      // 존재하지 않는 /mcp 엔드포인트로 향해 브라우저를 멈추게 했음.
+      const url = this.options.serverUrl;
+      if (!url) {
+        const err = new Error(
+          '[Mandu Kitchen] MCPConnector.connect() requires an explicit serverUrl. ' +
+            'No MCP WebSocket endpoint is started by the dev server.',
+        );
+        this.handleConnectionError(err);
+        reject(err);
+        return;
+      }
+
       this.setStatus('connecting');
 
       const timeout = setTimeout(() => {
@@ -158,8 +162,6 @@ export class MCPConnector {
       }, this.options.connectionTimeout);
 
       try {
-        // #176: 빈 serverUrl이면 런타임에서 현재 페이지 기준으로 유추
-        const url = this.options.serverUrl || resolveDefaultServerUrl();
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {

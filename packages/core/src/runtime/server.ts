@@ -1444,7 +1444,9 @@ async function renderPageSSR(
 
     if (useStreaming) {
       const streamingResponse = await renderStreamingResponse(app, {
-        title: `${route.id} - Mandu`,
+        // #182: route.id는 동적 세그먼트(`$lang` 등)를 그대로 포함하므로
+        // metadata가 없을 때 사용자에게 노출하지 않는다.
+        title: 'Mandu App',
         isDev: settings.isDev,
         hmrPort: settings.hmrPort,
         routeId: route.id,
@@ -1477,7 +1479,8 @@ async function renderPageSSR(
     // renderToHTML에서 중복 래핑하지 않도록 hydration을 전달하되 strategy를 "none"으로 설정
     // 단, hydration 스크립트(importmap, runtime 등)는 여전히 필요하므로 bundleManifest는 유지
     const ssrResponse = renderSSR(app, {
-      title: `${route.id} - Mandu`,
+      // #182: route.id의 동적 세그먼트(`$lang` 등) 노출 방지
+      title: 'Mandu App',
       isDev: settings.isDev,
       hmrPort: settings.hmrPort,
       routeId: route.id,
@@ -1512,7 +1515,8 @@ async function renderPageSSR(
           }
 
           const errorHtml = renderSSR(errorApp, {
-            title: `Error - ${route.id}`,
+            // #182: 동적 세그먼트가 포함된 route.id를 사용자 facing string으로 노출하지 않음
+            title: 'Mandu App — Error',
             isDev: settings.isDev,
             cssPath: settings.cssPath,
           });

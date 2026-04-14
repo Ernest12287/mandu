@@ -119,13 +119,19 @@ const styles = {
     fontWeight: typography.fontWeight.semibold,
     letterSpacing: '0.08em',
     textTransform: 'uppercase' as const,
-    border: `1px solid ${colors.background.light}`,
+    // #183: borderColor longhand override 충돌 회피
+    borderWidth: '1px',
+    borderStyle: 'solid' as const,
+    borderColor: colors.background.light,
   },
   headerButton: {
     padding: `${spacing.xs} ${spacing.sm}`,
     borderRadius: borderRadius.full,
     backgroundColor: colors.background.light,
-    border: `1px solid transparent`,
+    // #183: borderColor longhand override 충돌 회피
+    borderWidth: '1px',
+    borderStyle: 'solid' as const,
+    borderColor: 'transparent',
     color: colors.text.secondary,
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium,
@@ -134,7 +140,10 @@ const styles = {
   },
   restartButton: {
     backgroundColor: colors.background.light,
-    border: `1px solid transparent`,
+    // #183: borderColor longhand override 충돌 회피
+    borderWidth: '1px',
+    borderStyle: 'solid' as const,
+    borderColor: 'transparent',
     color: colors.text.secondary,
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium,
@@ -146,7 +155,10 @@ const styles = {
   },
   closeButton: {
     backgroundColor: 'transparent',
-    border: `1px solid transparent`,
+    // #183: borderColor longhand override 충돌 회피
+    borderWidth: '1px',
+    borderStyle: 'solid' as const,
+    borderColor: 'transparent',
     color: colors.text.secondary,
     fontSize: typography.fontSize.md,
     cursor: 'pointer',
@@ -190,7 +202,10 @@ const styles = {
     gap: spacing.xs,
     padding: `${spacing.sm} ${spacing.sm}`,
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    border: `1px solid rgba(255, 255, 255, 0.04)`,
+    // #183: borderColor longhand override 충돌 회피
+    borderWidth: '1px',
+    borderStyle: 'solid' as const,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: borderRadius.md,
     color: colors.text.secondary,
     fontSize: typography.fontSize.xs,

@@ -56,6 +56,21 @@ export interface DevBundler {
   close: () => void;
 }
 
+/**
+ * #180: 파일 경로 비교를 위한 정규화.
+ * - 절대 경로로 변환 (path.resolve)
+ * - 백슬래시 → 포워드슬래시
+ * - Windows에서는 case-insensitive 매칭 (소문자화)
+ *
+ * 동적 라우트 폴더(`[lang]` 등) 변경 감지가 누락되던 문제는 watcher가 보고하는
+ * `path.join(dir, filename)`과 `serverModuleSet` 등록 시의 `path.resolve(rootDir, ...)`
+ * 가 드라이브 문자 대소문자/슬래시 표기 차이로 어긋나서 발생했음.
+ */
+function normalizeFsPath(p: string): string {
+  const resolved = path.resolve(p).replace(/\\/g, "/");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 // 기본 공통 컴포넌트 디렉토리 목록
 const DEFAULT_COMMON_DIRS = [
   "src/components",
@@ -114,7 +129,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
   for (const route of manifest.routes) {
     if (route.clientModule) {
       const absPath = path.resolve(rootDir, route.clientModule);
-      const normalizedPath = absPath.replace(/\\/g, "/");
+      const normalizedPath = normalizeFsPath(absPath);
       clientModuleToRoute.set(normalizedPath, route.id);
 
       // Also register *.client.tsx/ts files in the same directory (#140)
@@ -122,7 +137,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       const dir = path.dirname(absPath);
       const baseStem = path.basename(absPath).replace(/\.(island|client)\.(tsx?|jsx?)$/, "");
       for (const ext of [".client.tsx", ".client.ts", ".client.jsx", ".client.js"]) {
-        const clientPath = path.join(dir, baseStem + ext).replace(/\\/g, "/");
+        const clientPath = normalizeFsPath(path.join(dir, baseStem + ext));
         if (clientPath !== normalizedPath) {
           clientModuleToRoute.set(clientPath, route.id);
         }
@@ -134,23 +149,23 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
 
     // SSR 모듈 등록 (page.tsx, layout.tsx) — #151
     if (route.componentModule) {
-      const absPath = path.resolve(rootDir, route.componentModule).replace(/\\/g, "/");
-      serverModuleSet.add(absPath);
-      watchDirs.add(path.dirname(path.resolve(rootDir, route.componentModule)));
+      const absPath = path.resolve(rootDir, route.componentModule);
+      serverModuleSet.add(normalizeFsPath(absPath));
+      watchDirs.add(path.dirname(absPath));
     }
     if (route.layoutChain) {
       for (const layoutPath of route.layoutChain) {
-        const absPath = path.resolve(rootDir, layoutPath).replace(/\\/g, "/");
-        serverModuleSet.add(absPath);
-        watchDirs.add(path.dirname(path.resolve(rootDir, layoutPath)));
+        const absPath = path.resolve(rootDir, layoutPath);
+        serverModuleSet.add(normalizeFsPath(absPath));
+        watchDirs.add(path.dirname(absPath));
       }
     }
 
     // Track API route modules for hot-reload
     if (route.kind === "api" && route.module) {
-      const absPath = path.resolve(rootDir, route.module).replace(/\\/g, "/");
-      apiModuleSet.add(absPath);
-      watchDirs.add(path.dirname(path.resolve(rootDir, route.module)));
+      const absPath = path.resolve(rootDir, route.module);
+      apiModuleSet.add(normalizeFsPath(absPath));
+      watchDirs.add(path.dirname(absPath));
     }
   }
 
@@ -194,9 +209,9 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
 
   // 파일이 공통 디렉토리에 있는지 확인
   const isInCommonDir = (filePath: string): boolean => {
-    const normalizedFile = path.resolve(filePath).replace(/\\/g, "/");
+    const normalizedFile = normalizeFsPath(filePath);
     for (const commonDir of commonWatchDirs) {
-      const normalizedCommon = path.resolve(commonDir).replace(/\\/g, "/");
+      const normalizedCommon = normalizeFsPath(commonDir);
       if (normalizedFile.startsWith(normalizedCommon + "/")) {
         return true;
       }
@@ -232,7 +247,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
   };
 
   const _doBuild = async (changedFile: string) => {
-    const normalizedPath = changedFile.replace(/\\/g, "/");
+    const normalizedPath = normalizeFsPath(changedFile);
 
     // 공통 컴포넌트 디렉토리 변경 → 전체 재빌드 (targetRouteIds 없이)
     if (isInCommonDir(changedFile)) {
@@ -279,10 +294,10 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     // Fallback for *.client.tsx/ts: find route whose clientModule is in the same directory (#140)
     // basename matching (e.g. "page" !== "index") is unreliable — use directory-based matching instead
     if (!routeId && (changedFile.endsWith(".client.ts") || changedFile.endsWith(".client.tsx"))) {
-      const changedDir = path.dirname(path.resolve(rootDir, changedFile)).replace(/\\/g, "/");
+      const changedDir = normalizeFsPath(path.dirname(path.resolve(rootDir, changedFile)));
       const matchedRoute = manifest.routes.find((r) => {
         if (!r.clientModule) return false;
-        const routeDir = path.dirname(path.resolve(rootDir, r.clientModule)).replace(/\\/g, "/");
+        const routeDir = normalizeFsPath(path.dirname(path.resolve(rootDir, r.clientModule)));
         return routeDir === changedDir;
       });
       if (matchedRoute) {
