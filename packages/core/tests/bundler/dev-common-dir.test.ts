@@ -192,6 +192,64 @@ describe("buildClientBundles — skipFrameworkBundles (#185)", () => {
     expect(skipBuild.manifest.bundles.demo.js).toBeTruthy();
   });
 
+  it("corrupt manifest JSON이면 full build로 fallback (#186 hardening)", async () => {
+    const fs = await import("fs/promises");
+    // 일부러 깨진 JSON 작성
+    await fs.writeFile(
+      path.join(rootDir, ".mandu/manifest.json"),
+      "{ not valid json",
+    );
+
+    const manifest: RoutesManifest = {
+      version: 1,
+      routes: [],
+    } as RoutesManifest;
+
+    const result = await buildClientBundles(manifest, rootDir, {
+      minify: false,
+      sourcemap: true,
+      skipFrameworkBundles: true,
+    });
+
+    // corrupt → 경고 + full build로 fallback → 새 empty manifest 작성
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+
+    // 새 manifest는 유효한 JSON이어야 함
+    const written = await fs.readFile(
+      path.join(rootDir, ".mandu/manifest.json"),
+      "utf-8",
+    );
+    expect(() => JSON.parse(written)).not.toThrow();
+  });
+
+  it("필수 필드 누락된 manifest면 full build로 fallback", async () => {
+    const fs = await import("fs/promises");
+    // shared 누락
+    await fs.writeFile(
+      path.join(rootDir, ".mandu/manifest.json"),
+      JSON.stringify({ version: 1, bundles: {} }),
+    );
+
+    const manifest: RoutesManifest = {
+      version: 1,
+      routes: [],
+    } as RoutesManifest;
+
+    const result = await buildClientBundles(manifest, rootDir, {
+      minify: false,
+      sourcemap: true,
+      skipFrameworkBundles: true,
+    });
+
+    // 필수 필드 누락 → fallback → 새 manifest 작성 (shared 포함)
+    expect(result.success).toBe(true);
+    const written = JSON.parse(
+      await fs.readFile(path.join(rootDir, ".mandu/manifest.json"), "utf-8"),
+    );
+    expect(written.shared).toBeDefined();
+  });
+
   it("island이 0개면 skipFrameworkBundles=true는 기존 manifest를 유지한다", async () => {
     const manifest: RoutesManifest = {
       version: 1,

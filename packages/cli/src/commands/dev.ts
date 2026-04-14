@@ -307,42 +307,51 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
   // SSR file change callback (page.tsx, layout.tsx -> re-register server handlers + browser reload)
   // #184: wildcard ("*") 입력 시 전체 레지스트리 invalidate (common dir 변경)
-  const handleSSRChange = async (filePath: string) => {
-    const isWildcard = filePath === SSR_CHANGE_WILDCARD;
-    if (isWildcard) {
-      logDevEvent("Common dir changed", [
-        "Action: clear SSR registry + re-register handlers",
-        "Note: Bun의 transitive ESM 캐시 때문에 transitive 의존성까지 완전히 갱신되지 않을 수 있음",
-      ]);
-    } else {
-      logDevEvent("SSR change detected", [
-        `File: ${path.relative(rootDir, filePath)}`,
-        "Action: re-register handlers",
-        "Browser: full reload",
-      ]);
-    }
+  // #186 hardening: 동시 호출 race 방지 — Promise-chain mutex로 직렬화.
+  //   rapid fire 시 clearDefaultRegistry → registerHandlers가 interleave되면
+  //   한 쪽이 다른 쪽의 in-progress 상태를 덮어쓰는 버그가 발생할 수 있음.
+  let ssrChangeQueue: Promise<void> = Promise.resolve();
+  const handleSSRChange = (filePath: string): Promise<void> => {
+    ssrChangeQueue = ssrChangeQueue.then(async () => {
+      const isWildcard = filePath === SSR_CHANGE_WILDCARD;
+      if (isWildcard) {
+        logDevEvent("Common dir changed", [
+          "Action: clear SSR registry + re-register handlers",
+          "Note: Bun의 transitive ESM 캐시 때문에 transitive 의존성까지 완전히 갱신되지 않을 수 있음",
+        ]);
+      } else {
+        logDevEvent("SSR change detected", [
+          `File: ${path.relative(rootDir, filePath)}`,
+          "Action: re-register handlers",
+          "Browser: full reload",
+        ]);
+      }
 
-    clearDefaultRegistry();
-    registeredLayouts.clear();
-    await registerHandlers(manifest, true);
+      clearDefaultRegistry();
+      registeredLayouts.clear();
+      await registerHandlers(manifest, true);
 
-    // Kitchen Preview에는 파일 경로가 있을 때만 broadcast (wildcard는 파일 경로 없음)
-    if (!isWildcard) {
+      // Kitchen Preview에는 파일 경로가 있을 때만 broadcast (wildcard는 파일 경로 없음)
+      if (!isWildcard) {
+        hmrServer?.broadcast({
+          type: "kitchen:file-change",
+          data: {
+            file: filePath,
+            changeType: "change",
+            timestamp: Date.now(),
+          },
+        });
+      }
+
       hmrServer?.broadcast({
-        type: "kitchen:file-change",
-        data: {
-          file: filePath,
-          changeType: "change",
-          timestamp: Date.now(),
-        },
+        type: "reload",
+        data: { timestamp: Date.now() },
       });
-    }
-
-    hmrServer?.broadcast({
-      type: "reload",
-      data: { timestamp: Date.now() },
+      console.log("  Status: SSR refresh complete");
+    }).catch((err) => {
+      console.error("[handleSSRChange] error:", err instanceof Error ? err.message : err);
     });
-    console.log("  Status: SSR refresh complete");
+    return ssrChangeQueue;
   };
 
   // API route file change callback (route.ts -> re-register API handler + browser reload)

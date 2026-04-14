@@ -273,19 +273,20 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
 
         const buildTime = performance.now() - startTime;
 
-        // #184: common dir 변경은 SSR 모듈 캐시 invalidation이 필요 — wildcard 시그널
-        // 주의: Bun의 transitive ESM 캐시는 프로세스 레벨이라 이 시그널만으로는
-        //      `src/shared/**`을 transitive하게 import하는 SSR 모듈까지 완전히 갱신되지 않음.
-        //      진짜 해결은 subprocess/worker 기반 SSR eval이 필요 (follow-up 이슈).
-        if (onSSRChange) {
-          try {
-            await Promise.resolve(onSSRChange(SSR_CHANGE_WILDCARD));
-          } catch (ssrError) {
-            console.warn(`⚠️  SSR invalidation failed:`, ssrError instanceof Error ? ssrError.message : ssrError);
-          }
-        }
-
         if (result.success) {
+          // #184: common dir 변경은 SSR 모듈 캐시 invalidation이 필요 — wildcard 시그널
+          // 빌드 성공한 경우에만 SSR 레지스트리를 clear (실패 시 마지막 good state 유지)
+          // 주의: Bun의 transitive ESM 캐시는 프로세스 레벨이라 이 시그널만으로는
+          //      `src/shared/**`을 transitive하게 import하는 SSR 모듈까지 완전히 갱신되지 않음.
+          //      진짜 해결은 subprocess/worker 기반 SSR eval이 필요 (follow-up 이슈).
+          if (onSSRChange) {
+            try {
+              await Promise.resolve(onSSRChange(SSR_CHANGE_WILDCARD));
+            } catch (ssrError) {
+              console.warn(`⚠️  SSR invalidation failed:`, ssrError instanceof Error ? ssrError.message : ssrError);
+            }
+          }
+
           console.log(`✅ Rebuilt ${result.stats.bundleCount} islands in ${buildTime.toFixed(0)}ms`);
           onRebuild?.({
             routeId: "*", // 전체 재빌드 표시
@@ -294,6 +295,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
           });
         } else {
           console.error(`❌ Build failed:`, result.errors);
+          console.log(`   ⏳ SSR registry not invalidated (keeping last good state)`);
           onRebuild?.({
             routeId: "*",
             success: false,

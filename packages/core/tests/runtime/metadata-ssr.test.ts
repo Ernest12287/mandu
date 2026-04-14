@@ -220,6 +220,102 @@ describe("SSR pipeline injects resolved metadata into <head>", () => {
     expect(html).toContain("Dynamic handler 42");
   });
 
+  it("multi-layout chain merges in root→leaf order with child overrides", async () => {
+    // 3-level chain: root layout → nested layout → page
+    // Next.js 호환 시맨틱: title.template은 cascade되지만 openGraph 등은 child가 있으면
+    // 부모를 완전히 대체한다 (shallow override, not deep merge).
+    const manifest: RoutesManifest = {
+      version: 1,
+      routes: [
+        {
+          id: "nested",
+          pattern: "/",
+          kind: "page",
+          componentModule: "app/page.tsx",
+          layoutChain: ["app/layout.tsx", "app/nested/layout.tsx"],
+        },
+      ],
+    } as RoutesManifest;
+
+    registry.registerLayoutLoader("app/layout.tsx", async () => ({
+      default: MinimalLayout,
+      metadata: {
+        title: { default: "Root", template: "%s | Root" },
+        description: "root desc",
+        openGraph: { siteName: "Root Site", type: "website" },
+      },
+    } as any));
+
+    registry.registerLayoutLoader("app/nested/layout.tsx", async () => ({
+      default: MinimalLayout,
+      metadata: {
+        // nested는 description만 override, openGraph는 건드리지 않음 → 부모 것 cascade
+        description: "nested desc",
+      },
+    } as any));
+
+    registry.registerPageLoader("nested", async () => ({
+      default: MinimalPage,
+      metadata: {
+        title: "Leaf Page",
+      },
+    } as any));
+
+    server = startServer(manifest, { port: 0, registry });
+    const port = server.server.port;
+
+    const res = await fetch(`http://localhost:${port}/`);
+    const html = await res.text();
+
+    // Root의 title.template 적용, leaf의 title과 병합
+    expect(html).toContain("<title>Leaf Page | Root</title>");
+    // nested가 description을 override
+    expect(html).toContain("nested desc");
+    expect(html).not.toContain("root desc");
+    // Root의 openGraph는 nested가 건드리지 않았으므로 cascade
+    expect(html).toContain("Root Site");
+    expect(html).toContain('content="website"');
+  });
+
+  it("generateMetadata 실패 시 'Mandu App' fallback으로 복구", async () => {
+    registry.registerPageLoader("home", async () => ({
+      default: MinimalPage,
+      generateMetadata: async () => {
+        throw new Error("intentional metadata failure");
+      },
+    } as any));
+
+    server = startServer(buildStaticManifest(), { port: 0, registry });
+    const port = server.server.port;
+
+    const res = await fetch(`http://localhost:${port}/`);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    // fallback 제목으로 렌더 (500 에러가 아님)
+    expect(html).toContain("<title>Mandu App</title>");
+  });
+
+  it("searchParams가 generateMetadata에 전파된다", async () => {
+    registry.registerPageLoader("home", async () => ({
+      default: MinimalPage,
+      generateMetadata: async ({ searchParams }: { searchParams: Record<string, string> }) => ({
+        title: `Q: ${searchParams.q ?? "none"}`,
+        description: `Filter: ${searchParams.filter ?? "off"}`,
+      }),
+    } as any));
+
+    server = startServer(buildStaticManifest(), { port: 0, registry });
+    const port = server.server.port;
+
+    const res = await fetch(`http://localhost:${port}/?q=hello&filter=on`);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(html).toContain("<title>Q: hello</title>");
+    expect(html).toContain("Filter: on");
+  });
+
   it("emits <title> exactly once (no duplication from strip regex)", async () => {
     registry.registerPageLoader("home", async () => ({
       default: MinimalPage,

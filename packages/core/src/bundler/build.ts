@@ -1475,10 +1475,24 @@ export async function buildClientBundles(
   if (hydratedRoutes.length === 0) {
     // #185: skipFrameworkBundles 모드에서는 기존 manifest를 그대로 유지 (devtools 재빌드도 스킵)
     if (options.skipFrameworkBundles) {
+      const manifestPath = path.join(rootDir, ".mandu/manifest.json");
       try {
-        const existing = JSON.parse(
-          await fs.readFile(path.join(rootDir, ".mandu/manifest.json"), "utf-8"),
-        ) as BundleManifest;
+        const manifestRaw = await fs.readFile(manifestPath, "utf-8");
+        let existing: BundleManifest;
+        try {
+          existing = JSON.parse(manifestRaw) as BundleManifest;
+        } catch (parseError) {
+          // #186 hardening: corrupt JSON이면 silent overwrite 대신 경고 + full build로 fallback
+          console.warn(
+            `[Mandu] Existing manifest is corrupt, falling back to full build: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+          );
+          throw parseError;
+        }
+        // #186 hardening: 필수 필드 검증 (shared / bundles 누락 시 fallback)
+        if (!existing || typeof existing !== "object" || !existing.shared || !existing.bundles) {
+          console.warn("[Mandu] Existing manifest missing required fields, falling back to full build");
+          throw new Error("invalid manifest shape");
+        }
         return {
           success: true,
           outputs: [],
@@ -1493,7 +1507,7 @@ export async function buildClientBundles(
           },
         };
       } catch {
-        // 기존 manifest 없으면 full path로 fallback
+        // 기존 manifest 없음/corrupt/invalid → full path로 fallback
       }
     }
 
@@ -1589,8 +1603,26 @@ export async function buildClientBundles(
     try {
       const manifestData = await fs.readFile(path.join(rootDir, ".mandu/manifest.json"), "utf-8");
       existingManifest = JSON.parse(manifestData) as BundleManifest;
-    } catch {
-      // 기존 매니페스트 없으면 full build로 fallback
+    } catch (parseError) {
+      // 기존 매니페스트 없음/corrupt → 경고 후 full build로 fallback
+      if (parseError instanceof SyntaxError) {
+        console.warn(
+          `[Mandu] Existing manifest is corrupt, falling back to full build: ${parseError.message}`,
+        );
+      }
+      return buildClientBundles(manifest, rootDir, { ...options, skipFrameworkBundles: false });
+    }
+
+    // #186 hardening: 필수 필드 검증 — 누락 시 full build로 fallback
+    if (
+      !existingManifest ||
+      typeof existingManifest !== "object" ||
+      !existingManifest.shared ||
+      !existingManifest.bundles
+    ) {
+      console.warn(
+        "[Mandu] Existing manifest missing required fields (shared/bundles), falling back to full build",
+      );
       return buildClientBundles(manifest, rootDir, { ...options, skipFrameworkBundles: false });
     }
 
