@@ -3,6 +3,8 @@
  * 서버 없이 라우트/filling 단위 테스트
  */
 
+import path from "path";
+import os from "os";
 import { ManduContext } from "../filling/context";
 import type { ManduFilling } from "../filling/filling";
 import type { RouteSpec, RoutesManifest } from "../spec/schema";
@@ -186,4 +188,60 @@ export function createTestManifest(routes: Partial<RouteSpec>[]): RoutesManifest
  */
 export function createTestIsland(name: string, strategy: string = "visible") {
   return { __island: true, __hydrate: strategy, __name: name };
+}
+
+// ========== createMockMcpContext ==========
+
+/**
+ * Mock MCP context shape mirroring the real MCP server context
+ * (see `packages/mcp/src/utils/project.ts`).
+ *
+ * Use this in tests for MCP tool plugins and slot/contract validators
+ * that accept an MCP-context-like object.
+ */
+export interface MockMcpContext {
+  paths: {
+    repoRoot: string;
+    manduDir: string;
+    manifestPath: string;
+    specsDir: string;
+    slotsDir: string;
+  };
+  readConfig: () => Promise<Record<string, unknown>>;
+  readManifest: () => Promise<RoutesManifest>;
+}
+
+/**
+ * Create a mock MCP context suitable for unit-testing MCP tools without
+ * spinning up an actual project on disk.
+ *
+ * @example
+ * ```typescript
+ * const ctx = createMockMcpContext({
+ *   config: { guard: { preset: "fsd" } },
+ *   manifest: createTestManifest([{ id: "home", kind: "page", pattern: "/" }]),
+ * });
+ * await myTool.execute(ctx, { input: "..." });
+ * ```
+ */
+export function createMockMcpContext(options: {
+  root?: string;
+  config?: Record<string, unknown>;
+  manifest?: RoutesManifest;
+} = {}): MockMcpContext {
+  const root = options.root ?? path.join(os.tmpdir(), "mandu-mock-mcp");
+  const config = options.config ?? {};
+  const manifest = options.manifest ?? { version: 1, routes: [] };
+
+  return {
+    paths: {
+      repoRoot: root,
+      manduDir: path.join(root, ".mandu"),
+      manifestPath: path.join(root, ".mandu", "routes.manifest.json"),
+      specsDir: path.join(root, "spec"),
+      slotsDir: path.join(root, "spec", "slots"),
+    },
+    readConfig: async () => config,
+    readManifest: async () => manifest,
+  };
 }

@@ -455,6 +455,48 @@ registerCommand({
 });
 
 registerCommand({
+  id: "test:watch",
+  description: "Watch mode: re-run ATE tests for affected routes on file changes",
+  async run(ctx) {
+    const { createAteWatcher } = await import("@mandujs/ate");
+    type OracleLevel = "L0" | "L1" | "L2" | "L3";
+    const oracleOpt = ctx.options.oracle as string | undefined;
+    const oracleLevel: OracleLevel =
+      oracleOpt === "L0" || oracleOpt === "L1" || oracleOpt === "L2" || oracleOpt === "L3"
+        ? (oracleOpt as OracleLevel)
+        : "L1";
+    const baseURL =
+      (ctx.options["base-url"] as string | undefined) ??
+      (ctx.options.baseURL as string | undefined) ??
+      (ctx.options.baseUrl as string | undefined) ??
+      "http://localhost:3333";
+    const debounceMs = ctx.options.debounce ? Number(ctx.options.debounce) : undefined;
+
+    const watcher = createAteWatcher({
+      repoRoot: process.cwd(),
+      baseURL,
+      oracleLevel,
+      debounceMs,
+    });
+
+    const shutdown = () => {
+      watcher.stop();
+      process.exit(0);
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+
+    await watcher.start();
+    // Keep the process alive — fs.watch handles do not hold the loop on all
+    // platforms, so we block on a never-resolving promise until SIGINT.
+    await new Promise<void>(() => {
+      /* intentionally unresolved; shutdown via SIGINT */
+    });
+    return true;
+  },
+});
+
+registerCommand({
   id: "test:heal",
   description: "Generate ATE healing suggestions (no auto-commit)",
   async run() {

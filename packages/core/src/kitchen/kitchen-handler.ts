@@ -93,6 +93,87 @@ function parseWindow(input: string): number {
   }
 }
 
+// ========== Per-Agent Stats ==========
+
+export interface AgentStats {
+  toolCalls: number;
+  failures: number;
+  topTools: Array<{ tool: string; count: number }>;
+  avgDuration: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export interface AgentStatsResponse {
+  agents: Record<string, AgentStats>;
+  totalAgents: number;
+  totalEvents: number;
+}
+
+/**
+ * Aggregate recent MCP events by sessionId to produce per-agent usage stats.
+ * Events without a sessionId are grouped under "unknown".
+ */
+export function computeAgentStats(): AgentStatsResponse {
+  const events = eventBus.getRecent(500, { type: "mcp" });
+  const agents: Record<string, AgentStats> = {};
+  const toolCounts: Record<string, Map<string, number>> = {};
+  const durations: Record<string, number[]> = {};
+
+  for (const e of events) {
+    const data = (e.data ?? {}) as Record<string, unknown>;
+    const sessionId = typeof data.sessionId === "string" && data.sessionId
+      ? data.sessionId
+      : "unknown";
+
+    let agent = agents[sessionId];
+    if (!agent) {
+      agent = {
+        toolCalls: 0,
+        failures: 0,
+        topTools: [],
+        avgDuration: 0,
+        firstSeen: e.timestamp,
+        lastSeen: e.timestamp,
+      };
+      agents[sessionId] = agent;
+      toolCounts[sessionId] = new Map();
+      durations[sessionId] = [];
+    }
+
+    agent.toolCalls++;
+    if (e.severity === "error") agent.failures++;
+    if (e.timestamp < agent.firstSeen) agent.firstSeen = e.timestamp;
+    if (e.timestamp > agent.lastSeen) agent.lastSeen = e.timestamp;
+
+    const tool = typeof data.tool === "string" && data.tool
+      ? data.tool
+      : e.source || "unknown";
+    toolCounts[sessionId].set(tool, (toolCounts[sessionId].get(tool) ?? 0) + 1);
+
+    if (typeof e.duration === "number") {
+      durations[sessionId].push(e.duration);
+    }
+  }
+
+  for (const [sessionId, agent] of Object.entries(agents)) {
+    agent.topTools = Array.from(toolCounts[sessionId].entries())
+      .map(([tool, count]) => ({ tool, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+    const ds = durations[sessionId];
+    agent.avgDuration = ds.length
+      ? ds.reduce((a, b) => a + b, 0) / ds.length
+      : 0;
+  }
+
+  return {
+    agents,
+    totalAgents: Object.keys(agents).length,
+    totalEvents: events.length,
+  };
+}
+
 export class KitchenHandler {
   private sse: ActivitySSEBroadcaster;
   private guardAPI: GuardAPI;
@@ -269,6 +350,11 @@ export class KitchenHandler {
       }
       const events = await this.readRecentActivity();
       return Response.json({ events });
+    }
+
+    // Agent Stats API — per-agent (sessionId) aggregation of MCP events
+    if (sub === "/api/agent-stats" && req.method === "GET") {
+      return Response.json(computeAgentStats());
     }
 
     // Cache API — cache store stats

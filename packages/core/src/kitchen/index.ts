@@ -5,8 +5,8 @@
  * and architecture guard dashboard at /__kitchen.
  */
 
-export { KitchenHandler, KITCHEN_PREFIX, getKitchenErrors, clearKitchenErrors } from "./kitchen-handler";
-export type { KitchenOptions } from "./kitchen-handler";
+export { KitchenHandler, KITCHEN_PREFIX, getKitchenErrors, clearKitchenErrors, computeAgentStats } from "./kitchen-handler";
+export type { KitchenOptions, AgentStats, AgentStatsResponse } from "./kitchen-handler";
 export { ActivitySSEBroadcaster } from "./stream/activity-sse";
 export { FileTailer } from "./stream/file-tailer";
 export { GuardAPI } from "./api/guard-api";

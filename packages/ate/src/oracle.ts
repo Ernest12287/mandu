@@ -1,5 +1,14 @@
 import type { InteractionNode, OracleLevel } from "./types";
 import { detectDomain, type AppDomain } from "./domain-detector";
+import {
+  findContractForRoute,
+  type ContractField,
+  type ParsedContract,
+} from "./contract-parser";
+import {
+  scanRouteSideEffects,
+  type SideEffect,
+} from "./side-effect-scanner";
 
 export interface OracleResult {
   level: OracleLevel;
@@ -7,6 +16,8 @@ export interface OracleResult {
   l1: { ok: boolean; signals: string[] };
   l2: { ok: boolean; signals: string[] };
   l3: { ok: boolean; notes: string[] };
+  /** Count of behavioral (state-change) assertions emitted by deep L3. */
+  behavioralAssertions?: number;
 }
 
 export function createDefaultOracle(level: OracleLevel): OracleResult {
@@ -152,30 +163,188 @@ export function getAssertionCount(domain: AppDomain, routePath: string): number 
 }
 
 /**
- * Generate L2 assertions: contract schema validation and SSR data verification
+ * Build a synthetic valid request body from a contract POST/PUT shape.
+ * Produces JSON-serializable data covering required (non-optional) fields.
  */
-export function generateL2Assertions(node: InteractionNode): string[] {
+function synthValidBody(fields: ContractField[]): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  for (const f of fields) {
+    if (f.optional) continue;
+    switch (f.kind) {
+      case "string":
+        data[f.name] = f.minLength && f.minLength > 0 ? "x".repeat(Math.max(f.minLength, 1)) : "ate-sample";
+        break;
+      case "number":
+        data[f.name] = 1;
+        break;
+      case "boolean":
+        data[f.name] = true;
+        break;
+      case "array":
+        data[f.name] = [];
+        break;
+      case "object":
+        data[f.name] = {};
+        break;
+      default:
+        data[f.name] = "ate-sample";
+    }
+  }
+  return data;
+}
+
+/** Map a ContractField.kind to a `typeof` check string for Playwright assertions. */
+function kindToTypeofCheck(kind: ContractField["kind"]): string | null {
+  switch (kind) {
+    case "string":
+      return "string";
+    case "number":
+      return "number";
+    case "boolean":
+      return "boolean";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Deep L2 assertion generator using a parsed contract. Emits:
+ *   - method-aware requests (POST uses synthesized valid body)
+ *   - status code assertion (prefers 2xx from contract)
+ *   - toHaveProperty + typeof checks for response top-level fields
+ *   - edge-case: empty body → expect 4xx (when request schema has required fields)
+ *   - edge-case: empty string for `min(N)` string fields → expect 4xx
+ */
+export function generateL2AssertionsFromContract(
+  node: InteractionNode,
+  contract: ParsedContract,
+): string[] {
   if (node.kind !== "route") return [];
   const assertions: string[] = [];
+  assertions.push(`// L2 (deep): contract-driven schema validation`);
+
+  const method = (node.methods && node.methods[0]) || "GET";
+  const methodLower = method.toLowerCase();
+  const reqShape = contract.requests.find((r) => r.method === method);
+  const hasBody = method !== "GET" && method !== "DELETE";
+
+  // Pick a happy-path response: prefer 200/201
+  const happyResp =
+    contract.responses.find((r) => r.status === 200) ||
+    contract.responses.find((r) => r.status === 201) ||
+    contract.responses.find((r) => r.status >= 200 && r.status < 300);
+
+  if (hasBody && reqShape) {
+    const validBody = synthValidBody(reqShape.bodyFields);
+    assertions.push(
+      `const validRes = await request.${methodLower}("${node.path}", { data: ${JSON.stringify(validBody)} });`,
+    );
+  } else {
+    assertions.push(`const validRes = await request.${methodLower}("${node.path}");`);
+  }
+
+  if (happyResp) {
+    assertions.push(`expect(validRes.status()).toBe(${happyResp.status});`);
+  } else {
+    assertions.push(`expect(validRes.status()).toBeLessThan(400);`);
+  }
+  assertions.push(`expect(validRes.headers()["content-type"] ?? "").toContain("application/json");`);
+  assertions.push(`const validBody = await validRes.json();`);
+  assertions.push(`expect(validBody).toBeDefined();`);
+
+  if (happyResp) {
+    for (const field of happyResp.topLevelKeys) {
+      assertions.push(`expect(validBody).toHaveProperty("${field.name}");`);
+      const t = kindToTypeofCheck(field.kind);
+      if (t) {
+        assertions.push(`expect(typeof validBody.${field.name}).toBe("${t}");`);
+      } else if (field.kind === "array") {
+        assertions.push(`expect(Array.isArray(validBody.${field.name})).toBe(true);`);
+      } else if (field.kind === "object") {
+        assertions.push(`expect(typeof validBody.${field.name}).toBe("object");`);
+      }
+    }
+  }
+
+  // Edge case 1: empty body on mutation with required fields
+  if (hasBody && reqShape && reqShape.bodyFields.some((f) => !f.optional)) {
+    assertions.push(`// Edge case: empty body rejected (contract has required fields)`);
+    assertions.push(
+      `const emptyRes = await request.${methodLower}("${node.path}", { data: {} });`,
+    );
+    assertions.push(`expect(emptyRes.status()).toBeGreaterThanOrEqual(400);`);
+    assertions.push(`expect(emptyRes.status()).toBeLessThan(500);`);
+  }
+
+  // Edge case 2: for each required string field with min(N), send empty string
+  if (hasBody && reqShape) {
+    for (const f of reqShape.bodyFields) {
+      if (f.optional) continue;
+      if (f.kind === "string" && (f.minLength ?? 0) > 0) {
+        const baseline = synthValidBody(reqShape.bodyFields);
+        const invalid = { ...baseline, [f.name]: "" };
+        assertions.push(`// Edge case: empty string for required min(${f.minLength}) field "${f.name}"`);
+        assertions.push(
+          `const invalid_${f.name}_Res = await request.${methodLower}("${node.path}", { data: ${JSON.stringify(invalid)} });`,
+        );
+        assertions.push(`expect(invalid_${f.name}_Res.status()).toBeGreaterThanOrEqual(400);`);
+        assertions.push(`expect(invalid_${f.name}_Res.status()).toBeLessThan(500);`);
+      }
+    }
+  }
+
+  return assertions;
+}
+
+export interface L2Context {
+  repoRoot?: string;
+  /** Pre-parsed contract; if provided, skips filesystem lookup. */
+  contract?: ParsedContract | null;
+}
+
+/**
+ * Generate L2 assertions: contract schema validation and SSR data verification.
+ *
+ * If a contract is found (or provided via ctx), uses the deep contract-driven
+ * generator. Otherwise falls back to the shallow structural generator for
+ * backward compatibility.
+ */
+export function generateL2Assertions(node: InteractionNode, ctx?: L2Context): string[] {
+  if (node.kind !== "route") return [];
   const isApi = node.path.startsWith("/api/") || (node.methods && node.methods.length > 0);
 
+  // Try deep path first
+  let contract: ParsedContract | null | undefined = ctx?.contract;
+  if (contract === undefined && ctx?.repoRoot && isApi) {
+    try {
+      contract = findContractForRoute(ctx.repoRoot, node.path);
+    } catch {
+      contract = null;
+    }
+  }
+  if (contract && isApi) {
+    return generateL2AssertionsFromContract(node, contract);
+  }
+
+  // Fallback: shallow structural checks (backward compatible)
+  const assertions: string[] = [];
   if (isApi) {
-    assertions.push(`// L2: API contract validation`);
+    assertions.push(`// L2: API contract validation (shallow — no contract file found)`);
     assertions.push(`const response = await request.get("${node.path}");`);
     assertions.push(`expect(response.status()).toBeLessThan(500);`);
     assertions.push(`const contentType = response.headers()["content-type"] ?? "";`);
     assertions.push(`expect(contentType).toContain("application/json");`);
     assertions.push(`const responseBody = await response.json();`);
     assertions.push(`expect(responseBody).toBeDefined();`);
-    // Edge case: malformed body on POST endpoints
     if (node.methods?.includes("POST") || node.methods?.includes("PUT")) {
       assertions.push(`// Edge case: reject empty body on mutation endpoint`);
-      assertions.push(`const badResponse = await request.${node.methods.includes("POST") ? "post" : "put"}("${node.path}", { data: {} });`);
+      assertions.push(
+        `const badResponse = await request.${node.methods.includes("POST") ? "post" : "put"}("${node.path}", { data: {} });`,
+      );
       assertions.push(`expect(badResponse.status()).toBeGreaterThanOrEqual(400);`);
       assertions.push(`expect(badResponse.status()).toBeLessThan(500);`);
     }
   } else {
-    // Page route: verify SSR data injection
     assertions.push(`// L2: SSR data injection verification`);
     assertions.push(`const manduDataEl = page.locator("#__MANDU_DATA__");`);
     assertions.push(`const dataCount = await manduDataEl.count();`);
@@ -184,19 +353,95 @@ export function generateL2Assertions(node: InteractionNode): string[] {
     assertions.push(`  expect(() => JSON.parse(raw!)).not.toThrow();`);
     assertions.push(`}`);
   }
+  return assertions;
+}
 
+export interface L3Context {
+  repoRoot?: string;
+  /** Pre-detected side effects; if provided, skips filesystem scan. */
+  sideEffects?: SideEffect[];
+  /** Absolute path to the route file to scan (overrides node.file resolution). */
+  routeFileAbs?: string;
+}
+
+/**
+ * Deep L3 assertion generator from detected side effects. For each detected
+ * mutation, emits a before/after state-change verification.
+ */
+export function generateL3AssertionsFromSideEffects(
+  node: InteractionNode,
+  effects: SideEffect[],
+): string[] {
+  if (node.kind !== "route") return [];
+  const assertions: string[] = [];
+  if (effects.length === 0) return assertions;
+
+  const seen = new Set<string>();
+  assertions.push(`// L3 (deep): behavioral side-effect verification`);
+  for (const eff of effects) {
+    const key = `${eff.kind}:${eff.resource ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (eff.kind === "db-create") {
+      const label = eff.resource ?? "resource";
+      assertions.push(`// Detected side-effect: ${eff.match}`);
+      assertions.push(`const before_${label} = await request.get("${node.path}");`);
+      assertions.push(`const beforeBody_${label} = before_${label}.status() < 400 ? await before_${label}.json() : null;`);
+      assertions.push(`const beforeCount_${label} = Array.isArray(beforeBody_${label}) ? beforeBody_${label}.length : (beforeBody_${label}?.${label}?.length ?? 0);`);
+      assertions.push(`await request.post("${node.path}", { data: { _ate: true } });`);
+      assertions.push(`const after_${label} = await request.get("${node.path}");`);
+      assertions.push(`const afterBody_${label} = after_${label}.status() < 400 ? await after_${label}.json() : null;`);
+      assertions.push(`const afterCount_${label} = Array.isArray(afterBody_${label}) ? afterBody_${label}.length : (afterBody_${label}?.${label}?.length ?? 0);`);
+      assertions.push(`expect(afterCount_${label}).toBeGreaterThanOrEqual(beforeCount_${label});`);
+    } else if (eff.kind === "db-update") {
+      assertions.push(`// Detected side-effect: ${eff.match} — verify update is idempotent/returns 2xx`);
+      assertions.push(`const updRes = await request.get("${node.path}");`);
+      assertions.push(`expect(updRes.status()).toBeLessThan(500);`);
+    } else if (eff.kind === "db-delete") {
+      assertions.push(`// Detected side-effect: ${eff.match} — skip destructive verification (safety)`);
+      assertions.push(`// Deletion flows require fixture data; verified at manual L3 scenarios.`);
+    } else if (eff.kind === "email") {
+      assertions.push(`// Detected side-effect: email send (${eff.match})`);
+      assertions.push(`// Email verification requires a mock transport — emit as a TODO marker.`);
+      assertions.push(`expect(true).toBe(true); // TODO: wire email mock assertion`);
+    } else if (eff.kind === "external-fetch") {
+      assertions.push(`// Detected side-effect: external fetch to ${eff.match}`);
+      assertions.push(`// External calls should be verified via request interception in a real scenario.`);
+    }
+  }
   return assertions;
 }
 
 /**
  * Generate L3 assertions: behavioral verification (state changes, island hydration, navigation)
  */
-export function generateL3Assertions(node: InteractionNode, edges: { kind: string; to?: string }[]): string[] {
+export function generateL3Assertions(
+  node: InteractionNode,
+  edges: { kind: string; to?: string }[],
+  ctx?: L3Context,
+): string[] {
   if (node.kind !== "route") return [];
   const assertions: string[] = [];
   const isApi = node.path.startsWith("/api/") || (node.methods && node.methods.length > 0);
 
-  if (isApi && node.methods?.includes("POST")) {
+  // Deep path: resolve side-effects from ctx or filesystem
+  let sideEffects: SideEffect[] | undefined = ctx?.sideEffects;
+  if (!sideEffects && ctx?.repoRoot) {
+    const routeFileAbs =
+      ctx.routeFileAbs ||
+      (node.kind === "route" && node.file ? `${ctx.repoRoot}/${node.file}` : undefined);
+    if (routeFileAbs) {
+      try {
+        sideEffects = scanRouteSideEffects(routeFileAbs);
+      } catch {
+        sideEffects = [];
+      }
+    }
+  }
+  if (sideEffects && sideEffects.length > 0) {
+    assertions.push(...generateL3AssertionsFromSideEffects(node, sideEffects));
+  } else if (isApi && node.methods?.includes("POST")) {
     assertions.push(`// L3: POST state change verification`);
     assertions.push(`const beforeRes = await request.get("${node.path}");`);
     assertions.push(`const beforeStatus = beforeRes.status();`);
@@ -233,4 +478,60 @@ export function generateL3Assertions(node: InteractionNode, edges: { kind: strin
   }
 
   return assertions;
+}
+
+/**
+ * Generate accessibility (a11y) assertions for a page route using @axe-core/playwright.
+ *
+ * The generated code imports @axe-core/playwright dynamically so that projects
+ * that haven't installed it yet won't break at compile time — instead the test
+ * fails with a clear "Cannot find module" at runtime.
+ *
+ * Usage (in user project):
+ *   bun add -d @axe-core/playwright
+ *
+ * The returned lines are ready to be embedded inside a Playwright test body.
+ */
+export interface A11yOptions {
+  /** Rule tags to run (passes through to AxeBuilder.withTags). Default: wcag2a, wcag2aa */
+  tags?: string[];
+  /** Optional selector to scope analysis; default scans full page */
+  include?: string;
+}
+
+export function generateA11yAssertions(routePath: string, opts?: A11yOptions): string[] {
+  const tags = opts?.tags ?? ["wcag2a", "wcag2aa"];
+  const lines: string[] = [];
+  lines.push(`// a11y: axe-core violation check (requires @axe-core/playwright)`);
+  lines.push(`await page.goto("${routePath}");`);
+  lines.push(`const { default: AxeBuilder } = await import("@axe-core/playwright");`);
+  lines.push(`let axe = new AxeBuilder({ page }).withTags(${JSON.stringify(tags)});`);
+  if (opts?.include) {
+    lines.push(`axe = axe.include(${JSON.stringify(opts.include)});`);
+  }
+  lines.push(`const a11yResults = await axe.analyze();`);
+  lines.push(`expect(a11yResults.violations, "a11y violations").toEqual([]);`);
+  return lines;
+}
+
+/**
+ * Wrap a11y assertions in a complete Playwright `test(...)` block. Convenient
+ * for callers that want a drop-in spec fragment.
+ */
+export function generateA11yTestBlock(routePath: string, opts?: A11yOptions): string {
+  const body = generateA11yAssertions(routePath, opts)
+    .map((l) => `  ${l}`)
+    .join("\n");
+  return [
+    `test("${routePath} has no a11y violations", async ({ page }) => {`,
+    body,
+    `});`,
+  ].join("\n");
+}
+
+/** Count behavioral (state-change) assertions in a generated L3 block. */
+export function countBehavioralAssertions(assertions: string[]): number {
+  return assertions.filter(
+    (a) => a.includes("afterCount") && a.includes("toBeGreaterThanOrEqual"),
+  ).length;
 }

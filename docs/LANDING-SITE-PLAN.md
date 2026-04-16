@@ -1,4 +1,4 @@
-# Mandu 공식 사이트 기획서 (mandujs.dev)
+# Mandu 공식 사이트 기획서 (mandujs.com)
 
 > 3명 전문가 (디자인, 콘텐츠, 기술) 분석 종합
 >
@@ -13,7 +13,7 @@
 | **랜딩 페이지** | Mandu (dogfooding) | "우리 프레임워크로 만들었다" — 개발자 신뢰도 |
 | **문서** | Astro Starlight | 검색, 사이드바, i18n, MDX 내장 — 문서 품질 타협 불가 |
 | **호스팅** | Cloudflare Pages | 무료, 글로벌 CDN, 빠른 빌드 |
-| **도메인** | mandujs.dev | / = 랜딩, /docs = 문서 |
+| **도메인** | mandujs.com | / = 랜딩, /docs = 문서 |
 | **검색** | Pagefind (내장) | 로컬, 무료, 빠름 |
 | **i18n** | ko + en | Starlight 내장 |
 
@@ -22,7 +22,7 @@
 ## 저장소 구조
 
 ```
-workspace/mandujs.dev/
+workspace/mandujs.com/
 ├── landing/                    # Mandu 앱 (dogfooding)
 │   ├── app/
 │   │   ├── page.tsx            # 히어로 + 피처

@@ -4,9 +4,11 @@
  * Covers createTestManifest and createTestIsland from the testing module.
  */
 import { describe, it, expect } from "bun:test";
+import path from "path";
 import {
   createTestManifest,
   createTestIsland,
+  createMockMcpContext,
 } from "../../src/testing/index";
 
 // ---------------------------------------------------------------------------
@@ -133,5 +135,64 @@ describe("createTestIsland", () => {
       expect(island.__hydrate).toBe(strategy);
       expect(island.__island).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createMockMcpContext
+// ---------------------------------------------------------------------------
+
+describe("createMockMcpContext", () => {
+  it("creates a context with default paths when no root is provided", () => {
+    const ctx = createMockMcpContext();
+    expect(ctx.paths.repoRoot).toBeDefined();
+    expect(ctx.paths.manduDir).toBe(path.join(ctx.paths.repoRoot, ".mandu"));
+    expect(ctx.paths.manifestPath).toBe(
+      path.join(ctx.paths.repoRoot, ".mandu", "routes.manifest.json"),
+    );
+    expect(ctx.paths.specsDir).toBe(path.join(ctx.paths.repoRoot, "spec"));
+    expect(ctx.paths.slotsDir).toBe(path.join(ctx.paths.repoRoot, "spec", "slots"));
+  });
+
+  it("uses the provided root directory", () => {
+    const ctx = createMockMcpContext({ root: "/fake/project" });
+    expect(ctx.paths.repoRoot).toBe("/fake/project");
+    expect(ctx.paths.manduDir).toBe(path.join("/fake/project", ".mandu"));
+  });
+
+  it("returns the provided config from readConfig()", async () => {
+    const config = { guard: { preset: "fsd" }, server: { port: 3333 } };
+    const ctx = createMockMcpContext({ config });
+    const result = await ctx.readConfig();
+    expect(result).toEqual(config);
+  });
+
+  it("returns an empty config object by default", async () => {
+    const ctx = createMockMcpContext();
+    const result = await ctx.readConfig();
+    expect(result).toEqual({});
+  });
+
+  it("returns the provided manifest from readManifest()", async () => {
+    const manifest = createTestManifest([
+      { id: "home", kind: "page", pattern: "/" },
+    ]);
+    const ctx = createMockMcpContext({ manifest });
+    const result = await ctx.readManifest();
+    expect(result).toBe(manifest);
+    expect(result.routes).toHaveLength(1);
+  });
+
+  it("returns an empty manifest by default", async () => {
+    const ctx = createMockMcpContext();
+    const result = await ctx.readManifest();
+    expect(result.version).toBe(1);
+    expect(result.routes).toEqual([]);
+  });
+
+  it("readConfig and readManifest are async functions", () => {
+    const ctx = createMockMcpContext();
+    expect(ctx.readConfig()).toBeInstanceOf(Promise);
+    expect(ctx.readManifest()).toBeInstanceOf(Promise);
   });
 });

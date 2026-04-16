@@ -30,8 +30,40 @@ export type { TraceAction, FailedLocator, TraceParseResult } from "./trace-parse
 // Oracle and domain detection
 export { detectDomain, detectDomainFromRoute, detectDomainFromSource } from "./domain-detector";
 export type { AppDomain, DomainDetectionResult } from "./domain-detector";
-export { generateL1Assertions, generateL2Assertions, generateL3Assertions, upgradeL0ToL1, getAssertionCount, createDefaultOracle } from "./oracle";
-export type { OracleResult } from "./oracle";
+export {
+  generateL1Assertions,
+  generateL2Assertions,
+  generateL2AssertionsFromContract,
+  generateL3Assertions,
+  generateL3AssertionsFromSideEffects,
+  generateA11yAssertions,
+  generateA11yTestBlock,
+  countBehavioralAssertions,
+  upgradeL0ToL1,
+  getAssertionCount,
+  createDefaultOracle,
+} from "./oracle";
+export type { OracleResult, L2Context, L3Context, A11yOptions } from "./oracle";
+export {
+  findContractFiles,
+  findContractForRoute,
+  parseContractFile,
+  parseContractSource,
+  inferRouteFromFileName,
+} from "./contract-parser";
+export type {
+  ParsedContract,
+  ContractField,
+  ContractResponseShape,
+  ContractRequestShape,
+  ZodFieldKind,
+} from "./contract-parser";
+export {
+  scanSourceForSideEffects,
+  scanFileForSideEffects,
+  scanRouteSideEffects,
+} from "./side-effect-scanner";
+export type { SideEffect, SideEffectKind, SideEffectScanResult } from "./side-effect-scanner";
 
 import type { ExtractInput, GenerateInput, RunInput, ImpactInput, HealInput, OracleLevel } from "./types";
 import { getAtePaths } from "./fs";
@@ -121,3 +153,7 @@ export { detectCoverageGaps } from "./coverage-gap";
 export type { CoverageGap, CoverageGapType, CoverageGapResult } from "./coverage-gap";
 export { precommitCheck } from "./precommit";
 export type { PrecommitInput, PrecommitResult } from "./precommit";
+
+// Watch mode
+export { createAteWatcher } from "./watcher";
+export type { AteWatchOptions, WatchTestResult, AteWatcher } from "./watcher";

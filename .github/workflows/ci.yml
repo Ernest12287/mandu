@@ -78,3 +78,50 @@ jobs:
           name: perf-latest
           path: .perf/latest
           if-no-files-found: warn
+
+  e2e:
+    name: E2E (Playwright) — ${{ matrix.demo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo: [todo-app, ai-chat]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+      - name: Build demo app
+        working-directory: demo/${{ matrix.demo }}
+        run: bun run build
+      - name: Start demo server
+        working-directory: demo/${{ matrix.demo }}
+        run: bun run start &
+      - name: Wait for server
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://localhost:3333 > /dev/null; then
+              echo "Server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server failed to start within 60s"
+          exit 1
+      - name: Run E2E tests
+        working-directory: demo/${{ matrix.demo }}
+        env:
+          CI: "true"
+          BASE_URL: http://localhost:3333
+        run: bun run test:e2e:ci
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.demo }}
+          path: demo/${{ matrix.demo }}/.mandu/reports/
+          retention-days: 7
+          if-no-files-found: warn

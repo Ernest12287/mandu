@@ -108,10 +108,11 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           ].filter(Boolean).join("\n");
         });
 
-        // L2/L3 assertions for API routes
+        // L2/L3 assertions for API routes — pass repoRoot so deep generators
+        // can read *.contract.ts files and scan side effects (#ATE Phase 1)
         const apiOracleTests: string[] = [];
         if ((s.oracleLevel === "L2" || s.oracleLevel === "L3") && apiNode) {
-          const l2 = generateL2Assertions(apiNode);
+          const l2 = generateL2Assertions(apiNode, { repoRoot });
           if (l2.length > 0) {
             apiOracleTests.push([
               `  test(${JSON.stringify(`L2 contract: ${s.route}`)}, async ({ request }) => {`,
@@ -121,7 +122,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           }
         }
         if (s.oracleLevel === "L3" && apiNode) {
-          const l3 = generateL3Assertions(apiNode, graph?.edges ?? []);
+          const l3 = generateL3Assertions(apiNode, graph?.edges ?? [], { repoRoot });
           if (l3.length > 0) {
             apiOracleTests.push([
               `  test(${JSON.stringify(`L3 behavior: ${s.route}`)}, async ({ request }) => {`,

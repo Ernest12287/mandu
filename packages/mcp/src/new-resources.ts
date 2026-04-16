@@ -9,6 +9,7 @@ import path from "path";
 import { readConfig, readJsonFile } from "./utils/project.js";
 import { loadManduConfig, loadManifest } from "@mandujs/core";
 import { eventBus } from "@mandujs/core/observability";
+import { computeAgentStats } from "@mandujs/core/kitchen";
 import { getDevServerState } from "./tools/project.js";
 
 export const manduResourceDefinitions: Resource[] = [
@@ -34,6 +35,12 @@ export const manduResourceDefinitions: Resource[] = [
     uri: "mandu://activity",
     name: "Recent Activity",
     description: "Recent observability events (HTTP, MCP, Guard) from EventBus + 5-minute stats",
+    mimeType: "application/json",
+  },
+  {
+    uri: "mandu://agent-stats",
+    name: "Per-Agent Stats",
+    description: "MCP tool usage aggregated by sessionId (per-agent observability)",
     mimeType: "application/json",
   },
 ];
@@ -105,6 +112,11 @@ export function manduResourceHandlers(projectRoot: string): Record<string, Resou
         stats,
         windowMs: 5 * 60 * 1000,
       });
+    },
+
+    "mandu://agent-stats": async () => {
+      // Phase 5-2: per-agent (sessionId) MCP tool usage aggregation
+      return jsonResult("mandu://agent-stats", computeAgentStats());
     },
 
     "mandu://errors": async () => {
