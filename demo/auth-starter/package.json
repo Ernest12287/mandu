@@ -1,0 +1,29 @@
+{
+  "name": "mandu-auth-starter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "mandu dev",
+    "build": "mandu build",
+    "start": "mandu start",
+    "check": "mandu check",
+    "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
+    "test:e2e:ci": "playwright test --config=tests/e2e/playwright.config.ts --reporter=html,json,junit"
+  },
+  "dependencies": {
+    "@mandujs/core": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@mandujs/cli": "workspace:*",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.0.0",
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0",
+    "@playwright/test": "^1.59.1",
+    "playwright": "^1.59.1"
+  }
+}

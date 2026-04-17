@@ -105,6 +105,21 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
   if (hydratedRoutes.length === 0) {
     console.log("\n📭 No routes require hydration.");
     console.log("   (no clientModule or hydration.strategy: none)");
+    // Pure-SSR projects still need `.mandu/manifest.json` for `mandu start`
+    // to boot. Emit a stub manifest with empty bundles — the start path reads
+    // it only for bundle asset lookup, which is a no-op when nothing hydrates.
+    const stubManifest: BundleManifest = {
+      version: 1,
+      buildTime: new Date().toISOString(),
+      env: "production",
+      bundles: {},
+      shared: { runtime: "", vendor: "" },
+      importMap: { imports: {} },
+    };
+    const manifestPath = path.join(cwd, ".mandu/manifest.json");
+    await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fs.writeFile(manifestPath, JSON.stringify(stubManifest, null, 2));
+    bundleManifest = stubManifest;
   } else {
     console.log(`\n🏝️  Building ${hydratedRoutes.length} Island(s)...`);
     for (const route of hydratedRoutes) {
