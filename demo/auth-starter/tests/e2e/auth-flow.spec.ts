@@ -161,4 +161,118 @@ test.describe("auth flow", () => {
       await ctx.dispose();
     }
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 3.3: avatar upload — exercises scheduler-adjacent module wiring
+  // and the POST /api/avatar handler.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Minimal valid 1x1 PNG. `setInputFiles` accepts a `{name, mimeType, buffer}`
+  // object so we can synthesize bytes without touching the filesystem.
+  // prettier-ignore
+  const PNG_1x1 = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+  ]);
+
+  test("logged-in user uploads a valid PNG and sees it on the dashboard", async ({ page }) => {
+    const email = freshEmail("avatar-ok");
+
+    await page.goto("/signup");
+    await page.getByTestId("signup-email").fill(email);
+    await page.getByTestId("signup-password").fill(STRONG_PASSWORD);
+    await page.getByTestId("signup-confirm").fill(STRONG_PASSWORD);
+    await page.getByTestId("signup-submit").click();
+    await page.waitForURL("**/dashboard");
+
+    // Pre-upload: the empty-state placeholder is visible.
+    await expect(page.getByTestId("avatar-empty")).toBeVisible();
+
+    await page.getByTestId("avatar-input").setInputFiles({
+      name: "pixel.png",
+      mimeType: "image/png",
+      buffer: PNG_1x1,
+    });
+    await page.getByTestId("avatar-submit").click();
+
+    // The handler redirects back to /dashboard with ?uploadOk=1.
+    await page.waitForURL(/\/dashboard/);
+    await expect(page.getByTestId("avatar-success")).toBeVisible();
+
+    const img = page.getByTestId("avatar-image");
+    await expect(img).toBeVisible();
+
+    // Confirm the actual GET handler is wired + serves an image.
+    const src = await img.getAttribute("src");
+    expect(src).not.toBeNull();
+    const res = await page.request.get(src as string);
+    expect(res.status()).toBe(200);
+    expect(res.headers()["content-type"]).toContain("image/png");
+  });
+
+  test("unauthenticated POST to /api/avatar is rejected (401 / redirect)", async ({ baseURL }) => {
+    // Fresh context → no session cookie. We must still obtain a CSRF cookie
+    // + token, otherwise csrf() returns 403 before the auth check runs —
+    // which would mask the unauth-specific behaviour we want to assert.
+    const ctx = await apiRequest.newContext({ baseURL: baseURL ?? "http://localhost:3333" });
+    try {
+      // 1. Visit any GET page so the server sets a fresh __csrf cookie.
+      const seedRes = await ctx.get("/login");
+      expect(seedRes.status()).toBe(200);
+
+      // 2. Read the cookie back to get the token value.
+      const cookies = await ctx.storageState();
+      const csrfCookie = cookies.cookies.find((c) => c.name === "__csrf");
+      expect(csrfCookie).toBeTruthy();
+      const token = csrfCookie!.value;
+
+      // 3. POST with JSON Accept so the handler takes the 401 branch rather
+      //    than emitting a 302 to /login — asserting against a stable status
+      //    is more informative than asserting against a redirect target.
+      const res = await ctx.post("/api/avatar", {
+        multipart: {
+          _csrf: token,
+          avatar: {
+            name: "pixel.png",
+            mimeType: "image/png",
+            buffer: PNG_1x1,
+          },
+        },
+        headers: { accept: "application/json" },
+        maxRedirects: 0,
+      });
+      expect(res.status()).toBe(401);
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  test("avatar upload rejects non-image files (400 + dashboard error banner)", async ({ page }) => {
+    const email = freshEmail("avatar-bad");
+
+    await page.goto("/signup");
+    await page.getByTestId("signup-email").fill(email);
+    await page.getByTestId("signup-password").fill(STRONG_PASSWORD);
+    await page.getByTestId("signup-confirm").fill(STRONG_PASSWORD);
+    await page.getByTestId("signup-submit").click();
+    await page.waitForURL("**/dashboard");
+
+    // Upload a .txt — the MIME allow-list in uploads.ts will reject it.
+    await page.getByTestId("avatar-input").setInputFiles({
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("not an image"),
+    });
+    await page.getByTestId("avatar-submit").click();
+
+    // Handler redirects to /dashboard?uploadError=unsupported-type; we assert
+    // both the URL shape and the inline banner.
+    await page.waitForURL(/\/dashboard\?uploadError=/);
+    await expect(page.getByTestId("avatar-error")).toBeVisible();
+    // And the avatar slot still shows the empty placeholder (upload refused).
+    await expect(page.getByTestId("avatar-empty")).toBeVisible();
+  });
 });

@@ -22,6 +22,10 @@ import {
   csrf as csrfMiddleware,
 } from "@mandujs/core/middleware";
 import { currentUserId } from "@mandujs/core/auth";
+// Side-effect import: registers Phase 3.1 cron jobs (session GC).
+// Every API route + page loader pulls `auth.ts` in, so this is the most
+// reliable boot hook without touching mandu.config.ts.
+import "./scheduler";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Secrets

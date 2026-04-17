@@ -16,6 +16,12 @@ export interface User {
   email: string;
   passwordHash: string;
   createdAt: number;
+  /**
+   * Relative filename (e.g. "<hash>.png") inside `.uploads/`. `null` when the
+   * user has not uploaded an avatar yet. Kept as a plain string (not a URL)
+   * so serving logic (CDN, S3, local fs) stays pluggable — see uploads.ts.
+   */
+  avatarPath: string | null;
 }
 
 /** Thrown by `create()` when the email is already registered. */
@@ -49,6 +55,7 @@ export const userStore = {
       email: key,
       passwordHash,
       createdAt: Date.now(),
+      avatarPath: null,
     };
     byId.set(user.id, user);
     byEmail.set(user.email, user);
@@ -62,6 +69,20 @@ export const userStore = {
 
   findById(id: string): User | null {
     return byId.get(id) ?? null;
+  },
+
+  /**
+   * Associate an uploaded avatar filename with the user. The filename comes
+   * from `saveAvatar()` and is relative to `.uploads/`. Returns the updated
+   * user, or `null` if the id is unknown. We mutate the existing record in
+   * place rather than allocating a new one so callers holding the prior
+   * reference see the update (important for the rendered dashboard).
+   */
+  setAvatar(id: string, filename: string | null): User | null {
+    const user = byId.get(id);
+    if (!user) return null;
+    user.avatarPath = filename;
+    return user;
   },
 
   /** Test helper — wipe all users. NOT exposed through any API handler. */
