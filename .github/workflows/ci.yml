@@ -54,6 +54,78 @@ jobs:
       - run: bun run test:mcp -- --randomize --retry=2 --seed=${{ github.run_id }}
       - run: bun run test:ate -- --randomize --retry=2 --seed=${{ github.run_id }}
 
+  db-integration:
+    name: DB Integration (Postgres + MySQL)
+    # Isolated from `quality` so a transient docker-hub pull flake or db
+    # regression doesn't mask unrelated breakage. Mandatory on every PR —
+    # failures here mean our cross-dialect contract is broken.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Start Postgres + MySQL via compose
+        run: |
+          docker compose -f packages/core/tests/fixtures/db/docker-compose.yml up -d
+          docker compose -f packages/core/tests/fixtures/db/docker-compose.yml ps
+
+      - name: Wait for databases to report healthy
+        run: |
+          # Poll `docker compose ps` until BOTH services read "healthy".
+          # MySQL usually takes 15-20 s on a cold volume; Postgres 3-5 s.
+          # 90 s cap — beyond that, something is wrong and we want to fail
+          # the job rather than hang.
+          for i in $(seq 1 90); do
+            status=$(docker compose -f packages/core/tests/fixtures/db/docker-compose.yml ps --format json | tr -d '\r' || true)
+            pg_ok=$(echo "$status" | grep -c '"Service":"postgres".*"Health":"healthy"' || true)
+            mysql_ok=$(echo "$status" | grep -c '"Service":"mysql".*"Health":"healthy"' || true)
+            if [ "$pg_ok" = "1" ] && [ "$mysql_ok" = "1" ]; then
+              echo "Both databases healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for databases to become healthy"
+          docker compose -f packages/core/tests/fixtures/db/docker-compose.yml ps
+          docker compose -f packages/core/tests/fixtures/db/docker-compose.yml logs --tail=100
+          exit 1
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: DB integration tests (Postgres + MySQL)
+        env:
+          DB_TEST_POSTGRES_URL: postgres://test:test@localhost:5433/testdb
+          DB_TEST_MYSQL_URL: mysql://test:test@localhost:3307/testdb
+        run: bun test packages/core/tests/db/db-postgres.test.ts packages/core/tests/db/db-mysql.test.ts --retry=2
+
+      - name: Collect compose logs on failure
+        if: failure()
+        run: |
+          mkdir -p .db-integration-logs
+          docker compose -f packages/core/tests/fixtures/db/docker-compose.yml logs postgres \
+            > .db-integration-logs/postgres.log 2>&1 || true
+          docker compose -f packages/core/tests/fixtures/db/docker-compose.yml logs mysql \
+            > .db-integration-logs/mysql.log 2>&1 || true
+          docker compose -f packages/core/tests/fixtures/db/docker-compose.yml ps \
+            > .db-integration-logs/ps.txt 2>&1 || true
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-integration-logs
+          path: .db-integration-logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Tear down compose
+        if: always()
+        run: docker compose -f packages/core/tests/fixtures/db/docker-compose.yml down -v
+
   official-demo:
     name: Official Demo (ubuntu-latest, Bun latest)
     runs-on: ubuntu-latest

@@ -11,6 +11,7 @@
     "./auth/login": "./src/auth/login.ts",
     "./auth/password": "./src/auth/password.ts",
     "./client": "./src/client/index.ts",
+    "./db": "./src/db/index.ts",
     "./middleware": "./src/middleware/index.ts",
     "./testing": "./src/testing/index.ts",
     "./plugins": "./src/plugins/index.ts",

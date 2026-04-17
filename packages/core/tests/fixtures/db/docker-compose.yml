@@ -1,0 +1,107 @@
+# Postgres + MySQL fixture for `@mandujs/core/db` integration tests.
+#
+# Boots two database servers on non-default ports so they don't clash with any
+# system-installed Postgres/MySQL:
+#
+#   Postgres 16  →  localhost:5433  (user=test / pass=test / db=testdb)
+#   MySQL    8   →  localhost:3307  (user=test / pass=test / db=testdb)
+#
+# Credentials are hard-coded **dev-only** values — this fixture exists solely
+# to back CI integration tests. Never deploy with these creds.
+#
+# Run locally:
+#   docker compose -f packages/core/tests/fixtures/db/docker-compose.yml up -d
+#   docker compose -f packages/core/tests/fixtures/db/docker-compose.yml ps
+#
+#   export DB_TEST_POSTGRES_URL=postgres://test:test@localhost:5433/testdb
+#   export DB_TEST_MYSQL_URL=mysql://test:test@localhost:3307/testdb
+#   bun test packages/core/tests/db
+#
+# Inspect:
+#   docker compose -f packages/core/tests/fixtures/db/docker-compose.yml exec postgres \
+#     psql -U test -d testdb -c '\dt'
+#   docker compose -f packages/core/tests/fixtures/db/docker-compose.yml exec mysql \
+#     mysql -utest -ptest testdb -e 'SHOW TABLES;'
+#
+# Tear down (destroys volumes):
+#   docker compose -f packages/core/tests/fixtures/db/docker-compose.yml down -v
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    container_name: mandu-db-postgres
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: testdb
+      # Data checksums catch bit-rot on the fixture volume; harmless for test.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      # Disable fsync/synchronous_commit/full_page_writes for test-grade
+      # speed. Safe because the volume is destroyed on `down -v` and no real
+      # data depends on durability.
+      - "postgres"
+      - "-c"
+      - "fsync=off"
+      - "-c"
+      - "synchronous_commit=off"
+      - "-c"
+      - "full_page_writes=off"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  mysql:
+    image: mysql:8.4.3
+    container_name: mandu-db-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_USER: test
+      MYSQL_PASSWORD: test
+      MYSQL_DATABASE: testdb
+    command:
+      # Smaller buffer pool (default 128 MiB fits the 512 MiB container cap,
+      # but we trim further so laptop fans stay quiet). Disable binlog — no
+      # replication needed for tests.
+      #
+      # NOTE: `--default-authentication-plugin` was removed in MySQL 8.4;
+      # caching_sha2_password is the default, no flag needed. Adding it
+      # causes startup to abort with "unknown variable".
+      - "--innodb-buffer-pool-size=64M"
+      - "--skip-log-bin"
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # mysqladmin ping against localhost inside the container. The `-h` is
+      # explicit so we hit TCP not the socket during early startup. We also
+      # avoid `--silent` so exit-code diagnostics surface in `docker inspect`.
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -utest -ptest | grep -q 'mysqld is alive'",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  postgres-data:
+  mysql-data:
