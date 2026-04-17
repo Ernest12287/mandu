@@ -15,3 +15,11 @@ export {
   destroySession,
   type SessionMiddlewareOptions,
 } from "./session";
+export {
+  oauth,
+  github,
+  google,
+  type OAuthOptions,
+  type OAuthProvider,
+  type OAuthProfile,
+} from "./oauth";
