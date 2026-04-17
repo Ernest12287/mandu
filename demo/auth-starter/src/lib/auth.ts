@@ -16,7 +16,12 @@
  * middleware via `.use()` — the helper and the middleware share the same
  * underlying primitives, so tokens/cookies round-trip cleanly.
  */
-import { createCookieSessionStorage, type ManduContext } from "@mandujs/core";
+import {
+  createCookieSessionStorage,
+  type ManduContext,
+  type SessionStorage,
+} from "@mandujs/core";
+import { createSqliteSessionStorage } from "@mandujs/core/filling/session-sqlite";
 import {
   session as sessionMiddleware,
   csrf as csrfMiddleware,
@@ -60,18 +65,46 @@ export const CSRF_SECRET = readSecret("CSRF_SECRET");
 // ────────────────────────────────────────────────────────────────────────────
 // Session storage — single module-level instance so every request attaches
 // to the same signing key + cookie name.
+//
+// `SESSION_STORE=sqlite` swaps the cookie-backed storage for
+// `createSqliteSessionStorage` (Phase 4b). The SQLite path registers its
+// OWN GC cron internally, so `./scheduler` detects the mode and skips its
+// own session-gc heartbeat to avoid double-registration.
 // ────────────────────────────────────────────────────────────────────────────
 
-export const sessionStorage = createCookieSessionStorage({
-  cookie: {
-    name: "__auth_session",
-    secrets: [SESSION_SECRET],
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7, // 7 days
-  },
-});
+export const SESSION_STORE_MODE: "cookie" | "sqlite" =
+  process.env.SESSION_STORE === "sqlite" ? "sqlite" : "cookie";
+
+function buildSessionStorage(): SessionStorage {
+  if (SESSION_STORE_MODE === "sqlite") {
+    return createSqliteSessionStorage({
+      dbPath: process.env.SESSION_SQLITE_PATH ?? ".mandu/sessions.db",
+      cookie: {
+        name: "__auth_session",
+        secrets: [SESSION_SECRET],
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+      },
+      ttlSeconds: 60 * 60 * 24 * 7,
+      // The storage itself schedules an hourly sweep via @mandujs/core/scheduler.
+      gcSchedule: "0 * * * *",
+    });
+  }
+  return createCookieSessionStorage({
+    cookie: {
+      name: "__auth_session",
+      secrets: [SESSION_SECRET],
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+    },
+  });
+}
+
+export const sessionStorage: SessionStorage = buildSessionStorage();
 
 // ────────────────────────────────────────────────────────────────────────────
 // Middleware factories — call these in filling chains on API routes

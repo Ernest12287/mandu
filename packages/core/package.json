@@ -12,6 +12,7 @@
     "./auth/password": "./src/auth/password.ts",
     "./client": "./src/client/index.ts",
     "./db": "./src/db/index.ts",
+    "./filling/session-sqlite": "./src/filling/session-sqlite.ts",
     "./middleware": "./src/middleware/index.ts",
     "./testing": "./src/testing/index.ts",
     "./plugins": "./src/plugins/index.ts",

@@ -66,9 +66,19 @@ let registration: ReturnType<typeof buildJobs> | null = null;
  * Idempotent: the first call registers + starts the cron, subsequent calls are
  * no-ops. Safe to invoke from multiple entry points (side-effect import, boot
  * hook, explicit call in a script) without double-scheduling.
+ *
+ * When `SESSION_STORE=sqlite`, the SQLite session storage registers its own
+ * `mandu_sessions:gc` cron internally — this heartbeat becomes redundant, so
+ * we skip it and log a breadcrumb instead of double-scheduling.
  */
 export function registerBackgroundJobs(): void {
   if (registration !== null) return;
+  if (process.env.SESSION_STORE === "sqlite") {
+    console.log(
+      "[auth-starter] SESSION_STORE=sqlite — SQLite session store manages its own GC cron, skipping local session-gc heartbeat.",
+    );
+    return;
+  }
   try {
     registration = buildJobs();
     registration.start();
