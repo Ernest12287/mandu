@@ -6,6 +6,7 @@ import {
   registerWSHandler,
   needsHydration,
   type RoutesManifest,
+  type PageRegistration,
 } from "@mandujs/core";
 import path from "path";
 
@@ -132,18 +133,39 @@ export async function registerManifestHandlers(
       if (route.slotModule) {
         registerPageHandler(route.id, async () => {
           const module = await importFn(componentPath);
+          // Normalize the page module shape. Users write pages in two styles:
+          //   (a) `export default function Page() {…}` + `export const filling = …`
+          //   (b) `export default { component: …, filling: … }`
+          // Spreading a function default drops the component silently (you get
+          // the function's own props like `name`/`length`, not the function).
+          // Auto-promote form (a) to form (b) so both work without surprises.
+          const rawDefault = module.default as unknown;
+          const mod = module as Record<string, unknown>;
+
+          let registration: PageRegistration;
+          if (typeof rawDefault === "function") {
+            registration = {
+              component: rawDefault as PageRegistration["component"],
+              filling: mod.filling as PageRegistration["filling"],
+            };
+          } else if (typeof rawDefault === "object" && rawDefault !== null) {
+            registration = { ...(rawDefault as unknown as PageRegistration) };
+          } else {
+            throw new Error(
+              `[Mandu] Page module '${route.id}' has no default export. ` +
+                `Expected a React component or { component, filling } object.`,
+            );
+          }
+
           // #186: page 모듈의 metadata / generateMetadata 를 registration에 실어서
           // ensurePageRouteMetadata가 registry 캐시에 저장할 수 있게 전달.
-          // 원본을 mutation하지 않기 위해 새 객체 반환 (module.default가 frozen일 수 있음).
-          return {
-            ...module.default,
-            ...(module.metadata && typeof module.metadata === "object"
-              ? { metadata: module.metadata }
-              : {}),
-            ...(typeof module.generateMetadata === "function"
-              ? { generateMetadata: module.generateMetadata }
-              : {}),
-          };
+          if (mod.metadata && typeof mod.metadata === "object") {
+            registration.metadata = mod.metadata as PageRegistration["metadata"];
+          }
+          if (typeof mod.generateMetadata === "function") {
+            registration.generateMetadata = mod.generateMetadata as PageRegistration["generateMetadata"];
+          }
+          return registration;
         });
         console.log(
           `  📄 Page: ${route.pattern} -> ${route.id} (with loader)${isIsland ? " 🏝️" : ""}${hasLayout ? " 🎨" : ""}`

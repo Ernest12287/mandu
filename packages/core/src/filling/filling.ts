@@ -48,8 +48,19 @@ export interface MiddlewarePlugin {
   mapResponse?: MapResponseHandler;
 }
 
-/** Loader function type - SSR 데이터 로딩 */
-export type Loader<T = unknown> = (ctx: ManduContext) => T | Promise<T>;
+/**
+ * Loader function type — SSR data loader.
+ *
+ * Returns the route's data object `T`, or a `Response` to short-circuit
+ * the SSR pipeline (DX-3). A returned `Response` with a redirect-range
+ * status code becomes the final response — SSR is skipped and any pending
+ * `ctx.cookies` are merged into the outgoing headers. Use the
+ * `redirect(url)` helper for the common case; throwing a `Response` is
+ * also accepted (Remix idiom).
+ */
+export type Loader<T = unknown> = (
+  ctx: ManduContext
+) => T | Response | Promise<T | Response>;
 
 /** Loader 실행 옵션 */
 export interface LoaderOptions<T = unknown> {
@@ -231,10 +242,24 @@ export class ManduFilling<TLoaderData = unknown> {
     return this.config.renderMode ?? "dynamic";
   }
 
+  /**
+   * Execute the registered loader.
+   *
+   * Return shape:
+   *   - `TLoaderData` — normal loader data
+   *   - `Response` — the loader returned a Response (e.g. `redirect("/login")`).
+   *     Callers must check `instanceof Response` and short-circuit their
+   *     pipeline instead of treating the value as page data.
+   *   - `undefined` — no loader registered
+   *
+   * DX-3: the Response overload is explicit in the signature so downstream
+   * TypeScript consumers are forced to narrow before consuming data —
+   * prevents accidentally passing a Response into renderPageSSR.
+   */
   async executeLoader(
     ctx: ManduContext,
     options: LoaderOptions<TLoaderData> = {}
-  ): Promise<TLoaderData | undefined> {
+  ): Promise<TLoaderData | Response | undefined> {
     if (!this.config.loader) {
       return undefined;
     }

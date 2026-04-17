@@ -99,13 +99,11 @@ function SignupPage({ loaderData }: { loaderData?: LoaderData }) {
   );
 }
 
-const filling = Mandu.filling<LoaderData>().loader(async (ctx) => {
+export const filling = Mandu.filling<LoaderData>().loader(async (ctx) => {
   const { csrfToken } = await attachAuthContext(ctx);
   const error = ctx.query.error as string | undefined;
   const email = ctx.query.email as string | undefined;
   return { csrfToken, error, email };
 });
 
-// `export default { component, filling }` is the shape the Mandu page-loader
-// path expects when the route has a loader (see `packages/core/src/runtime/server.ts:1314-1343`).
-export default { component: SignupPage, filling };
+export default SignupPage;

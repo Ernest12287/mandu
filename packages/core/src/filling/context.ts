@@ -76,23 +76,50 @@ export class CookieManager {
    * 쿠키 값 읽기
    * @example
    * const session = ctx.cookies.get('session');
+   *
+   * Reads from the response-cookie buffer first so that a value set earlier
+   * in the same request (e.g. by an upstream middleware) is visible to later
+   * code. Falls back to the incoming request cookie.
    */
   get(name: string): string | undefined {
+    if (this.deletedCookies.has(name)) {
+      const pending = this.responseCookies.get(name);
+      // A pending write overrides a delete
+      if (pending && pending.options.maxAge !== 0) return pending.value;
+      return undefined;
+    }
+    const pending = this.responseCookies.get(name);
+    if (pending) return pending.value;
     return this.requestCookies.get(name);
   }
 
   /**
-   * 쿠키 존재 여부 확인
+   * 쿠키 존재 여부 확인 — 응답 측에 방금 set 한 값도 포함.
    */
   has(name: string): boolean {
-    return this.requestCookies.has(name);
+    if (this.deletedCookies.has(name)) {
+      const pending = this.responseCookies.get(name);
+      return pending !== undefined && pending.options.maxAge !== 0;
+    }
+    return this.responseCookies.has(name) || this.requestCookies.has(name);
   }
 
   /**
-   * 모든 쿠키 가져오기
+   * 모든 쿠키 가져오기 — 응답 측 pending 값이 요청 측을 override.
    */
   getAll(): Record<string, string> {
-    return Object.fromEntries(this.requestCookies);
+    const merged: Record<string, string> = {};
+    for (const [name, value] of this.requestCookies) {
+      merged[name] = value;
+    }
+    for (const [name, { value, options }] of this.responseCookies) {
+      if (options.maxAge === 0) {
+        delete merged[name];
+      } else {
+        merged[name] = value;
+      }
+    }
+    return merged;
   }
 
   /**

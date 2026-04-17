@@ -77,11 +77,11 @@ function LoginPage({ loaderData }: { loaderData?: LoaderData }) {
   );
 }
 
-const filling = Mandu.filling<LoaderData>().loader(async (ctx) => {
+export const filling = Mandu.filling<LoaderData>().loader(async (ctx) => {
   const { csrfToken } = await attachAuthContext(ctx);
   const error = ctx.query.error as string | undefined;
   const email = ctx.query.email as string | undefined;
   return { csrfToken, error, email };
 });
 
-export default { component: LoginPage, filling };
+export default LoginPage;

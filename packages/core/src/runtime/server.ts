@@ -2,7 +2,7 @@ import type { Server } from "bun";
 import type { RoutesManifest, RouteSpec, HydrationConfig } from "../spec/schema";
 import type { BundleManifest } from "../bundler/types";
 import type { ManduFilling, RenderMode } from "../filling/filling";
-import { ManduContext, type CookieManager } from "../filling/context";
+import { ManduContext, CookieManager } from "../filling/context";
 import { Router } from "./router";
 import { renderSSR, renderStreamingResponse } from "./ssr";
 import {
@@ -58,6 +58,7 @@ import { createFetchHandler } from "./handler";
 import { wrapBunWebSocket, type WSUpgradeData } from "../filling/ws";
 import { handleImageRequest } from "./image-handler";
 import { extractShellHtml, createPPRResponse } from "./ppr";
+import { isRedirectResponse } from "./redirect";
 import { newId } from "../id";
 
 export interface RateLimitOptions {
@@ -1258,11 +1259,36 @@ async function handleApiRoute(
 
 // ---------- Page Data Loader ----------
 
+/**
+ * Merge any pending Set-Cookie headers from ctx.cookies into the given
+ * Response. Used when a loader short-circuits via `redirect(...)` — session
+ * mutations made before the redirect call must still be emitted.
+ *
+ * CookieManager.applyToResponse already handles the no-op case (empty
+ * cookie set); we guard first anyway to avoid cloning the Response body
+ * unnecessarily (Response.redirect's body is always null, but keeping
+ * this cheap).
+ */
+function mergeCookiesIntoResponse(response: Response, cookies: CookieManager): Response {
+  if (!cookies.hasPendingCookies()) return response;
+  return cookies.applyToResponse(response);
+}
+
 interface PageLoadResult {
   loaderData: unknown;
   cookies?: CookieManager;
   /** Layout별 loader 데이터 (모듈 경로 → 데이터) */
   layoutData?: Map<string, unknown>;
+  /**
+   * If the page's loader returned or threw a redirect Response, it surfaces
+   * here. Callers short-circuit SSR and emit this Response to the browser
+   * with any pending ctx.cookies merged in (session/CSRF must survive).
+   *
+   * NOTE: a bare `throw new Error(...)` does NOT set this — only Response
+   * instances with a redirect-range status + Location header. See
+   * `isRedirectResponse()` in runtime/redirect.ts.
+   */
+  redirect?: Response;
 }
 
 /**
@@ -1286,7 +1312,24 @@ async function loadPageData(
       // Filling의 loader 실행
       if (registration.filling?.hasLoader()) {
         const ctx = new ManduContext(req, params);
-        loaderData = await registration.filling.executeLoader(ctx);
+        // DX-3: loader may return OR throw a redirect Response. Both are
+        // short-circuits — if we detect one, skip SSR and hand the Response
+        // to the caller with pending cookies merged in.
+        let returned: unknown;
+        try {
+          returned = await registration.filling.executeLoader(ctx);
+        } catch (thrown) {
+          if (isRedirectResponse(thrown)) {
+            const redirectResponse = mergeCookiesIntoResponse(thrown, ctx.cookies);
+            return ok({ loaderData: undefined, redirect: redirectResponse });
+          }
+          throw thrown;
+        }
+        if (isRedirectResponse(returned)) {
+          const redirectResponse = mergeCookiesIntoResponse(returned, ctx.cookies);
+          return ok({ loaderData: undefined, redirect: redirectResponse });
+        }
+        loaderData = returned;
         if (ctx.cookies.hasPendingCookies()) {
           cookies = ctx.cookies;
         }
@@ -1329,14 +1372,40 @@ async function loadPageData(
       }
 
       // filling이 있으면 캐시 옵션 등록 + loader 실행
+      // Support both page-module shapes:
+      //   (a) `export default { component, filling }` — object default
+      //   (b) `export default function Page()` + `export const filling = …`
+      //       — function default with named filling export
+      // (b) is the more natural TS/React shape; without this fallback, filling
+      // silently does nothing and pages render without loader data.
       let cookies: CookieManager | undefined;
-      const filling = typeof exported === "object" && exported !== null ? (exportedObj as Record<string, unknown>)?.filling as ManduFilling | null : null;
+      const fillingFromDefault =
+        typeof exported === "object" && exported !== null
+          ? ((exportedObj as Record<string, unknown>)?.filling as ManduFilling | null | undefined)
+          : null;
+      const fillingFromNamed = modObj.filling as ManduFilling | null | undefined;
+      const filling: ManduFilling | null = fillingFromDefault ?? fillingFromNamed ?? null;
       if (filling?.getCacheOptions?.()) {
         registry.cacheOptions.set(route.id, filling.getCacheOptions()!);
       }
       if (filling?.hasLoader?.()) {
         const ctx = new ManduContext(req, params);
-        loaderData = await filling.executeLoader(ctx);
+        // DX-3: same redirect handling as the PageHandler path above.
+        let returned: unknown;
+        try {
+          returned = await filling.executeLoader(ctx);
+        } catch (thrown) {
+          if (isRedirectResponse(thrown)) {
+            const redirectResponse = mergeCookiesIntoResponse(thrown, ctx.cookies);
+            return ok({ loaderData: undefined, redirect: redirectResponse });
+          }
+          throw thrown;
+        }
+        if (isRedirectResponse(returned)) {
+          const redirectResponse = mergeCookiesIntoResponse(returned, ctx.cookies);
+          return ok({ loaderData: undefined, redirect: redirectResponse });
+        }
+        loaderData = returned;
         if (ctx.cookies.hasPendingCookies()) {
           cookies = ctx.cookies;
         }
@@ -1357,18 +1426,71 @@ async function loadPageData(
   return ok({ loaderData });
 }
 
+interface LayoutLoadResult {
+  /** Layout별 loader 데이터 (모듈 경로 → 데이터) */
+  data: Map<string, unknown>;
+  /**
+   * Layout chain이 ctx.cookies.set(...) 으로 쌓은 pending 쿠키들.
+   * loader 여러 개가 쿠키를 쓰면 chain 순서대로 병합되어 단일 CookieManager가 됨
+   * (부모 layout → 자식 layout 방향으로 later-wins).
+   * 쓴 쿠키가 없으면 undefined.
+   *
+   * DX-2: 예전엔 layout slot의 ctx.cookies가 drop 됐음 — 이제 여기서 response로 전파된다.
+   */
+  cookies: CookieManager | undefined;
+}
+
+/**
+ * Layout + Page CookieManager 병합.
+ *
+ * 규칙 (DX-2):
+ * - layout 이 쓴 Set-Cookie 는 먼저, page 가 쓴 Set-Cookie 는 나중에 오도록 순서 고정.
+ * - HTTP 상 같은 이름의 Set-Cookie 가 여러 번 붙으면 브라우저는 뒤에 온 것(= page)을 최종 값으로 채택.
+ * - 이렇게 하면 middleware → handler 와 동일한 "뒤에 온 것이 이긴다" 관례를 유지.
+ *
+ * 구현은 raw-append 만 사용해서 한쪽 CookieManager 를 mutate 하지 않는다.
+ * (page 의 응답 API [ctx.json 등] 가 내부적으로 page 의 CookieManager 를 다시 쓸 수 있으므로
+ *  page CookieManager 를 mutate 해버리면 double-emit 위험이 생긴다.)
+ */
+function mergeCookieManagers(
+  req: Request,
+  layout: CookieManager | undefined,
+  page: CookieManager | undefined,
+): CookieManager | undefined {
+  if (!layout && !page) return undefined;
+  if (!layout) return page;
+  if (!page) return layout;
+
+  // 둘 다 있으면 빈 CookieManager 에 raw 로 layout → page 순서로 쌓는다.
+  const merged = new CookieManager(req);
+  for (const header of layout.getSetCookieHeaders()) {
+    merged.appendRawSetCookie(header);
+  }
+  for (const header of page.getSetCookieHeaders()) {
+    merged.appendRawSetCookie(header);
+  }
+  return merged;
+}
+
 /**
  * Layout chain의 모든 loader를 병렬 실행
  * 각 layout.slot.ts가 있으면 해당 데이터를 layout props로 전달
+ *
+ * Cookie 처리 (DX-2):
+ * - 각 layout slot은 개별 ManduContext 에서 실행되므로 각자의 CookieManager 를 가짐
+ * - 함수 리턴 전에 chain 순서대로 하나의 CookieManager 로 병합해 반환
+ * - 같은 이름의 쿠키를 여러 layout 이 set 하면 layout chain 후반부(= children 에 가까운 쪽)가 이김
  */
 async function loadLayoutData(
   req: Request,
   layoutChain: string[] | undefined,
   params: Record<string, string>,
   registry: ServerRegistry
-): Promise<Map<string, unknown>> {
+): Promise<LayoutLoadResult> {
   const layoutData = new Map<string, unknown>();
-  if (!layoutChain || layoutChain.length === 0) return layoutData;
+  if (!layoutChain || layoutChain.length === 0) {
+    return { data: layoutData, cookies: undefined };
+  }
 
   // layout.slot.ts 파일 검색: layout 모듈 경로에서 .slot.ts 파일 경로 유도
   // 예: app/layout.tsx → spec/slots/layout.slot.ts (auto-link 규칙)
@@ -1409,7 +1531,7 @@ async function loadLayoutData(
     }
   }
 
-  if (loaderEntries.length === 0) return layoutData;
+  if (loaderEntries.length === 0) return { data: layoutData, cookies: undefined };
 
   const results = await Promise.all(
     loaderEntries.map(async ({ modulePath, slotPath }) => {
@@ -1422,23 +1544,64 @@ async function loadLayoutData(
           if (filling.hasLoader()) {
             const ctx = new ManduContext(req, params);
             const data = await filling.executeLoader(ctx);
-            return { modulePath, data };
+            // DX-3: layout loaders are NOT allowed to redirect. They share
+            // the pipeline with a page loader and we can only honor one
+            // redirect — the page's wins (authoritative). If a layout
+            // returned a Response we log + discard it (keeping cookies
+            // the layout may have set). Users who want layout-level auth
+            // should put the redirect in the page's loader.
+            if (isRedirectResponse(data)) {
+              console.warn(
+                `[Mandu] Layout loader for ${modulePath} returned a redirect Response; ignoring. ` +
+                  `Put redirect() in a page loader instead — layout loaders cannot short-circuit rendering.`
+              );
+              const cookies = ctx.cookies.hasPendingCookies() ? ctx.cookies : undefined;
+              return { modulePath, data: undefined, cookies };
+            }
+            const cookies = ctx.cookies.hasPendingCookies() ? ctx.cookies : undefined;
+            return { modulePath, data, cookies };
           }
         }
       } catch (error) {
-        console.warn(`[Mandu] Layout loader failed for ${modulePath}:`, error);
+        // A thrown redirect Response from a layout would land here —
+        // same rule: ignore, it's not the layout's decision to make.
+        if (isRedirectResponse(error)) {
+          console.warn(
+            `[Mandu] Layout loader for ${modulePath} threw a redirect Response; ignoring. ` +
+              `Put redirect() in a page loader instead.`
+          );
+        } else {
+          console.warn(`[Mandu] Layout loader failed for ${modulePath}:`, error);
+        }
       }
-      return { modulePath, data: undefined };
+      return { modulePath, data: undefined, cookies: undefined };
     })
   );
 
-  for (const { modulePath, data } of results) {
+  // chain 순서 유지: loaderEntries 순으로 결과를 순회
+  // (Promise.all 은 입력 순서대로 배열을 보존하므로 results 의 index 가 chain 순서와 일치)
+  //
+  // Layout chain 단일 쿠키 병합 전략 (DX-2):
+  // - 쿠키를 쓴 layout 이 하나라도 있으면 빈 CookieManager 를 만들고 chain 순서대로 raw-append
+  // - 같은 이름의 쿠키를 여러 layout 이 set 하면 chain 후반부(= children 에 가까운 쪽)가 뒤에 나오므로
+  //   브라우저 semantics 상 이김 (HTTP 상 마지막 Set-Cookie 가 최종 값)
+  // - 개별 loader 의 CookieManager 를 mutate 하지 않음 (test assertion 안전성 확보)
+  let mergedCookies: CookieManager | undefined;
+  for (const { modulePath, data, cookies } of results) {
     if (data !== undefined) {
       layoutData.set(modulePath, data);
     }
+    if (cookies) {
+      if (!mergedCookies) {
+        mergedCookies = new CookieManager(req);
+      }
+      for (const rawSetCookie of cookies.getSetCookieHeaders()) {
+        mergedCookies.appendRawSetCookie(rawSetCookie);
+      }
+    }
   }
 
-  return layoutData;
+  return { data: layoutData, cookies: mergedCookies };
 }
 
 // ---------- SSR Renderer ----------
@@ -1719,6 +1882,12 @@ async function handlePageRoute(
       // Shell HIT: load only the dynamic data (cheap), skip full SSR render
       const loadResult = await loadPageData(req, route, params, registry);
       if (!loadResult.ok) return loadResult;
+      // DX-3: loader-level redirect wins over the PPR shell — never emit
+      // cached HTML to a user the loader wants to redirect away. Cookies
+      // were already merged into the redirect Response inside loadPageData.
+      if (loadResult.value.redirect) {
+        return ok(loadResult.value.redirect);
+      }
       const { loaderData, cookies } = loadResult.value;
       const pprResponse = createPPRResponse(cachedShell.html, route.id, loaderData);
       return ok(cookies ? cookies.applyToResponse(pprResponse) : pprResponse);
@@ -1756,7 +1925,7 @@ async function handlePageRoute(
   }
 
   // 1. 페이지 + 레이아웃 데이터 병렬 로딩
-  const [loadResult, layoutData] = await Promise.all([
+  const [loadResult, layoutLoad] = await Promise.all([
     loadPageData(req, route, params, registry),
     loadLayoutData(req, route.layoutChain, params, registry),
   ]);
@@ -1764,7 +1933,30 @@ async function handlePageRoute(
     return loadResult;
   }
 
-  const { loaderData, cookies } = loadResult.value;
+  const { loaderData, cookies: pageCookies } = loadResult.value;
+  const { data: layoutData, cookies: layoutCookies } = layoutLoad;
+
+  // DX-3: page loader redirect short-circuit. Applied BEFORE cookie merging
+  // and BEFORE the SPA _data branch so the redirect is authoritative — a
+  // client-side fetch('/page?_data=1') from the router must still see the
+  // redirect so it follows the server's decision instead of rendering the
+  // page shell. Layout loaders never redirect in this release (nested:
+  // test #7) — only the page's decision wins.
+  //
+  // Cookies already merged in loadPageData include page-level cookies set
+  // before the redirect call. Layout-level cookies also merge in so a
+  // layout that started a session survives the page's redirect.
+  if (loadResult.value.redirect) {
+    let redirectResponse = loadResult.value.redirect;
+    if (layoutCookies) {
+      redirectResponse = layoutCookies.applyToResponse(redirectResponse);
+    }
+    return ok(redirectResponse);
+  }
+
+  // DX-2: layout slot 의 쿠키를 response 로 전파.
+  // 병합 순서: layout 먼저, page 가 뒤 — 같은 이름이면 page 가 이긴다 (middleware→handler 관례).
+  const mergedCookies = mergeCookieManagers(req, layoutCookies, pageCookies);
 
   // 2. Client-side Routing: 데이터만 반환 (JSON)
   // 참고: layoutData는 SSR 시에만 사용 — SPA 네비게이션은 전체 페이지 SSR을 받지 않으므로 제외
@@ -1776,11 +1968,11 @@ async function handlePageRoute(
       loaderData: loaderData ?? null,
       timestamp: Date.now(),
     });
-    return ok(cookies ? cookies.applyToResponse(jsonResponse) : jsonResponse);
+    return ok(mergedCookies ? mergedCookies.applyToResponse(jsonResponse) : jsonResponse);
   }
 
   // 3. SSR 렌더링 (layoutData 전달)
-  const ssrResult = await renderPageSSR(route, params, loaderData, req.url, registry, cookies, layoutData);
+  const ssrResult = await renderPageSSR(route, params, loaderData, req.url, registry, mergedCookies, layoutData);
 
   // 4a. PPR: cache only the shell (HTML structure minus loader data), not the full page
   if (cache && ssrResult.ok && renderMode === "ppr") {
@@ -1828,13 +2020,19 @@ async function regenerateCache(
   cache: CacheStore,
   cacheKey: string
 ): Promise<void> {
-  const [loadResult, layoutData] = await Promise.all([
+  const [loadResult, layoutLoad] = await Promise.all([
     loadPageData(req, route, params, registry),
     loadLayoutData(req, route.layoutChain, params, registry),
   ]);
   if (!loadResult.ok) return;
+  // DX-3: never cache a redirect under a page-html cache key. A redirect
+  // is per-request (auth state dependent) — caching it would poison every
+  // subsequent visitor. Bail out and let the next request re-evaluate.
+  if (loadResult.value.redirect) return;
 
   const { loaderData } = loadResult.value;
+  const { data: layoutData } = layoutLoad;
+  // 캐시 재생성 경로는 per-request 쿠키를 캐시해선 안 됨 → cookies undefined 로 유지.
   const ssrResult = await renderPageSSR(route, params, loaderData, req.url, registry, undefined, layoutData);
   if (!ssrResult.ok) return;
 
