@@ -250,6 +250,21 @@ test.describe("auth flow", () => {
     }
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 6.3: app/not-found.tsx — hitting a missing route renders the
+  // user-defined 404 page (verifies end-to-end wiring of `notFound()` +
+  // `registerNotFoundHandler()` + the `not-found.tsx` convention).
+  // ─────────────────────────────────────────────────────────────────────────
+  test("navigating to a missing URL renders app/not-found.tsx", async ({ page }) => {
+    const res = await page.goto("/this-path-does-not-exist-" + Date.now());
+    // Server returns 404 …
+    expect(res?.status()).toBe(404);
+    // … and our user-defined 404 component is rendered (not the built-in
+    // JSON error page — we'd see raw JSON if the handler weren't wired).
+    await expect(page.getByTestId("not-found-page")).toBeVisible();
+    await expect(page.getByTestId("not-found-heading")).toHaveText("404 — Not Found");
+  });
+
   test("avatar upload rejects non-image files (400 + dashboard error banner)", async ({ page }) => {
     const email = freshEmail("avatar-bad");
 

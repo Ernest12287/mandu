@@ -3,11 +3,13 @@ import {
   registerPageLoader,
   registerPageHandler,
   registerLayoutLoader,
+  registerNotFoundHandler,
   registerWSHandler,
   needsHydration,
   type RoutesManifest,
   type PageRegistration,
 } from "@mandujs/core";
+import fs from "fs/promises";
 import path from "path";
 
 type RouteModule = Record<string, unknown>;
@@ -177,5 +179,52 @@ export async function registerManifestHandlers(
         );
       }
     }
+  }
+
+  // Phase 6.3: register `app/not-found.tsx` if it exists. Global, one per
+  // app — the server falls through to the built-in 404 if unregistered.
+  await registerAppNotFound(rootDir, importFn);
+}
+
+/**
+ * Phase 6.3: look for `app/not-found.tsx` (or its variants) at the
+ * project root and register it as the app-level 404 handler. Silent
+ * no-op if no file exists — the server's built-in 404 covers that case.
+ */
+async function registerAppNotFound(
+  rootDir: string,
+  importFn: (modulePath: string) => Promise<unknown>,
+): Promise<void> {
+  const candidates = [
+    "app/not-found.tsx",
+    "app/not-found.ts",
+    "app/not-found.jsx",
+    "app/not-found.js",
+  ];
+  for (const rel of candidates) {
+    const abs = path.resolve(rootDir, rel);
+    try {
+      await fs.access(abs);
+    } catch {
+      continue;
+    }
+    registerNotFoundHandler(async () => {
+      const module = (await importFn(abs)) as Record<string, unknown>;
+      const rawDefault = module.default as unknown;
+      if (typeof rawDefault === "function") {
+        return {
+          component: rawDefault as PageRegistration["component"],
+          filling: module.filling as PageRegistration["filling"],
+        };
+      }
+      if (typeof rawDefault === "object" && rawDefault !== null) {
+        return { ...(rawDefault as PageRegistration) };
+      }
+      throw new Error(
+        `[Mandu] app/not-found.tsx has no valid default export (type: ${typeof rawDefault})`,
+      );
+    });
+    console.log(`  🚫 Not-Found: ${rel}`);
+    return;
   }
 }

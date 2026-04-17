@@ -59,6 +59,7 @@ import { wrapBunWebSocket, type WSUpgradeData } from "../filling/ws";
 import { handleImageRequest } from "./image-handler";
 import { extractShellHtml, createPPRResponse } from "./ppr";
 import { isRedirectResponse } from "./redirect";
+import { isNotFoundResponse } from "./not-found";
 import { newId } from "../id";
 
 export interface RateLimitOptions {
@@ -470,6 +471,13 @@ export class ServerRegistry {
   readonly errorLoaders: Map<string, ErrorLoader> = new Map();
   createAppFn: CreateAppFn | null = null;
   rateLimiter: MemoryRateLimiter | null = null;
+  /**
+   * Phase 6.3: app-level `not-found.tsx` handler. Returns the React
+   * component used for 404 rendering. Set via {@link registerNotFoundHandler}.
+   * Global — one per app, registered at startup. Unresolved → fall back
+   * to the framework's built-in 404 JSON error.
+   */
+  notFoundHandler: PageHandler | null = null;
   /** Kitchen dev dashboard handler (dev mode only) */
   kitchen: KitchenHandler | null = null;
   /** 라우트별 캐시 옵션 (filling.loader()의 cacheOptions에서 등록) */
@@ -535,6 +543,16 @@ export class ServerRegistry {
    */
   registerErrorLoader(modulePath: string, loader: ErrorLoader): void {
     this.errorLoaders.set(modulePath, loader);
+  }
+
+  /**
+   * Phase 6.3: register the app-level not-found handler. Follows the
+   * same factory shape as `registerPageHandler` (async component loader)
+   * so users can lazy-import their `app/not-found.tsx`. Only one handler
+   * is retained — later calls overwrite earlier ones.
+   */
+  registerNotFoundHandler(handler: PageHandler): void {
+    this.notFoundHandler = handler;
   }
 
   /**
@@ -660,6 +678,7 @@ export class ServerRegistry {
     this.layoutGenerateMetadata.clear();
     this.createAppFn = null;
     this.rateLimiter = null;
+    this.notFoundHandler = null;
   }
 }
 
@@ -728,6 +747,15 @@ export function registerLoadingLoader(modulePath: string, loader: LoadingLoader)
  */
 export function registerErrorLoader(modulePath: string, loader: ErrorLoader): void {
   defaultRegistry.registerErrorLoader(modulePath, loader);
+}
+
+/**
+ * Phase 6.3: register the app-level not-found handler on the default
+ * registry. Called once at app init (either by codegen or manually)
+ * with a PageHandler that resolves to the `not-found.tsx` component.
+ */
+export function registerNotFoundHandler(handler: PageHandler): void {
+  defaultRegistry.registerNotFoundHandler(handler);
 }
 
 export function registerWSHandler(routeId: string, handlers: import("../filling/ws").WSHandlers): void {
@@ -1274,6 +1302,59 @@ function mergeCookiesIntoResponse(response: Response, cookies: CookieManager): R
   return cookies.applyToResponse(response);
 }
 
+/**
+ * Phase 6.3: derive a short opaque digest for an Error so dev and prod
+ * renders can both reference the same log entry. Not a security token —
+ * just a correlation aid. We hash `message + top stack frame` for a
+ * stable-ish 8-char hex that survives the same error thrown twice.
+ *
+ * Exported for unit testing. Not part of the public API.
+ */
+export function computeErrorDigest(error: Error): string {
+  const source = `${error.message ?? ""}::${(error.stack ?? "").split("\n")[1] ?? ""}`;
+  // FNV-1a 32-bit — cheap, no deps, deterministic. Avoids pulling crypto.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < source.length; i++) {
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * Phase 6.3: redact an Error for the rendered error-boundary surface.
+ *
+ * In dev: pass-through — `error.tsx` sees the original Error unchanged.
+ * In prod: produce a clone with
+ *   - `.message` kept (users want a hint)
+ *   - `.stack` trimmed to the error header + the top 3 frames (enough
+ *     to tell "it's my code" vs "it's node_modules" without leaking the
+ *     whole call tree to the browser)
+ *   - the original `.name` preserved
+ *
+ * The returned value is always an Error (or subclass), so React rendering
+ * can treat it uniformly. A matching digest is computed and returned so
+ * the caller can pass it to the `digest` prop.
+ *
+ * Exported for unit testing. Not part of the public API.
+ */
+export function redactErrorForBoundary(error: Error, isDev: boolean): { error: Error; digest: string } {
+  const digest = computeErrorDigest(error);
+  if (isDev) {
+    return { error, digest };
+  }
+  const redacted = new Error(error.message);
+  redacted.name = error.name;
+  if (typeof error.stack === "string") {
+    const lines = error.stack.split("\n");
+    // Keep the header line (`Error: msg`) + up to 3 frames.
+    redacted.stack = lines.slice(0, 4).join("\n");
+  } else {
+    redacted.stack = undefined;
+  }
+  return { error: redacted, digest };
+}
+
 interface PageLoadResult {
   loaderData: unknown;
   cookies?: CookieManager;
@@ -1289,6 +1370,16 @@ interface PageLoadResult {
    * `isRedirectResponse()` in runtime/redirect.ts.
    */
   redirect?: Response;
+  /**
+   * Phase 6.3: page loader returned/threw `notFound()`. When set, the
+   * caller renders `app/not-found.tsx` (if registered) or falls through
+   * to the built-in 404. The original Response carries the message body
+   * as plain text so it can be surfaced on the 404 page.
+   *
+   * NOTE: a bare `new Response(null, { status: 404 })` does NOT set this
+   * — only `notFound()` from `runtime/not-found.ts` (checked via brand).
+   */
+  notFound?: Response;
 }
 
 /**
@@ -1315,15 +1406,31 @@ async function loadPageData(
         // DX-3: loader may return OR throw a redirect Response. Both are
         // short-circuits — if we detect one, skip SSR and hand the Response
         // to the caller with pending cookies merged in.
+        // Phase 6.3: same semantics for notFound() — checked BEFORE redirect
+        // so a loader that does `throw notFound()` surfaces through the
+        // dedicated path rather than hitting the isRedirectResponse false
+        // positive (it won't — notFound has no Location — but being explicit
+        // prevents future regressions).
         let returned: unknown;
         try {
           returned = await registration.filling.executeLoader(ctx);
         } catch (thrown) {
+          if (isNotFoundResponse(thrown)) {
+            // Carry the pending cookies on the result so the renderer can
+            // merge them onto the rendered not-found page (which is a
+            // fresh Response — the nfResponse body isn't reused).
+            const nfCookies = ctx.cookies.hasPendingCookies() ? ctx.cookies : undefined;
+            return ok({ loaderData: undefined, notFound: thrown, cookies: nfCookies });
+          }
           if (isRedirectResponse(thrown)) {
             const redirectResponse = mergeCookiesIntoResponse(thrown, ctx.cookies);
             return ok({ loaderData: undefined, redirect: redirectResponse });
           }
           throw thrown;
+        }
+        if (isNotFoundResponse(returned)) {
+          const nfCookies = ctx.cookies.hasPendingCookies() ? ctx.cookies : undefined;
+          return ok({ loaderData: undefined, notFound: returned, cookies: nfCookies });
         }
         if (isRedirectResponse(returned)) {
           const redirectResponse = mergeCookiesIntoResponse(returned, ctx.cookies);
@@ -1390,16 +1497,26 @@ async function loadPageData(
       }
       if (filling?.hasLoader?.()) {
         const ctx = new ManduContext(req, params);
-        // DX-3: same redirect handling as the PageHandler path above.
+        // DX-3 / Phase 6.3: same redirect + notFound handling as the
+        // PageHandler path above. notFound is checked first so both
+        // short-circuits remain symmetric.
         let returned: unknown;
         try {
           returned = await filling.executeLoader(ctx);
         } catch (thrown) {
+          if (isNotFoundResponse(thrown)) {
+            const nfCookies = ctx.cookies.hasPendingCookies() ? ctx.cookies : undefined;
+            return ok({ loaderData: undefined, notFound: thrown, cookies: nfCookies });
+          }
           if (isRedirectResponse(thrown)) {
             const redirectResponse = mergeCookiesIntoResponse(thrown, ctx.cookies);
             return ok({ loaderData: undefined, redirect: redirectResponse });
           }
           throw thrown;
+        }
+        if (isNotFoundResponse(returned)) {
+          const nfCookies = ctx.cookies.hasPendingCookies() ? ctx.cookies : undefined;
+          return ok({ loaderData: undefined, notFound: returned, cookies: nfCookies });
         }
         if (isRedirectResponse(returned)) {
           const redirectResponse = mergeCookiesIntoResponse(returned, ctx.cookies);
@@ -1811,10 +1928,18 @@ async function renderPageSSR(
         const errorMod = await import(path.join(settings.rootDir, route.errorModule));
         const ErrorComponent = errorMod.default as React.ComponentType<ErrorFallbackProps>;
         if (ErrorComponent) {
+          // Phase 6.3: redact stack in prod, keep full fidelity in dev.
+          // Full error is always logged below; only the client-visible
+          // `error` prop is trimmed.
+          const { error: boundaryError, digest } = redactErrorForBoundary(
+            renderError,
+            settings.isDev,
+          );
           const errorElement = React.createElement(ErrorComponent, {
-            error: renderError,
+            error: boundaryError,
             errorInfo: undefined,
             resetError: () => {}, // SSR에서는 noop — 클라이언트 hydration 시 실제 동작
+            digest,
           });
 
           // 레이아웃은 유지하면서 에러 컴포넌트만 교체
@@ -1843,6 +1968,102 @@ async function renderPageSSR(
     );
     console.error(`[Mandu] ${ssrError.errorType}:`, ssrError.message);
     return err(ssrError);
+  }
+}
+
+// ---------- Not Found Renderer (Phase 6.3) ----------
+
+/**
+ * Read the plain-text message body out of a notFound() Response without
+ * consuming it. Returns a short default if the body is empty or reading
+ * fails (e.g. body already read — shouldn't happen but defensive).
+ */
+async function readNotFoundMessage(response: Response): Promise<string> {
+  try {
+    const clone = response.clone();
+    const body = await clone.text();
+    return body.length > 0 ? body : "Not Found";
+  } catch {
+    return "Not Found";
+  }
+}
+
+/**
+ * Render `app/not-found.tsx` (if registered) as a status-404 page, or
+ * fall back to the framework's JSON 404 error. Cookies set by the page
+ * loader and any layout loaders are preserved on the final Response.
+ *
+ * Infinite-loop guard: if rendering the not-found component itself
+ * throws (bad user code), we don't recurse back into this function —
+ * we emit the built-in 404 instead. That way a broken not-found.tsx
+ * never causes a stack overflow or tarpit loop.
+ */
+async function renderNotFoundPage(
+  req: Request,
+  route: { id: string; pattern: string; layoutChain?: string[]; hydration?: HydrationConfig; streaming?: boolean },
+  params: Record<string, string>,
+  registry: ServerRegistry,
+  pageCookies: CookieManager | undefined,
+  layoutCookies: CookieManager | undefined,
+  layoutData: Map<string, unknown> | undefined,
+  notFoundResponse: Response,
+): Promise<Response> {
+  const settings = registry.settings;
+  const mergedCookies = mergeCookieManagers(req, layoutCookies, pageCookies);
+  const message = await readNotFoundMessage(notFoundResponse);
+
+  const handler = registry.notFoundHandler;
+  if (!handler) {
+    // No app/not-found.tsx registered — return the existing 404 path.
+    return errorToResponse(createNotFoundResponse(new URL(req.url).pathname), settings.isDev);
+  }
+
+  try {
+    const registration = await handler();
+    const NotFoundComponent = registration.component;
+
+    // Let the not-found page's own loader contribute data (e.g. nav links,
+    // locale strings). The page loader has already run — this is the 2nd
+    // loader invocation, scoped to the 404 surface only.
+    let loaderData: unknown = { message };
+    if (registration.filling?.hasLoader()) {
+      const ctx = new ManduContext(req, params);
+      try {
+        const returned = await registration.filling.executeLoader(ctx);
+        loaderData = returned !== undefined ? returned : { message };
+      } catch (loaderError) {
+        console.warn(`[Mandu] not-found.tsx loader threw, falling back to { message }:`, loaderError);
+        loaderData = { message };
+      }
+    }
+
+    // Render the component. Reuse renderSSR directly (no cache, no
+    // streaming, no island bundling — a 404 page is plain).
+    let app: React.ReactElement = React.createElement(NotFoundComponent, {
+      params,
+      loaderData,
+    });
+    if (route.layoutChain && route.layoutChain.length > 0) {
+      app = await wrapWithLayouts(app, route.layoutChain, registry, params, layoutData);
+    }
+
+    const html = renderSSR(app, {
+      title: "Not Found",
+      isDev: settings.isDev,
+      cssPath: settings.cssPath,
+    });
+
+    // renderSSR returns a 200; override to 404 without losing headers.
+    const headers = new Headers(html.headers);
+    const body = await html.text();
+    let response = new Response(body, { status: 404, headers });
+    if (mergedCookies) {
+      response = mergedCookies.applyToResponse(response);
+    }
+    return response;
+  } catch (renderError) {
+    console.error(`[Mandu] app/not-found.tsx render failed; falling back to built-in 404:`, renderError);
+    return errorToResponse(createNotFoundResponse(new URL(req.url).pathname), settings.isDev);
   }
 }
 
@@ -1952,6 +2173,25 @@ async function handlePageRoute(
       redirectResponse = layoutCookies.applyToResponse(redirectResponse);
     }
     return ok(redirectResponse);
+  }
+
+  // Phase 6.3: notFound short-circuit. Same ordering rationale as redirect —
+  // never serve cached HTML to a user whose loader emitted notFound(), never
+  // leak loader JSON via the ?_data=1 path. If `app/not-found.tsx` is
+  // registered we render it here (status 404) with cookies preserved;
+  // otherwise we fall back to the built-in 404.
+  if (loadResult.value.notFound) {
+    const nfResponse = await renderNotFoundPage(
+      req,
+      route,
+      params,
+      registry,
+      pageCookies,
+      layoutCookies,
+      layoutData,
+      loadResult.value.notFound,
+    );
+    return ok(nfResponse);
   }
 
   // DX-2: layout slot 의 쿠키를 response 로 전파.
@@ -2182,6 +2422,41 @@ async function handleRequestInternal(
   // 3. 라우트 매칭
   const match = router.match(pathname);
   if (!match) {
+    // Phase 6.3: unmatched URL → try `app/not-found.tsx` first. We
+    // can't reuse renderNotFoundPage directly (no route/params/layoutChain
+    // context here), so inline a minimal render path. The component and
+    // its loader are invoked with empty params + a pseudo route id so
+    // layouts that rely on routeId don't crash. If rendering fails OR no
+    // handler is registered, fall through to the built-in error path.
+    if (registry.notFoundHandler) {
+      try {
+        const registration = await registry.notFoundHandler();
+        let loaderData: unknown = { message: "Not Found" };
+        if (registration.filling?.hasLoader()) {
+          const ctx = new ManduContext(req, {});
+          try {
+            const returned = await registration.filling.executeLoader(ctx);
+            loaderData = returned !== undefined ? returned : { message: "Not Found" };
+          } catch (loaderError) {
+            console.warn(`[Mandu] not-found.tsx loader threw (unmatched URL):`, loaderError);
+          }
+        }
+        const app = React.createElement(registration.component, {
+          params: {},
+          loaderData,
+        });
+        const html = renderSSR(app, {
+          title: "Not Found",
+          isDev: settings.isDev,
+          cssPath: settings.cssPath,
+        });
+        const headers = new Headers(html.headers);
+        const body = await html.text();
+        return ok(new Response(body, { status: 404, headers }));
+      } catch (renderError) {
+        console.error(`[Mandu] app/not-found.tsx render failed for unmatched URL; falling back to built-in 404:`, renderError);
+      }
+    }
     return err(createNotFoundResponse(pathname));
   }
 

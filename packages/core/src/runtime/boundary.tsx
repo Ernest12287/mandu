@@ -29,12 +29,32 @@ export interface ErrorBoundaryProps {
 }
 
 export interface ErrorFallbackProps {
-  /** 발생한 에러 */
+  /**
+   * 발생한 에러.
+   *
+   * Phase 6.3 redaction contract:
+   * - In dev (`isDev === true`): the original Error is passed through with
+   *   full `.stack`, identical to throw time.
+   * - In prod (`isDev === false`): a shallow clone is passed with
+   *   `.message` preserved and `.stack` set to the top 3 frames only.
+   *   The `digest` prop correlates the redacted client view with the
+   *   full stack emitted to server logs.
+   *
+   * The enforcement point is `loadPageData` / `renderPageSSR` error
+   * paths in `runtime/server.ts` — user-land `error.tsx` components
+   * simply consume the props they're given.
+   */
   error: Error;
   /** 에러 정보 */
   errorInfo?: ErrorInfo;
   /** 리셋 함수 (에러 상태 초기화) */
   resetError: () => void;
+  /**
+   * Short opaque identifier correlating this error with the server-side
+   * log entry. Present in both dev and prod. Users display it in their
+   * error.tsx so support teams can find the exact failure.
+   */
+  digest?: string;
 }
 
 interface ErrorBoundaryState {

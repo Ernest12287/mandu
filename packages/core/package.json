@@ -18,6 +18,8 @@
     "./filling/session-sqlite": "./src/filling/session-sqlite.ts",
     "./middleware": "./src/middleware/index.ts",
     "./middleware/oauth": "./src/middleware/oauth/index.ts",
+    "./middleware/secure": "./src/middleware/secure/index.ts",
+    "./middleware/rate-limit": "./src/middleware/rate-limit/index.ts",
     "./testing": "./src/testing/index.ts",
     "./plugins": "./src/plugins/index.ts",
     "./error": "./src/error/index.ts",
