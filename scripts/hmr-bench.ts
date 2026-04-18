@@ -633,10 +633,12 @@ function shouldRunCell(cell: ScenarioCell): boolean {
  * report §5".
  */
 const BUNDLER_CANNOT_OBSERVE: ReadonlySet<ChangeKind> = new Set([
-  // `.slot.ts` changes: bundler doesn't classify `.slot.ts` into any
-  // dispatch bucket (serverModuleSet tracks only componentModule +
-  // layoutChain). Covered at the CLI via `watchFSRoutes` (chokidar).
-  "app/slot.ts",
+  // `.slot.ts` changes — **resolved in Phase 7.1 R1 Agent A**: the bundler
+  // now registers `route.slotModule` into `serverModuleSet` (see
+  // `packages/core/src/bundler/dev.ts:454`), so slot edits surface via
+  // `onSSRChange(filePath)`. The matrix's `KNOWN_BUNDLER_GAPS` was also
+  // emptied. Kept off this list — slot is now observable.
+  //
   // CSS is handled by the Tailwind watcher subprocess at the CLI layer.
   "css",
 ]);

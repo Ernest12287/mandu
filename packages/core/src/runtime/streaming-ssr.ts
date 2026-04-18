@@ -22,6 +22,7 @@ import { escapeHtmlAttr, escapeHtmlText, escapeJsonForInlineScript, escapeJsStri
 import { REACT_INTERNALS_SHIM_SCRIPT } from "./shims";
 import { getRenderToString } from "./react-renderer";
 import { mark, measure } from "../perf";
+import { generateFastRefreshPreamble } from "../bundler/dev";
 
 // ========== Types ==========
 
@@ -433,6 +434,20 @@ function generateHTMLShell(options: StreamingSSROptions): string {
     islandOpenTag = `<div data-mandu-island="${escapeHtmlAttr(routeId)}" data-mandu-src="${escapeHtmlAttr(bundleSrc)}" data-mandu-priority="${escapeHtmlAttr(priority)}" style="display:contents">`;
   }
 
+  // Phase 7.1 R2 Agent D: Fast Refresh preamble. Must land in <head>
+  // BEFORE any island script evaluates — the stubs it installs for
+  // $RefreshReg$ / $RefreshSig$ are required by every module the
+  // bundler transformed with `reactFastRefresh: true`. Dev mode only;
+  // prod manifests omit `shared.fastRefresh` so `fr` is undefined and
+  // we emit no preamble (HTML stays byte-identical to pre-7.1 prod).
+  let fastRefreshPreamble = "";
+  if (isDev && needsHydration) {
+    const fr = bundleManifest.shared?.fastRefresh;
+    if (fr && fr.glue && fr.runtime) {
+      fastRefreshPreamble = generateFastRefreshPreamble(fr.glue, fr.runtime);
+    }
+  }
+
   // Import map은 module 스크립트보다 먼저 정의되어야 bare specifier 해석 가능
   return `<!DOCTYPE html>
 <html lang="${escapeHtmlAttr(lang)}">
@@ -444,6 +459,7 @@ function generateHTMLShell(options: StreamingSSROptions): string {
   ${loadingStyles}
   ${importMapScript}
   ${headTags}
+  ${fastRefreshPreamble}
 </head>
 <body>
   <div id="root">${islandOpenTag}`;

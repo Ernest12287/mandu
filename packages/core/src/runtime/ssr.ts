@@ -7,6 +7,7 @@ import type { HydrationConfig, HydrationPriority } from "../spec/schema";
 import { PORTS, TIMEOUTS } from "../constants";
 import { escapeHtmlAttr, escapeHtmlText, escapeJsonForInlineScript } from "./escape";
 import { REACT_INTERNALS_SHIM_SCRIPT } from "./shims";
+import { generateFastRefreshPreamble } from "../bundler/dev";
 
 // Re-export streaming SSR utilities
 export {
@@ -181,6 +182,45 @@ export function wrapWithIsland(
   return `<div data-mandu-island="${escapeHtmlAttr(routeId)}"${srcAttr} data-mandu-priority="${escapeHtmlAttr(priority)}" style="display:contents">${content}</div>`;
 }
 
+/**
+ * Phase 7.1 R2 Agent D — Fast Refresh preamble emission helper.
+ *
+ * Emits the `<script>` block returned by `generateFastRefreshPreamble`
+ * ONLY when all three preconditions hold:
+ *
+ *   1. `isDev === true` — the preamble and its glue import rely on the
+ *      `_fast-refresh-runtime.js` / `_vendor-react-refresh.js` assets
+ *      which are only emitted by the dev bundler path.
+ *   2. `manifest.shared.fastRefresh` is populated — which happens only
+ *      in dev mode (see `build.ts:1548`). Missing here implies either a
+ *      prod manifest, a failed vendor shim build, or a unit test that
+ *      stubbed the manifest. All three short-circuit to empty output.
+ *   3. Both the `glue` and `runtime` fields are non-empty strings —
+ *      `generateFastRefreshPreamble` itself re-checks and emits a
+ *      defensive stub comment if either is missing.
+ *
+ * Returned as a string so the caller can position it inside `<head>`
+ * BEFORE any `<script type="module">` runs. This matters because
+ * `reactFastRefresh: true`-transformed islands call `$RefreshReg$` at
+ * the top of the module; the stubs installed inside the preamble must
+ * exist before those calls execute, otherwise the island throws a
+ * `ReferenceError` during evaluation and never hydrates.
+ *
+ * Production builds see `fastRefresh` as `undefined` on the manifest
+ * (build.ts omits it), so this function returns `""` and the HTML
+ * remains byte-identical to pre-7.1 prod output.
+ */
+function generateFastRefreshPreambleTag(
+  isDev: boolean,
+  manifest: BundleManifest | undefined,
+): string {
+  if (!isDev) return "";
+  const fr = manifest?.shared?.fastRefresh;
+  if (!fr) return "";
+  if (!fr.glue || !fr.runtime) return "";
+  return generateFastRefreshPreamble(fr.glue, fr.runtime);
+}
+
 export function renderToHTML(element: ReactElement, options: SSROptions = {}): string {
   const {
     title = "Mandu App",
@@ -276,6 +316,16 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
     hmrScript = generateHMRScript(hmrPort);
   }
 
+  // Phase 7.1 R2 Agent D: Fast Refresh preamble. Must land in <head>
+  // BEFORE any island `<script type="module">` evaluates — the stubs it
+  // installs for `$RefreshReg$` / `$RefreshSig$` are required by every
+  // module the bundler transformed with `reactFastRefresh: true`. Dev
+  // mode only; prod manifests omit `shared.fastRefresh` so the helper
+  // returns "".
+  const fastRefreshPreamble = needsHydration
+    ? generateFastRefreshPreambleTag(isDev, bundleManifest)
+    : "";
+
   // DevTools 번들 로드 (개발 모드)
   let devtoolsScript = "";
   if (isDev) {
@@ -303,6 +353,7 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
   ${hoistedLinkTags}
   ${headTags}
   ${collectedHeadTags}
+  ${fastRefreshPreamble}
 </head>
 <body>
   <div id="root">${bodyContent}</div>
