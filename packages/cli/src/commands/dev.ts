@@ -24,6 +24,8 @@ import {
   type CSSWatcher,
 } from "@mandujs/core";
 import { newId } from "@mandujs/core/id";
+import { HMR_PERF } from "@mandujs/core/perf/hmr-markers";
+import { mark, measure, withPerf } from "@mandujs/core/perf";
 import { resolveFromCwd } from "../util/fs";
 import { resolveOutputFormat } from "../util/output";
 import { CLI_ERROR_CODES, printCLIError } from "../errors";
@@ -320,46 +322,151 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   //   한 쪽이 다른 쪽의 in-progress 상태를 덮어쓰는 버그가 발생할 수 있음.
   let ssrChangeQueue: Promise<void> = Promise.resolve();
   const handleSSRChange = (filePath: string): Promise<void> => {
-    ssrChangeQueue = ssrChangeQueue.then(async () => {
-      const isWildcard = filePath === SSR_CHANGE_WILDCARD;
-      if (isWildcard) {
-        logDevEvent("Common dir changed", [
-          "Action: clear SSR registry + re-register handlers",
-          "Note: Bun의 transitive ESM 캐시 때문에 transitive 의존성까지 완전히 갱신되지 않을 수 있음",
-        ]);
-      } else {
-        logDevEvent("SSR change detected", [
-          `File: ${path.relative(rootDir, filePath)}`,
-          "Action: re-register handlers",
-          "Browser: full reload",
-        ]);
-      }
+    ssrChangeQueue = ssrChangeQueue.then(() =>
+      // B4 fix — wrap the entire handler body in SSR_HANDLER_RELOAD so
+      // MANDU_PERF=1 can finally attribute the walltime that `dev:rebuild`
+      // was hiding (it only covered `_doBuild`). All sub-markers fire inside
+      // this withPerf so the totals add up.
+      withPerf(HMR_PERF.SSR_HANDLER_RELOAD, async () => {
+        const isWildcard = filePath === SSR_CHANGE_WILDCARD;
+        if (isWildcard) {
+          logDevEvent("Common dir changed", [
+            "Action: clear SSR registry + re-register handlers",
+            "Note: Bun의 transitive ESM 캐시 때문에 transitive 의존성까지 완전히 갱신되지 않을 수 있음",
+          ]);
+        } else {
+          logDevEvent("SSR change detected", [
+            `File: ${path.relative(rootDir, filePath)}`,
+            "Action: re-register handlers",
+            "Browser: full reload",
+          ]);
+        }
 
-      clearDefaultRegistry();
-      registeredLayouts.clear();
-      await registerHandlers(manifest, true);
+        // B4 — fine-grained markers so Agent F can bisect SSR walltime.
+        mark(HMR_PERF.SSR_CLEAR_REGISTRY);
+        clearDefaultRegistry();
+        registeredLayouts.clear();
+        measure(HMR_PERF.SSR_CLEAR_REGISTRY, HMR_PERF.SSR_CLEAR_REGISTRY);
 
-      // Kitchen Preview에는 파일 경로가 있을 때만 broadcast (wildcard는 파일 경로 없음)
-      if (!isWildcard) {
-        hmrServer?.broadcast({
-          type: "kitchen:file-change",
-          data: {
-            file: filePath,
-            changeType: "change",
-            timestamp: Date.now(),
-          },
+        await withPerf(HMR_PERF.SSR_REGISTER_HANDLERS, () =>
+          registerHandlers(manifest, true),
+        );
+
+        // Kitchen Preview에는 파일 경로가 있을 때만 broadcast (wildcard는 파일 경로 없음)
+        if (!isWildcard) {
+          hmrServer?.broadcast({
+            type: "kitchen:file-change",
+            data: {
+              file: filePath,
+              changeType: "change",
+              timestamp: Date.now(),
+            },
+          });
+        }
+
+        // #188 fix — Phase 7.0 R1 Agent A.
+        // Pure-SSR / hydration:none projects need the prerender output
+        // regenerated when a common dir changes; dev-bundler's
+        // `buildClientBundles({ skipFrameworkBundles: true })` is a no-op
+        // when no islands exist, and the stale `.mandu/static/` HTML used
+        // to persist until the next `mandu build`. We now re-emit HTML
+        // through the running dev server's fetch handler for every
+        // pure-SSR route in the manifest. This path fires only on the
+        // wildcard (common-dir) signal to avoid pointless regen on a
+        // single-page edit (full reload already handles that).
+        if (isWildcard) {
+          try {
+            await withPerf(HMR_PERF.PRERENDER_REGEN, async () => {
+              await regeneratePrerenderedStatics();
+            });
+          } catch (prerenderError) {
+            // Prerender is advisory — never block the HMR broadcast.
+            console.warn(
+              "[handleSSRChange] prerender regen skipped:",
+              prerenderError instanceof Error
+                ? prerenderError.message
+                : String(prerenderError),
+            );
+          }
+        }
+
+        await withPerf(HMR_PERF.HMR_BROADCAST, async () => {
+          hmrServer?.broadcast({
+            type: "reload",
+            data: { timestamp: Date.now() },
+          });
         });
-      }
-
-      hmrServer?.broadcast({
-        type: "reload",
-        data: { timestamp: Date.now() },
-      });
-      console.log("  Status: SSR refresh complete");
-    }).catch((err) => {
+        console.log("  Status: SSR refresh complete");
+      }),
+    ).catch((err) => {
       console.error("[handleSSRChange] error:", err instanceof Error ? err.message : err);
     });
     return ssrChangeQueue;
+  };
+
+  /**
+   * #188 Fix — regenerate prerendered HTML for pure-SSR (hydration:none)
+   * routes whenever the wildcard SSR signal fires.
+   *
+   * Design:
+   *   - No-op when `.mandu/static/` does not exist. Projects that never
+   *     invoked `mandu build --prerender` have no stale HTML to worry about.
+   *   - No-op when the manifest has zero hydration:none page routes. Island
+   *     projects rely on client bundle rebuilds, not stored HTML.
+   *   - Uses the **already-running dev server** as the fetch handler
+   *     (localhost loopback), so we stay compatible with the freshly
+   *     re-registered handlers without spinning up a second server.
+   *   - `prerenderRoutes` is imported lazily to keep the `dev` command
+   *     cold-start budget untouched.
+   *
+   * This closes the "pure-SSR project: edit `src/shared/*` → `curl /` still
+   * returns old HTML" report from issue #188.
+   */
+  const regeneratePrerenderedStatics = async (): Promise<void> => {
+    const staticDir = path.join(rootDir, ".mandu", "static");
+    // Lazy — we only need these when the project actually has prerender.
+    const fsPromises = await import("node:fs/promises");
+    const exists = await fsPromises
+      .access(staticDir)
+      .then(() => true)
+      .catch(() => false);
+    if (!exists) return;
+
+    // Find pure-SSR routes (no hydration / strategy === "none").
+    const pureSsrRoutes = manifest.routes.filter(
+      (r) =>
+        r.kind === "page" &&
+        (!r.hydration || r.hydration.strategy === "none") &&
+        !r.pattern.includes(":"), // skip dynamic patterns — too risky without generateStaticParams
+    );
+    if (pureSsrRoutes.length === 0) return;
+
+    const { prerenderRoutes } = await import("@mandujs/core/bundler/prerender");
+
+    const devServer = server; // captured via closure from outer scope
+    const basePort = devServer.server.port;
+    const hostname = serverConfig.hostname || "localhost";
+
+    const fetchHandler = async (req: Request) => {
+      const url = new URL(req.url);
+      return fetch(`http://${hostname}:${basePort}${url.pathname}${url.search}`);
+    };
+
+    const result = await prerenderRoutes(manifest, fetchHandler, {
+      rootDir,
+      routes: pureSsrRoutes.map((r) => r.pattern),
+      crawl: false,
+    });
+
+    if (result.generated > 0) {
+      console.log(`  Prerender: ${result.generated} page(s) regenerated`);
+    }
+    if (result.errors.length > 0) {
+      console.warn(
+        `  Prerender warnings (${result.errors.length}):`,
+        result.errors.slice(0, 3).join("; "),
+      );
+    }
   };
 
   // API route file change callback (route.ts -> re-register API handler + browser reload)
