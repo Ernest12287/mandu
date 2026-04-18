@@ -109,6 +109,15 @@ export interface ScenarioCell {
 // The 36 cells
 // ============================================
 
+/** Total cell count — mirrored in tests so they fail loudly if the
+ *  matrix shape changes.
+ *
+ *  NOTE: Declared BEFORE `SCENARIO_CELLS` so `buildMatrix()` — which runs
+ *  during the `SCENARIO_CELLS` initializer and references this constant
+ *  for its sanity check — does not hit a TDZ ReferenceError. The pair is
+ *  still conceptually "matrix shape" metadata; they're co-located. */
+export const EXPECTED_CELL_COUNT = PROJECT_FORMS.length * CHANGE_KINDS.length;
+
 /**
  * Pre-computed matrix. Derived once at module load so importers don't
  * pay the lookup cost per test.
@@ -130,10 +139,6 @@ export function findCell(
   }
   return cell;
 }
-
-/** Total cell count — mirrored in tests so they fail loudly if the
- *  matrix shape changes. */
-export const EXPECTED_CELL_COUNT = PROJECT_FORMS.length * CHANGE_KINDS.length;
 
 // ============================================
 // Matrix construction

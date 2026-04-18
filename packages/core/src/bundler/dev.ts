@@ -46,6 +46,43 @@ export interface DevBundlerOptions {
    */
   onAPIChange?: (filePath: string) => void | Promise<void>;
   /**
+   * Phase 7.0 R2 Agent D — Config/env change callback.
+   *
+   * Fires when `mandu.config.ts` or any `.env*` file at the project root
+   * changes. The CLI's `dev.ts` wires this to `restartDevServer()` so the
+   * new config values take effect (Node caches `process.env.KEY` per-
+   * process, so an auto-restart is the only reliable reload path).
+   *
+   * Multiple rapid changes in one debounce window fire this ONCE (per-file
+   * debounce + `pendingBuildSet` coalescing in `classifyBatch`).
+   */
+  onConfigReload?: (filePath: string) => void | Promise<void>;
+  /**
+   * Phase 7.0 R2 Agent D — Contract / Resource change callback.
+   *
+   * Fires when a contract (`spec/contracts/foo.contract.ts` — nested
+   * directories allowed) or resource schema
+   * (`spec/resources/user.resource.ts`) file changes. Consumers typically:
+   *   - Re-run `generateResourceArtifacts` for `.resource.ts` changes
+   *     (so derived `.mandu/generated/server/contracts`,
+   *     `types`, `client`, and `spec/slots` stay in sync).
+   *   - For `.contract.ts`, re-register the route handler that consumed
+   *     the contract (usually via `onSSRChange(SSR_CHANGE_WILDCARD)`).
+   *
+   * When both fire in the same batch, `classifyBatch` returns
+   * `"resource-regen"` exactly once.
+   */
+  onResourceChange?: (filePath: string) => void | Promise<void>;
+  /**
+   * Phase 7.0 R2 Agent D — package.json change notification.
+   *
+   * We intentionally do NOT auto-restart on `package.json` — dependency
+   * installs often write the file multiple times in quick succession, and
+   * a restart loop mid-install would be destructive. The callback exists
+   * so the CLI can print a "manual restart required" hint to the user.
+   */
+  onPackageJsonChange?: (filePath: string) => void;
+  /**
    * 추가 watch 디렉토리 (공통 컴포넌트 등)
    * 상대 경로 또는 절대 경로 모두 지원
    * 기본값: ["src/components", "components", "src/shared", "shared", "src/lib", "lib", "src/hooks", "hooks", "src/utils", "utils"]
@@ -171,6 +208,92 @@ export function isExcludedPath(normalizedPath: string): boolean {
 }
 
 /**
+ * Phase 7.0 R2 Agent D — Config-file predicate.
+ *
+ * Matches `mandu.config.ts` / `mandu.config.js` / `.env` / `.env.local` /
+ * `.env.development` / `.env.production` (and similar `.env.*` variants)
+ * at the **project root**. The argument must already be normalized —
+ * callers should run `normalizeFsPath` first.
+ *
+ * We look at the basename (not a full path prefix) so the check is cheap
+ * and cross-platform. The caller is responsible for restricting the
+ * watch set to the project root — that's where a genuine config lives.
+ * An `.env` deep inside `node_modules` (pathological) is already
+ * excluded by `isExcludedPath`.
+ */
+export function isConfigOrEnvFile(normalizedPath: string): boolean {
+  const basename = (normalizedPath.split("/").pop() ?? "").toLowerCase();
+  // `mandu.config.ts|js|mjs|cjs` — accept .ts|.js for JS-only projects.
+  if (
+    basename === "mandu.config.ts" ||
+    basename === "mandu.config.js" ||
+    basename === "mandu.config.mjs" ||
+    basename === "mandu.config.cjs"
+  ) {
+    return true;
+  }
+  // `.env` family. `.env` alone is valid; `.env.local`, `.env.development`,
+  // `.env.production`, `.env.staging`, `.env.test` etc. all match.
+  if (basename === ".env" || basename.startsWith(".env.")) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Phase 7.0 R2 Agent D — Resource/Contract file predicate.
+ *
+ * Matches `*.resource.ts` (and `*.resource.tsx` for the rare JSX-in-
+ * schema case) and `*.contract.ts|tsx`. These are user-authored schema
+ * files that drive code-gen (`generateResourceArtifacts`) and Zod-based
+ * route handlers.
+ *
+ * Intentionally NOT restricted to `spec/contracts` / `spec/resources` —
+ * some projects keep contracts colocated with the route
+ * (`app/api/users/users.contract.ts`). The `classifyBatch` caller
+ * already ensures the path is inside the watched tree.
+ */
+export function isResourceOrContractFile(normalizedPath: string): boolean {
+  return (
+    normalizedPath.endsWith(".contract.ts") ||
+    normalizedPath.endsWith(".contract.tsx") ||
+    normalizedPath.endsWith(".resource.ts") ||
+    normalizedPath.endsWith(".resource.tsx")
+  );
+}
+
+/**
+ * Phase 7.0 R2 Agent D — per-route `middleware.ts` predicate.
+ *
+ * Matches files whose basename is `middleware.ts` / `middleware.tsx`
+ * (nested under any `app` subdirectory). Layout-level `middleware.ts`
+ * at the project root is handled separately through the existing
+ * runtime loader — those changes require a restart because the server
+ * loads them at boot, not per-request. Per-route middleware is
+ * re-scanned when the route graph is re-registered, so we funnel these
+ * through the existing `api-only` rebuild path which already calls
+ * `registerHandlers(manifest, true)`.
+ */
+export function isRouteMiddlewareFile(normalizedPath: string): boolean {
+  return (
+    normalizedPath.endsWith("/middleware.ts") ||
+    normalizedPath.endsWith("/middleware.tsx")
+  );
+}
+
+/**
+ * Phase 7.0 R2 Agent D — `package.json` predicate.
+ *
+ * Matches the project-root `package.json`. Restricted to basename only —
+ * nested `package.json` files (inside `node_modules`, workspace sub-
+ * packages) are caught by `isExcludedPath` in `node_modules` /
+ * `.mandu` trees, and workspace changes are outside the dev-time loop.
+ */
+export function isPackageJsonFile(normalizedPath: string): boolean {
+  return (normalizedPath.split("/").pop() ?? "").toLowerCase() === "package.json";
+}
+
+/**
  * Test-only helper: invoke the internal `normalizeFsPath` implementation.
  * Exported so `dev-reliability.test.ts` can assert forward-slash / lower-case
  * normalization without duplicating the logic.
@@ -190,6 +313,45 @@ export const _testOnly_DEFAULT_COMMON_DIRS = DEFAULT_COMMON_DIRS;
 export const _testOnly_WATCH_EXCLUDE_SEGMENTS = WATCH_EXCLUDE_SEGMENTS;
 
 /**
+ * Phase 7.0 R2 Agent D — classification helper mirroring the in-bundler
+ * `classifyBatch` priority rules WITHOUT the project-specific maps
+ * (serverModuleSet / apiModuleSet / clientModuleToRoute / commonWatchDirs).
+ *
+ * Why a separate export: the in-bundler classifier is a closure over
+ * live state (manifest-derived maps). Tests that want to prove the
+ * **static** parts of the rule table — "a `.contract.ts` path is
+ * resource-regen", "a `.env` path is config-reload", "middleware is
+ * api-only" — would otherwise have to spin up a real `startDevBundler`
+ * with a tempdir manifest, which slows every assertion to tens of ms.
+ *
+ * Signature and return type match the live classifier so a future
+ * consolidation can swap them without a migration.
+ */
+export function _testOnly_classifyFileKind(
+  file: string,
+  options: { commonDirs?: readonly string[] } = {},
+): "config-reload" | "resource-regen" | "api-only" | "common-dir" | "mixed" {
+  const normalized = (function normalize(p: string): string {
+    const resolved = path.resolve(p).replace(/\\/g, "/");
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  })(file);
+
+  if (isConfigOrEnvFile(normalized)) return "config-reload";
+  if (isResourceOrContractFile(normalized)) return "resource-regen";
+  if (isRouteMiddlewareFile(normalized)) return "api-only";
+  if (options.commonDirs) {
+    for (const d of options.commonDirs) {
+      const nd = (function n(p: string): string {
+        const r = path.resolve(p).replace(/\\/g, "/");
+        return process.platform === "win32" ? r.toLowerCase() : r;
+      })(d);
+      if (normalized === nd || normalized.startsWith(nd + "/")) return "common-dir";
+    }
+  }
+  return "mixed";
+}
+
+/**
  * 개발 모드 번들러 시작
  * 파일 변경 감시 및 자동 재빌드
  */
@@ -201,6 +363,9 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     onError,
     onSSRChange,
     onAPIChange,
+    onConfigReload,
+    onResourceChange,
+    onPackageJsonChange,
     watchDirs: customWatchDirs = [],
     disableDefaultWatchDirs = false,
   } = options;
@@ -275,6 +440,31 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     watchDirs.add(slotsDir);
   } catch {
     // slots 디렉토리 없으면 무시
+  }
+
+  // Phase 7.0 R2 Agent D — spec/contracts and spec/resources directories.
+  //
+  // Pre-R2 behavior: these directories were NOT watched. Editing a Zod
+  // schema (`spec/contracts/foo.contract.ts`) or resource definition
+  // (`spec/resources/user.resource.ts`) required a manual dev-server
+  // restart, because `classifyBatch` had no category for them and
+  // `onSSRChange`/`onAPIChange` didn't fire. We add the directories to
+  // the main watch set so the existing fs.watch dispatcher delivers
+  // events; `classifyBatch` then routes them to `resource-regen`.
+  const contractsDir = path.join(rootDir, "spec", "contracts");
+  try {
+    await fs.promises.access(contractsDir);
+    watchDirs.add(contractsDir);
+  } catch {
+    // Contracts directory is optional — not all projects use Zod contracts.
+  }
+  const resourcesDir = path.join(rootDir, "spec", "resources");
+  try {
+    await fs.promises.access(resourcesDir);
+    watchDirs.add(resourcesDir);
+  } catch {
+    // Resources directory is optional — projects without Resource-Centric
+    // layer simply never hit this path.
   }
 
   // 공통 컴포넌트 디렉토리 추가 (기본 + 커스텀)
@@ -361,9 +551,33 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     let hasApi = false;
     let hasIsland = false;
     let hasCss = false;
+    // Phase 7.0 R2 Agent D — new classification bits. These are tracked
+    // alongside the existing categories so a batch that mixes a config
+    // save with an island edit still surfaces the high-priority signal
+    // (config-reload always wins — a restart invalidates everything
+    // anyway).
+    let hasConfigReload = false;
+    let hasResourceRegen = false;
 
     for (const file of files) {
       const normalized = normalizeFsPath(file);
+
+      // D — config/env files trump everything else. A restart subsumes
+      // any other pending work so we can flag and continue.
+      if (isConfigOrEnvFile(normalized)) {
+        hasConfigReload = true;
+        continue;
+      }
+
+      // D — contract/resource schema files are code-gen inputs. A
+      // `.resource.ts` edit must re-run the generator; a `.contract.ts`
+      // edit reshapes the Zod validator in SSR handlers. Both are
+      // routed through `resource-regen`.
+      if (isResourceOrContractFile(normalized)) {
+        hasResourceRegen = true;
+        continue;
+      }
+
       if (normalized.endsWith(".css")) {
         hasCss = true;
         continue;
@@ -372,6 +586,16 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
         hasCommon = true;
         continue;
       }
+
+      // D — per-route `middleware.ts` is treated as an API-level change
+      // (the api-only rebuild path re-registers handlers, which is
+      // exactly what a middleware change needs). We fall THROUGH to
+      // the existing api category so coalescing logic is unchanged.
+      if (isRouteMiddlewareFile(normalized)) {
+        hasApi = true;
+        continue;
+      }
+
       if (apiModuleSet.has(normalized)) {
         hasApi = true;
         continue;
@@ -393,6 +617,17 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
         hasIsland = true;
       }
     }
+
+    // Phase 7.0 R2 Agent D — priority gates.
+    //
+    //   1. `config-reload` beats everything. A process restart will pick
+    //      up all other changes on the next boot; there's no value in
+    //      rebuilding before we throw the process away.
+    //   2. `resource-regen` beats common-dir because code-gen artifacts
+    //      feed into common-dir files — running them in reverse order
+    //      would cause a stale rebuild.
+    if (hasConfigReload) return "config-reload";
+    if (hasResourceRegen) return "resource-regen";
 
     // Common-dir dominates — it already fans out to every island + SSR
     // registry. No point in double-classifying "mixed" when a fan-out fix
@@ -426,6 +661,27 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
 
     const kind = classifyBatch(files);
 
+    // Phase 7.0 R2 Agent D — config-reload: fire ONCE and return. Once a
+    // restart has been requested the rest of the batch is moot.
+    if (kind === "config-reload") {
+      const configFile =
+        files.find((f) => isConfigOrEnvFile(normalizeFsPath(f))) ?? files[0];
+      await handleConfigReload(configFile);
+      return;
+    }
+
+    // Phase 7.0 R2 Agent D — resource-regen: coalesce to ONE generator
+    // invocation. If 5 `*.resource.ts` saves arrive in one debounce
+    // window we only want `generateResourceArtifacts` run per distinct
+    // schema; the coalesce helper dedupes by normalized path.
+    if (kind === "resource-regen") {
+      const resourceFiles = files.filter((f) =>
+        isResourceOrContractFile(normalizeFsPath(f)),
+      );
+      await handleResourceRegenBatch(resourceFiles);
+      return;
+    }
+
     // Common-dir dominates: one full-reload-adjacent rebuild covers everyone.
     if (kind === "common-dir") {
       await handleFileChange(files.find((f) => isInCommonDir(f)) ?? files[0]);
@@ -447,10 +703,138 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     }
   };
 
+  /**
+   * Phase 7.0 R2 Agent D — dispatch a single config/env change.
+   *
+   * Fires `onConfigReload` exactly once per batch. The CLI wires this to
+   * `restartDevServer()` (`packages/cli/src/commands/dev.ts`) — we don't
+   * perform the restart here because the bundler doesn't own the HTTP
+   * server lifecycle.
+   *
+   * Wrapped in `withPerf(HMR_PERF.FILE_DETECT)` so `MANDU_PERF=1` can
+   * attribute config-save latency — but the end-to-end "saw save →
+   * server ready" marker is owned by the CLI (it knows the restart
+   * walltime). No REBUILD_TOTAL marker here — the usual rebuild is
+   * replaced by a full restart.
+   */
+  const handleConfigReload = async (filePath: string): Promise<void> => {
+    if (!onConfigReload) {
+      console.log(
+        `[Mandu HMR] ${path.basename(filePath)} changed — restart required`,
+      );
+      return;
+    }
+    mark(HMR_PERF.FILE_DETECT);
+    measure(HMR_PERF.FILE_DETECT, HMR_PERF.FILE_DETECT);
+    try {
+      await Promise.resolve(onConfigReload(filePath));
+    } catch (err) {
+      console.error(
+        `[Mandu HMR] config-reload callback threw:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  };
+
+  /**
+   * Phase 7.0 R2 Agent D — batch-dispatch resource/contract changes.
+   *
+   * Each distinct file fires `onResourceChange` once. We intentionally
+   * call the callback per-file (not once per batch) because the consumer
+   * typically needs to:
+   *   1. `parseResourceSchema(filePath)` — file-scoped
+   *   2. `generateResourceArtifacts(parsed, opts)` — file-scoped
+   *   3. re-register the route handlers that depend on the artifacts
+   *
+   * After all callbacks complete we fire the existing
+   * `onSSRChange(SSR_CHANGE_WILDCARD)` once so the SSR registry picks up
+   * the regenerated artifacts. This mirrors how common-dir changes
+   * already drive the SSR reload path.
+   */
+  const handleResourceRegenBatch = async (files: readonly string[]): Promise<void> => {
+    if (files.length === 0) return;
+    const callback = onResourceChange;
+    if (callback) {
+      await withPerf(HMR_PERF.SSR_HANDLER_RELOAD, async () => {
+        // Process sequentially — multiple concurrent `generateResourceArtifacts`
+        // racing on the same `.mandu/generated/` tree is a known foot-gun
+        // (Bun.write is atomic per file, but the generator writes 4-5
+        // sibling files per resource and we don't want partial updates
+        // visible to a concurrent SSR handler re-register).
+        for (const file of files) {
+          try {
+            await Promise.resolve(callback(file));
+          } catch (err) {
+            console.error(
+              `[Mandu HMR] resource-change callback threw for ${path.basename(file)}:`,
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+        }
+      });
+    } else {
+      console.log(
+        `[Mandu HMR] ${files.length} resource/contract file(s) changed — no handler registered`,
+      );
+    }
+    // Fire an SSR invalidation so the routes that consume the regenerated
+    // contracts pick up the new Zod schemas. Same signal as common-dir —
+    // `ssrChangeQueue` in the CLI serializes this against the resource-
+    // change callback above.
+    if (onSSRChange) {
+      try {
+        await Promise.resolve(onSSRChange(SSR_CHANGE_WILDCARD));
+      } catch (err) {
+        console.error(
+          `[Mandu HMR] SSR invalidation after resource regen threw:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  };
+
   const handleFileChange = async (changedFile: string): Promise<void> => {
     // 동시 빌드 방지 (#121) — B2 강화: 빌드 중이면 Set에 추가 (drop 방지).
     if (isBuilding) {
       pendingBuildSet.add(changedFile);
+      return;
+    }
+
+    // Phase 7.0 R2 Agent D — pre-dispatch for config/resource/package.json.
+    //
+    // These go through the SAME per-file debounce (scheduleFileChange →
+    // handleFileChange) but bypass `_doBuild` because they don't produce
+    // a client bundle. We route them BEFORE setting `isBuilding` so the
+    // resource-regen callback is free to enqueue subsequent island edits
+    // while it runs — the callback may itself trigger a generator that
+    // touches files, and we do not want a recursive isBuilding deadlock.
+    const normalized = normalizeFsPath(changedFile);
+    if (isConfigOrEnvFile(normalized)) {
+      await handleConfigReload(changedFile);
+      return;
+    }
+    if (isResourceOrContractFile(normalized)) {
+      await handleResourceRegenBatch([changedFile]);
+      return;
+    }
+    if (isPackageJsonFile(normalized)) {
+      // Advisory notification only — a `package.json` save on npm install
+      // fires multiple times in <100 ms, so auto-restart would loop. The
+      // callback prints a hint but takes no action.
+      if (onPackageJsonChange) {
+        try {
+          onPackageJsonChange(changedFile);
+        } catch (err) {
+          console.error(
+            `[Mandu HMR] package-json callback threw:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      } else {
+        console.log(
+          `[Mandu HMR] package.json changed — run 'r' to restart when dependencies settle`,
+        );
+      }
       return;
     }
 
@@ -595,6 +979,17 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       if (onAPIChange && apiModuleSet.has(normalizedPath)) {
         console.log(`\n🔄 API route changed: ${path.basename(changedFile)}`);
         onAPIChange(normalizedPath);
+        return;
+      }
+      // Phase 7.0 R2 Agent D — route middleware change.
+      // `app/**/middleware.ts` isn't in apiModuleSet (not registered as a
+      // route handler) but reuses the API reload path: the underlying
+      // `registerManifestHandlers` re-imports middleware via the bundled
+      // import chain. Falls through to `onAPIChange` so the CLI can
+      // reuse its existing `handleAPIChange` plumbing.
+      if (onAPIChange && isRouteMiddlewareFile(normalizedPath)) {
+        console.log(`\n🔄 Middleware changed: ${path.basename(changedFile)}`);
+        onAPIChange(normalizedPath);
       }
       return;
     }
@@ -640,22 +1035,46 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     }
   };
 
+  /**
+   * Phase 7.0 R2 Agent D — filter predicate for the main recursive
+   * watchers. Centralized so the config-root watcher (below) and the
+   * directory watchers share the same "is this worth dispatching?"
+   * check. Files that match one of the Agent D kinds are accepted even
+   * though they don't end in `.ts`/`.tsx` — e.g. `.env`.
+   */
+  const shouldDispatch = (normalizedFull: string, filename: string): boolean => {
+    // OS / build-artifact exclusions come first — we never want a
+    // `node_modules` event to even hit the perf marker.
+    if (isExcludedPath(normalizedFull)) return false;
+
+    // Existing contract: TS/TSX files in user source are always eligible.
+    // Agent D kinds extend the accept list to non-TS files so `.env` and
+    // `package.json` can surface.
+    if (filename.endsWith(".ts") || filename.endsWith(".tsx")) return true;
+
+    // Agent D new file kinds.
+    if (
+      isConfigOrEnvFile(normalizedFull) ||
+      isPackageJsonFile(normalizedFull)
+    ) {
+      return true;
+    }
+    return false;
+  };
+
   // 각 디렉토리에 watcher 설정 — B1/B6 fix
   for (const dir of watchDirs) {
     try {
       const watcher = fs.watch(dir, { recursive: true }, (event, filename) => {
         if (!filename) return;
 
-        // TypeScript/TSX 파일만 감시
-        if (!filename.endsWith(".ts") && !filename.endsWith(".tsx")) return;
-
         const fullPath = path.join(dir, filename);
+        const normalizedFull = normalizeFsPath(fullPath);
 
         // B1 fix — exclude `node_modules`, `.mandu`, `dist`, `build`, OS files.
         // Must run on the FULL path (filename alone loses directory context when
         // `recursive:true` reports a deep subpath).
-        const normalizedFull = normalizeFsPath(fullPath);
-        if (isExcludedPath(normalizedFull)) return;
+        if (!shouldDispatch(normalizedFull, filename)) return;
 
         mark(HMR_PERF.FILE_DETECT);
         measure(HMR_PERF.FILE_DETECT, HMR_PERF.FILE_DETECT);
@@ -668,6 +1087,49 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     } catch {
       console.warn(`⚠️  Cannot watch directory: ${dir}`);
     }
+  }
+
+  /**
+   * Phase 7.0 R2 Agent D — project-root watcher for config/env/package.json.
+   *
+   * Why a SEPARATE watcher:
+   *   - `fs.watch(rootDir, { recursive: true })` would fire for every file
+   *     in the entire tree — we only want the root-level config files.
+   *     The main per-directory watchers already cover `src/`, `app/`,
+   *     `spec/`, etc.
+   *   - Non-recursive `fs.watch(rootDir)` fires ONLY for direct children,
+   *     which is exactly what `mandu.config.ts`, `.env`, `package.json`
+   *     need.
+   *
+   * This watcher lives alongside the others in the `watchers` array so
+   * `close()` tears everything down in one pass.
+   */
+  try {
+    const rootWatcher = fs.watch(rootDir, { recursive: false }, (event, filename) => {
+      if (!filename) return;
+
+      const fullPath = path.join(rootDir, filename);
+      const normalizedFull = normalizeFsPath(fullPath);
+
+      // Shared exclusions — even if someone crafts a bizarre `.mandu`
+      // symlink at the project root, the `isExcludedPath` guard catches it.
+      if (isExcludedPath(normalizedFull)) return;
+
+      // Only the three kinds this watcher owns. A random `.md` or
+      // `tsconfig.json` save at the root must NOT be picked up here
+      // (tsconfig is interesting but needs a separate opt-in — outside
+      // this phase's scope).
+      const isConfig = isConfigOrEnvFile(normalizedFull);
+      const isPkg = isPackageJsonFile(normalizedFull);
+      if (!isConfig && !isPkg) return;
+
+      mark(HMR_PERF.FILE_DETECT);
+      measure(HMR_PERF.FILE_DETECT, HMR_PERF.FILE_DETECT);
+      scheduleFileChange(fullPath);
+    });
+    watchers.push(rootWatcher);
+  } catch {
+    console.warn(`⚠️  Cannot watch project root for config/env changes: ${rootDir}`);
   }
 
   if (watchers.length > 0) {

@@ -494,6 +494,102 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     console.log("  Status: API handler refreshed");
   };
 
+  // Phase 7.0 R2 Agent D — config/env reload → auto-restart the dev server.
+  //
+  // Wiring to `restartDevServer()` is the only reliable path because
+  // `process.env.KEY` is cached per-process in Node; reloading `.env`
+  // without a restart leaves stale values in any module that already
+  // captured them. Same story for `mandu.config.ts` — plugin instances
+  // and middleware stacks are built at boot.
+  const handleConfigReload = async (filePath: string) => {
+    const rel = path.relative(rootDir, filePath);
+    logDevEvent("Config/env changed", [
+      `File: ${rel}`,
+      "Action: full dev server restart",
+      "Browser: full reload after restart",
+    ]);
+    try {
+      await restartDevServer();
+    } catch (err) {
+      console.error(
+        `[Mandu HMR] config-reload restart failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  };
+
+  // Phase 7.0 R2 Agent D — resource/contract change → regenerate artifacts.
+  //
+  // For `.resource.ts` we run the full generator (contract + types + slot +
+  // client + repo) so every derived file under `.mandu/generated/` stays
+  // consistent. For `.contract.ts` we only need to re-register SSR handlers
+  // because the Zod contract is imported lazily by the route — but the
+  // same wildcard signal covers both paths cheaply.
+  //
+  // Imports are dynamic (lazy) so the `dev` command boot path doesn't pay
+  // the parse cost when the project has no resources.
+  const handleResourceChange = async (filePath: string) => {
+    const rel = path.relative(rootDir, filePath);
+    const isResource = filePath.endsWith(".resource.ts") || filePath.endsWith(".resource.tsx");
+    logDevEvent("Resource/contract changed", [
+      `File: ${rel}`,
+      isResource ? "Action: regenerate artifacts + re-register handlers" : "Action: re-register handlers (contract)",
+    ]);
+
+    if (isResource) {
+      try {
+        // Lazy import from the core barrel (`@mandujs/core`) so projects
+        // without any resources don't parse the generator at dev boot.
+        // `generate-resource.ts` uses the same barrel for these exports.
+        const core = await import("@mandujs/core");
+        const parsed = await core.parseResourceSchema(filePath);
+        const result = await core.generateResourceArtifacts(parsed, { rootDir });
+        if (result.success) {
+          console.log(
+            `  Regenerated: ${result.created.length} artifact(s), skipped: ${result.skipped.length}`,
+          );
+        } else {
+          console.warn(
+            `  Regeneration errors (${result.errors.length}):`,
+            result.errors.slice(0, 3).join("; "),
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[Mandu HMR] generateResourceArtifacts failed:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    // Kitchen Preview signal — so the devtools UI can highlight the change
+    // even when the user is already looking at a page that doesn't import
+    // the affected contract.
+    hmrServer?.broadcast({
+      type: "kitchen:file-change",
+      data: {
+        file: filePath,
+        changeType: "change",
+        timestamp: Date.now(),
+      },
+    });
+  };
+
+  // Phase 7.0 R2 Agent D — package.json change → advisory only.
+  //
+  // We intentionally do NOT auto-restart. `bun install` and friends write
+  // `package.json` multiple times in quick succession; a naive auto-
+  // restart would loop mid-install. Users who intend to pick up new
+  // deps press 'r' (dev-shortcuts) or kill and restart manually.
+  const handlePackageJsonChange = (filePath: string) => {
+    const rel = path.relative(rootDir, filePath);
+    logDevEvent("package.json changed", [
+      `File: ${rel}`,
+      "Action: restart required (press 'r' to restart manually)",
+      "Note: automatic restart disabled — dependencies may be mid-install",
+    ]);
+  };
+
   const restartDevServer = async () => {
     clearDefaultRegistry();
     registeredLayouts.clear();
@@ -512,6 +608,9 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         onError: handleBundlerError,
         onSSRChange: handleSSRChange,
         onAPIChange: handleAPIChange,
+        onConfigReload: handleConfigReload,
+        onResourceChange: handleResourceChange,
+        onPackageJsonChange: handlePackageJsonChange,
       });
 
       hmrServer.broadcast({
@@ -539,6 +638,9 @@ export async function dev(options: DevOptions = {}): Promise<void> {
       onError: handleBundlerError,
       onSSRChange: handleSSRChange,
       onAPIChange: handleAPIChange,
+      onConfigReload: handleConfigReload,
+      onResourceChange: handleResourceChange,
+      onPackageJsonChange: handlePackageJsonChange,
     });
   }
 
