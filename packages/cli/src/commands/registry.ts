@@ -760,6 +760,16 @@ registerCommand({
 });
 
 registerCommand({
+  id: "db",
+  description: "Schema migrations: plan, apply, status, reset",
+  subcommands: ["plan", "apply", "status", "reset"],
+  async run(ctx) {
+    const { dbDispatch } = await import("./db");
+    return dbDispatch(ctx);
+  },
+});
+
+registerCommand({
   id: "completion",
   description: "Output shell completion script (bash, zsh, fish)",
   exitOnSuccess: true,

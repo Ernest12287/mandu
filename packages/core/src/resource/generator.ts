@@ -1,6 +1,13 @@
 /**
  * Resource Generator
  * Main orchestrator for generating resource artifacts
+ *
+ * Phase 4c extension: when a resource declares `options.persistence`, the
+ * orchestrator also emits a typed repo module (`*.repo.ts`) alongside the
+ * existing contract/types/slot/client artifacts. See `generator-repo.ts`
+ * for emission details; schema + migration generation is app-level and
+ * handled by `generateSchemaArtifacts` (separate entry point called by
+ * the CLI's `mandu db plan`).
  */
 
 import type { ParsedResource } from "./parser";
@@ -9,7 +16,15 @@ import { generateResourceContract } from "./generators/contract";
 import { generateResourceTypes } from "./generators/types";
 import { generateResourceSlot } from "./generators/slot";
 import { generateResourceClient } from "./generators/client";
+import { generateRepoSource, shouldEmitRepo } from "./generator-repo";
+import {
+  computeSchemaGeneration,
+  writeSchemaArtifacts,
+  type SchemaGenerationResult,
+  type WriteSchemaArtifactsResult,
+} from "./generator-schema";
 import { resolveGeneratedPaths } from "../paths";
+import type { SqlProvider } from "./ddl/types";
 import path from "path";
 import fs from "fs/promises";
 
@@ -23,7 +38,7 @@ export interface GeneratorOptions {
   /** 기존 슬롯 덮어쓰기 (기본: false) */
   force?: boolean;
   /** 특정 파일만 생성 */
-  only?: ("contract" | "types" | "slot" | "client")[];
+  only?: ("contract" | "types" | "slot" | "client" | "repo")[];
 }
 
 // ============================================
@@ -35,6 +50,12 @@ export interface GeneratorResult {
   created: string[];
   skipped: string[];
   errors: string[];
+  /**
+   * Phase 4c — set when a repo was emitted for this resource. When the
+   * resource has no `options.persistence`, this is `false` and no repo
+   * file is written.
+   */
+  repoEmitted?: boolean;
 }
 
 // ============================================
@@ -113,6 +134,11 @@ export async function generateResourceArtifacts(
     // 4. Generate Client (always regenerate)
     if (!only || only.includes("client")) {
       await generateClient(definition, resourceName, paths.resourceClientDir, result);
+    }
+
+    // 5. Phase 4c — Generate Repo (only when persistence is declared, always regenerate)
+    if ((!only || only.includes("repo")) && shouldEmitRepo(parsed)) {
+      await generateRepo(parsed, paths.resourceReposDir, result);
     }
   } catch (error) {
     result.success = false;
@@ -210,6 +236,34 @@ async function generateClient(
   result.created.push(clientPath);
 }
 
+/**
+ * Phase 4c — Generate repo file.
+ *
+ * Always regenerate (derived). Caller is expected to have already checked
+ * `shouldEmitRepo(parsed)` to avoid emitting repos for non-persistent
+ * resources. We double-check here because `generateRepoSource` throws on
+ * non-persistent resources by default.
+ */
+async function generateRepo(
+  parsed: ParsedResource,
+  reposDir: string,
+  result: GeneratorResult
+): Promise<void> {
+  await ensureDir(reposDir);
+
+  const repoContent = generateRepoSource(parsed, { enable: false });
+  if (repoContent === null) {
+    // Non-persistent resource — caller should have filtered this out but
+    // we handle it gracefully.
+    return;
+  }
+
+  const repoPath = path.join(reposDir, `${parsed.definition.name}.repo.ts`);
+  await Bun.write(repoPath, repoContent);
+  result.created.push(repoPath);
+  result.repoEmitted = true;
+}
+
 // ============================================
 // Batch Generation
 // ============================================
@@ -245,6 +299,68 @@ export async function generateResourcesArtifacts(
   }
 
   return combinedResult;
+}
+
+// ============================================
+// Phase 4c — App-level schema + migration orchestration
+// ============================================
+
+/**
+ * Options for `generateSchemaArtifacts`. All fields optional.
+ */
+export interface SchemaArtifactsOptions {
+  /**
+   * Project root. Required.
+   */
+  rootDir: string;
+  /**
+   * Provider override. When omitted, the provider is derived from the
+   * resources' persistence blocks. Pass this to generate DDL for a
+   * different target than what's declared in the resources (useful for
+   * CLI flags like `mandu db plan --provider sqlite`).
+   */
+  provider?: SqlProvider;
+  /**
+   * Dry-run mode: compute the diff + SQL but DO NOT write any files.
+   * The caller inspects the returned result and decides whether to persist.
+   */
+  dryRun?: boolean;
+}
+
+/**
+ * The combined result of an app-level schema generation pass.
+ */
+export interface SchemaArtifactsResult {
+  /** The computed diff / desired SQL / preview filename. */
+  generation: SchemaGenerationResult;
+  /** The actual write result, or `null` when `dryRun: true`. */
+  write: WriteSchemaArtifactsResult | null;
+}
+
+/**
+ * Run the schema + migration generation step for an entire project.
+ *
+ * This is distinct from `generateResourceArtifacts` which handles
+ * per-resource contract/slot/types/client/repo emission. Schema + migration
+ * are project-level because a single migration file aggregates changes
+ * across ALL persistent resources.
+ *
+ * Typical caller: `mandu db plan` in the CLI (Agent E).
+ *
+ * @returns The computed generation result and (unless `dryRun: true`)
+ *   the write result describing which files were created on disk.
+ */
+export async function generateSchemaArtifacts(
+  resources: ParsedResource[],
+  options: SchemaArtifactsOptions,
+): Promise<SchemaArtifactsResult> {
+  const { rootDir, provider, dryRun = false } = options;
+  const generation = await computeSchemaGeneration(resources, rootDir, provider);
+  if (dryRun) {
+    return { generation, write: null };
+  }
+  const write = await writeSchemaArtifacts(generation, rootDir);
+  return { generation, write };
 }
 
 // ============================================

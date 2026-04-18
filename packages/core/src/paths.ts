@@ -20,7 +20,32 @@ export interface GeneratedPaths {
   resourceTypesDir: string;
   resourceSlotsDir: string;
   resourceClientDir: string;
+  /** User-authored resource schema files (spec/resources). */
   resourceSchemasDir: string;
+  /**
+   * Phase 4c — Generated per-resource repo modules
+   * (`.mandu/generated/server/repos/{name}.repo.ts`). DERIVED; regenerated
+   * on every build when the resource declares `options.persistence`.
+   */
+  resourceReposDir: string;
+  /**
+   * Phase 4c — Per-resource CREATE TABLE DDL snapshots for humans
+   * (`.mandu/generated/server/schema/{table}.sql`). DERIVED; not applied
+   * by the migration runner — applied migrations live in `migrationsDir`.
+   */
+  resourceSchemaOutDir: string;
+  /**
+   * Phase 4c — Schema state directory (`.mandu/schema`). Holds
+   * `applied.json` (owned by the migration runner after successful apply).
+   * The Phase 4c generator only READS from here — never writes.
+   */
+  schemaStateDir: string;
+  /**
+   * Phase 4c — User-visible migration files directory
+   * (`spec/db/migrations`). `mandu db plan` writes `NNNN_auto_*.sql`
+   * here, the runner reads it on `mandu db apply`.
+   */
+  migrationsDir: string;
 }
 
 /**
@@ -38,6 +63,10 @@ export function resolveGeneratedPaths(rootDir: string): GeneratedPaths {
     resourceSlotsDir: path.join(rootDir, "spec/slots"),
     resourceClientDir: path.join(rootDir, ".mandu/generated/client"),
     resourceSchemasDir: path.join(rootDir, "spec/resources"),
+    resourceReposDir: path.join(rootDir, ".mandu/generated/server/repos"),
+    resourceSchemaOutDir: path.join(rootDir, ".mandu/generated/server/schema"),
+    schemaStateDir: path.join(rootDir, ".mandu/schema"),
+    migrationsDir: path.join(rootDir, "spec/db/migrations"),
   };
 }
 
@@ -56,4 +85,12 @@ export const GENERATED_RELATIVE_PATHS = {
   slots: "spec/slots",
   client: ".mandu/generated/client",
   resourceSchemas: "spec/resources",
+  /** Phase 4c — repo emission target. */
+  resourceRepos: ".mandu/generated/server/repos",
+  /** Phase 4c — per-resource CREATE TABLE snapshots (documentation). */
+  resourceSchemaOut: ".mandu/generated/server/schema",
+  /** Phase 4c — applied.json lives here (runner-owned). */
+  schemaState: ".mandu/schema",
+  /** Phase 4c — user-visible migrations directory. */
+  migrations: "spec/db/migrations",
 } as const;
