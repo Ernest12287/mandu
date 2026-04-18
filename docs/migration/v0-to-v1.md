@@ -1,15 +1,20 @@
 ---
-title: "Mandu v0.x → v1.0 Migration Guide"
-status: release-notes
+title: "Mandu v0.x → v1.0 Migration Guide (DRAFT)"
+status: draft
 audience: Mandu app authors
 created: 2026-04-18
 ---
 
-# v0.x → v1.0 Migration Guide
+# v0.x → v1.0 Migration Guide (DRAFT)
 
-Mandu v1.0 is the first stable release. Public APIs are frozen — breaking changes from this point require a **major version bump** (SemVer).
+> **Status**: 1.0.0 is not yet released. This guide was written alongside
+> Phase 6.4's release-prep work and stays in draft form for when 1.0.0
+> ships. The **content below is accurate for the current 0.x `main`** —
+> the only thing deferred is the version number. Use this as the
+> "what changed since 0.21" reference today.
 
-Most v0.21+ code runs on v1.0 without changes. This guide covers the few touchpoints where things changed, plus the new capabilities you should know about.
+The guide covers touchpoints where behavior changed, plus the new
+capabilities shipped across Phase 2–6.
 
 ---
 
