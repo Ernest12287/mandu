@@ -29,15 +29,17 @@ import { dbPlan, type DbPlanOptions } from "./plan";
 import { dbApply, type DbApplyOptions } from "./apply";
 import { dbStatus, type DbStatusOptions } from "./status";
 import { dbReset, type DbResetOptions } from "./reset";
+import { dbSeed, type DbSeedOptions, type SeedEnv } from "../db-seed";
 
 export { dbPlan, type DbPlanOptions } from "./plan";
 export { dbApply, type DbApplyOptions } from "./apply";
 export { dbStatus, type DbStatusOptions } from "./status";
 export { dbReset, type DbResetOptions } from "./reset";
+export { dbSeed, type DbSeedOptions } from "../db-seed";
 export { resolveDb, DbResolutionError } from "./resolve-db";
 export { applyRenames, findRenameCandidates, formatPrompt } from "./rename-prompt";
 
-export const DB_SUBCOMMANDS = ["plan", "apply", "status", "reset"] as const;
+export const DB_SUBCOMMANDS = ["plan", "apply", "status", "reset", "seed"] as const;
 export type DbSubcommand = (typeof DB_SUBCOMMANDS)[number];
 
 export const EXIT_USAGE = 2;
@@ -57,23 +59,30 @@ export const DB_HELP = [
   "    apply    Run pending migrations against the live DB",
   "    status   Print applied / pending / tampered / orphaned",
   "    reset    DANGEROUS: drop __mandu_migrations (--force + confirm)",
+  "    seed     Replay spec/seeds/*.seed.ts against the live DB",
   "",
   "  Flags:",
   "    --ci       Non-interactive mode (exit fast on prompts)",
   "    --json     Machine-readable stdout",
-  "    --dry-run  (apply) simulate without executing",
+  "    --dry-run  (apply | seed) simulate without executing",
   "    --check    (status) exit 1 if pending > 0",
   "    --force    (reset) required; plus confirmation",
+  "    --env      (seed) dev|staging|prod — env whitelist filter",
+  "    --reset    (seed) truncate target tables before inserting",
+  "    --file     (seed) prefix filter (e.g. --file=001)",
   "",
   "  Environment:",
-  "    DATABASE_URL               Primary source for the DB connection",
-  "    MANDU_DB_RESET_CONFIRM     Required for `db reset --ci`",
+  "    DATABASE_URL                     Primary source for the DB connection",
+  "    MANDU_DB_RESET_CONFIRM           Required for `db reset --ci`",
+  "    MANDU_DB_SEED_PROD_CONFIRM       Required for `db seed --env=prod`",
   "",
   "  Examples:",
   "    mandu db plan",
   "    mandu db apply --dry-run",
   "    mandu db status --json",
   "    mandu db reset --force --drop-tables",
+  "    mandu db seed --env=dev",
+  "    mandu db seed --file=001 --dry-run",
   "",
 ].join("\n");
 
@@ -110,6 +119,11 @@ export async function dbDispatch(ctx: CommandContext): Promise<boolean> {
     }
     case "reset": {
       const code = await dbReset(readResetOptions(ctx));
+      process.exit(code);
+      return true;
+    }
+    case "seed": {
+      const code = await dbSeed(readSeedOptions(ctx));
       process.exit(code);
       return true;
     }
@@ -154,5 +168,19 @@ function readResetOptions(ctx: CommandContext): DbResetOptions {
     ci: ctx.options.ci === "true",
     allowTamper: ctx.options["allow-tamper"] === "true" || ctx.options.allowTamper === "true",
     dropTables: ctx.options["drop-tables"] === "true" || ctx.options.dropTables === "true",
+  };
+}
+
+function readSeedOptions(ctx: CommandContext): DbSeedOptions {
+  const rawEnv = ctx.options.env;
+  const env: SeedEnv | undefined =
+    rawEnv === "dev" || rawEnv === "staging" || rawEnv === "prod" ? rawEnv : undefined;
+  return {
+    env,
+    file: ctx.options.file && ctx.options.file !== "true" ? ctx.options.file : undefined,
+    dryRun: ctx.options["dry-run"] === "true" || ctx.options.dryRun === "true",
+    reset: ctx.options.reset === "true",
+    ci: ctx.options.ci === "true",
+    json: ctx.options.json === "true",
   };
 }

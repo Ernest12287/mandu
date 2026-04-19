@@ -515,6 +515,31 @@ registerCommand({
 });
 
 registerCommand({
+  id: "test",
+  description: "Run unit + integration tests (Phase 12.1). Subcommands: unit, integration, all.",
+  subcommands: ["unit", "integration", "all"],
+  defaultSubcommand: "all",
+  async run(ctx) {
+    const sub = ctx.args[1];
+    const target: "all" | "unit" | "integration" =
+      sub === "unit" || sub === "integration" || sub === "all" ? sub : "all";
+    const { testCommand } = await import("./test");
+    return testCommand(target, {
+      filter:
+        typeof ctx.options.filter === "string" && ctx.options.filter !== "true"
+          ? ctx.options.filter
+          : undefined,
+      watch: ctx.options.watch === "true",
+      coverage: ctx.options.coverage === "true",
+      bail: ctx.options.bail === "true",
+      updateSnapshots:
+        ctx.options["update-snapshots"] === "true" ||
+        ctx.options.u === "true",
+    });
+  },
+});
+
+registerCommand({
   id: "test:heal",
   description: "Generate ATE healing suggestions (no auto-commit)",
   async run() {
@@ -746,9 +771,33 @@ registerCommand({
 
 registerCommand({
   id: "mcp",
-  description: "Run MCP tools from terminal",
+  description: "Run MCP tools from terminal, or register Mandu with IDEs (mcp register)",
+  subcommands: ["register"],
   exitOnSuccess: true,
   async run(ctx) {
+    // Sub-dispatch: `mandu mcp register` → Phase 13.2 IDE auto-config.
+    const sub = ctx.args[1];
+    if (sub === "register") {
+      const { mcpRegister } = await import("./mcp-register");
+      const ideRaw = ctx.options.ide;
+      const ide =
+        ideRaw === "claude" ||
+        ideRaw === "cursor" ||
+        ideRaw === "continue" ||
+        ideRaw === "aider" ||
+        ideRaw === "all"
+          ? ideRaw
+          : undefined;
+      const code = await mcpRegister({
+        ide,
+        remove: ctx.options.remove === "true",
+        token: ctx.options.token && ctx.options.token !== "true" ? ctx.options.token : undefined,
+        dryRun: ctx.options["dry-run"] === "true" || ctx.options.dryRun === "true",
+      });
+      // Non-zero exit code → signal failure to main.ts.
+      return code === 0;
+    }
+
     const { mcp } = await import("./mcp");
     const tool = ctx.options._positional;
     const json = ctx.options.json === "true";
@@ -759,28 +808,52 @@ registerCommand({
 
 registerCommand({
   id: "deploy",
-  description: "Validate, build, and generate deployment artifacts",
+  description:
+    "Prepare deployment artifacts (docker, docker-compose, fly, vercel, railway, netlify, cf-pages)",
   exitOnSuccess: true,
   async run(ctx) {
     const { deploy } = await import("./deploy");
-    return deploy({ target: ctx.options.target });
+    const setSecretRaw = ctx.options["set-secret"];
+    const setSecret = Array.isArray(setSecretRaw)
+      ? setSecretRaw
+      : typeof setSecretRaw === "string" && setSecretRaw !== "true"
+        ? [setSecretRaw]
+        : undefined;
+    return deploy({
+      target: ctx.options.target,
+      env: ctx.options.env,
+      project: ctx.options.project,
+      dryRun: ctx.options["dry-run"] === "true",
+      execute: ctx.options.execute === "true" || ctx.options.execute === "",
+      verbose: ctx.options.verbose === "true",
+      setSecret,
+    });
   },
 });
 
 registerCommand({
   id: "upgrade",
-  description: "Check for or install latest @mandujs package versions",
+  description:
+    "Update @mandujs packages, or self-update the Mandu binary (Phase 13.2)",
   exitOnSuccess: true,
   async run(ctx) {
     const { upgrade } = await import("./upgrade");
-    return upgrade({ check: ctx.options.check === "true" || ctx.options.check === "" });
+    const channelRaw = ctx.options.channel;
+    const channel: "stable" | "canary" | undefined =
+      channelRaw === "stable" || channelRaw === "canary" ? channelRaw : undefined;
+    return upgrade({
+      check: ctx.options.check === "true" || ctx.options.check === "",
+      dryRun: ctx.options["dry-run"] === "true" || ctx.options.dryRun === "true",
+      rollback: ctx.options.rollback === "true",
+      channel,
+    });
   },
 });
 
 registerCommand({
   id: "db",
-  description: "Schema migrations: plan, apply, status, reset",
-  subcommands: ["plan", "apply", "status", "reset"],
+  description: "Schema migrations + data seeds: plan, apply, status, reset, seed",
+  subcommands: ["plan", "apply", "status", "reset", "seed"],
   async run(ctx) {
     const { dbDispatch } = await import("./db");
     return dbDispatch(ctx);
@@ -821,5 +894,38 @@ registerCommand({
     }
     const { completion } = await import("./completion");
     return completion(shell);
+  },
+});
+
+registerCommand({
+  id: "skills:generate",
+  description: "Generate per-project Claude Code skills (glossary, conventions, workflow)",
+  exitOnSuccess: true,
+  async run(ctx) {
+    const { skillsGenerate } = await import("./skills");
+    const rawKinds = ctx.options.kinds;
+    const kinds = typeof rawKinds === "string" && rawKinds !== "true"
+      ? (rawKinds.split(",").map((k) => k.trim()).filter(Boolean) as Array<"glossary" | "conventions" | "workflow">)
+      : undefined;
+    return skillsGenerate({
+      regenerate: ctx.options.regenerate === "true",
+      dryRun: ctx.options["dry-run"] === "true",
+      yes: ctx.options.yes === "true",
+      outDir: typeof ctx.options["out-dir"] === "string" && ctx.options["out-dir"] !== "true" ? ctx.options["out-dir"] : undefined,
+      kinds,
+    });
+  },
+});
+
+registerCommand({
+  id: "skills:list",
+  description: "List installed per-project Claude Code skills",
+  exitOnSuccess: true,
+  async run(ctx) {
+    const { skillsList } = await import("./skills");
+    return skillsList({
+      outDir: typeof ctx.options["out-dir"] === "string" && ctx.options["out-dir"] !== "true" ? ctx.options["out-dir"] : undefined,
+      json: ctx.options.json === "true",
+    });
   },
 });

@@ -237,3 +237,29 @@ export function getTemplatePath(relativePath: string): string {
 export function listSkillIds(): readonly SkillId[] {
   return SKILL_IDS;
 }
+
+// ============================================================================
+// Per-project skills generator (Phase 14.1)
+// ============================================================================
+
+export {
+  generateSkillsForProject,
+  analyzeProject,
+  analyzeManifest,
+  analyzeGuard,
+  analyzeStack,
+  buildGlossarySkill,
+  buildConventionsSkill,
+  buildWorkflowSkill,
+  listGeneratedSkills,
+} from "./generator/index.js";
+
+export type {
+  GenerateSkillsOptions,
+  GenerateSkillsResult,
+  GeneratedSkillFile,
+  ProjectAnalysis,
+  ManifestAnalysis,
+  GuardAnalysis,
+  StackAnalysis,
+} from "./generator/index.js";

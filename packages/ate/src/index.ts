@@ -21,8 +21,38 @@ export type {
   FailureCategory,
 } from "./heal";
 export { computeImpact } from "./impact";
-export { generateUnitSpec, generateUnitSpecs } from "./unit-codegen";
+export { generateUnitSpec, generateUnitSpecs, promptForUnitTest } from "./unit-codegen";
 export type { UnitCodegenResult } from "./unit-codegen";
+
+// Prompt library (standardized across providers)
+export {
+  promptFor,
+  listKinds,
+  loadProjectContext,
+  renderContextAsXml,
+  getAdapter,
+  claudeAdapter,
+  openaiAdapter,
+  geminiAdapter,
+  localAdapter,
+  unitTestTemplate,
+  integrationTestTemplate,
+  e2eTestTemplate,
+  healTemplate,
+  impactTemplate,
+  getTemplate,
+} from "./prompts";
+export type {
+  PromptProvider,
+  PromptKind,
+  PromptMessage,
+  PromptBudget,
+  PromptContext,
+  PromptSpecInput,
+  PromptSpec,
+  PromptTemplate,
+  PromptAdapter,
+} from "./prompts";
 export * from "./selector-map";
 export { parseTrace, generateAlternativeSelectors } from "./trace-parser";
 export type { TraceAction, FailedLocator, TraceParseResult } from "./trace-parser";

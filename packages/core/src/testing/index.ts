@@ -1,6 +1,21 @@
 /**
  * Mandu Testing Utilities
- * 서버 없이 라우트/filling 단위 테스트
+ *
+ * The `@mandujs/core/testing` barrel. Everything a test file needs:
+ *
+ * - Filling-level stubs (`testFilling`, `createTestRequest`, `createTestContext`)
+ * - Manifest / island factories (`createTestManifest`, `createTestIsland`)
+ * - MCP fixtures (`createMockMcpContext`)
+ * - **Phase 12.1** HTTP/session/db/mock fixtures:
+ *   - `createTestServer` — ephemeral-port in-process Bun.serve
+ *   - `createTestSession` — pre-signed session cookie (no login roundtrip)
+ *   - `createTestDb` — in-memory SQLite fixture
+ *   - `mockMail`, `mockStorage` — dependency-injectable I/O mocks
+ *
+ * All fixtures produced by this module support idempotent `close()`/`clear()`
+ * and, where applicable, `Symbol.asyncDispose` / `Symbol.dispose` for the
+ * ES2023 `using` syntax. Prefer those over hand-rolled afterEach chains —
+ * they stay correct even when a test throws mid-setup.
  */
 
 import path from "path";
@@ -245,3 +260,33 @@ export function createMockMcpContext(options: {
     readManifest: async () => manifest,
   };
 }
+
+// ========== Phase 12.1 — Integration fixtures ==========
+
+export {
+  createTestServer,
+  type CreateTestServerOptions,
+  type TestServer,
+} from "./server";
+
+export {
+  createTestSession,
+  readSession,
+  extractCookieValuePair,
+  type CreateTestSessionOptions,
+  type TestSession,
+} from "./session";
+
+export {
+  createTestDb,
+  type CreateTestDbOptions,
+  type TestDb,
+} from "./db";
+
+export {
+  mockMail,
+  mockStorage,
+  type MockMail,
+  type MockStorage,
+  type MockStoredObject,
+} from "./mocks";

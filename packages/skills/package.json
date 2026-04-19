@@ -7,7 +7,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./init-integration": "./src/init-integration.ts"
+    "./init-integration": "./src/init-integration.ts",
+    "./generator": "./src/generator/index.ts"
   },
   "bin": {
     "mandu-skills": "./src/cli.ts"

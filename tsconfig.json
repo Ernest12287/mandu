@@ -12,6 +12,7 @@
       "@mandujs/mcp": ["packages/mcp/src/index.ts"],
       "@mandujs/mcp/*": ["packages/mcp/src/*"],
       "@mandujs/ate": ["packages/ate/src/index.ts"],
+      "@mandujs/ate/prompts": ["packages/ate/src/prompts/index.ts"],
       "@mandujs/ate/*": ["packages/ate/src/*"],
       "@mandujs/edge": ["packages/edge/src/index.ts"],
       "@mandujs/edge/*": ["packages/edge/src/*"],
@@ -20,6 +21,7 @@
       "@mandujs/edge/vercel": ["packages/edge/src/vercel/index.ts"],
       "@mandujs/edge/netlify": ["packages/edge/src/netlify/index.ts"],
       "@mandujs/skills": ["packages/skills/src/index.ts"],
+      "@mandujs/skills/generator": ["packages/skills/src/generator/index.ts"],
       "@mandujs/skills/*": ["packages/skills/src/*.ts", "packages/skills/*"]
     },
     "strict": true,

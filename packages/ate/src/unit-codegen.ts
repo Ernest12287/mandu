@@ -2,11 +2,18 @@ import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { ensureDir, getAtePaths, readJson } from "./fs";
 import type { InteractionGraph, InteractionNode } from "./types";
+import { promptFor } from "./prompts";
+import type { PromptProvider, PromptSpec } from "./prompts";
 
 type RouteNode = Extract<InteractionNode, { kind: "route" }>;
 
 /**
  * Generate a bun:test unit spec for a single route node using testFilling.
+ *
+ * Backwards-compatible: the output format is byte-equivalent to the v0.17
+ * implementation. This function is deterministic and does NOT call any
+ * LLM. See `promptForUnitTest()` if you want the prompt-library variant
+ * for model-based generation.
  */
 export function generateUnitSpec(route: RouteNode): string {
   const lines: string[] = [];
@@ -36,6 +43,29 @@ export function generateUnitSpec(route: RouteNode): string {
   return lines.join("\n");
 }
 
+/**
+ * Build a PromptSpec for unit-test generation of a single route. Callers
+ * pass the result to their LLM SDK.
+ *
+ * This is an additive helper — existing deterministic codegen keeps working.
+ */
+export function promptForUnitTest(
+  route: RouteNode,
+  opts: { provider?: PromptProvider; repoRoot?: string } = {},
+): PromptSpec {
+  return promptFor({
+    kind: "unit-test",
+    provider: opts.provider ?? "claude",
+    context: opts.repoRoot ? { repoRoot: opts.repoRoot } : undefined,
+    target: {
+      id: route.id,
+      file: route.file,
+      path: route.path,
+      methods: route.methods,
+    },
+  });
+}
+
 export interface UnitCodegenResult {
   files: string[];
   warnings: string[];
@@ -45,7 +75,10 @@ export interface UnitCodegenResult {
  * Generate bun:test unit specs for all route nodes in the interaction graph.
  * Writes files to tests/unit/auto/ under the repo root.
  */
-export function generateUnitSpecs(repoRoot: string, opts?: { onlyRoutes?: string[] }): UnitCodegenResult {
+export function generateUnitSpecs(
+  repoRoot: string,
+  opts?: { onlyRoutes?: string[] },
+): UnitCodegenResult {
   const paths = getAtePaths(repoRoot);
   const warnings: string[] = [];
 
@@ -53,7 +86,9 @@ export function generateUnitSpecs(repoRoot: string, opts?: { onlyRoutes?: string
   try {
     graph = readJson<InteractionGraph>(paths.interactionGraphPath);
   } catch (err: unknown) {
-    throw new Error(`Interaction graph read failed: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Interaction graph read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   const routes = graph.nodes.filter((n): n is RouteNode => n.kind === "route");
@@ -75,7 +110,9 @@ export function generateUnitSpecs(repoRoot: string, opts?: { onlyRoutes?: string
       writeFileSync(filePath, generateUnitSpec(route), "utf8");
       files.push(filePath);
     } catch (err: unknown) {
-      warnings.push(`Failed to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+      warnings.push(
+        `Failed to write ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

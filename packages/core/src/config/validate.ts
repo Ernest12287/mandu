@@ -127,6 +127,59 @@ const SeoConfigSchema = z
   })
   .strict();
 
+/**
+ * Test 설정 스키마 (Phase 12.1 — strict)
+ *
+ * `.strict()` is applied at every nested object so stale / misspelt keys
+ * are caught at config-load time, not when the CLI trips over them. Each
+ * default mirrors the TypeScript documentation in `./mandu.ts`.
+ */
+const TestUnitConfigSchema = z
+  .object({
+    include: z.array(z.string().min(1)).default(["**/*.test.ts", "**/*.test.tsx"]),
+    exclude: z
+      .array(z.string().min(1))
+      .default(["node_modules/**", ".mandu/**", "dist/**"]),
+    timeout: z.number().int().positive().default(30_000),
+  })
+  .strict();
+
+const TestIntegrationConfigSchema = z
+  .object({
+    include: z
+      .array(z.string().min(1))
+      .default(["tests/integration/**/*.test.ts", "tests/integration/**/*.test.tsx"]),
+    exclude: z
+      .array(z.string().min(1))
+      .default(["node_modules/**", ".mandu/**", "dist/**"]),
+    dbUrl: z.string().min(1).default("sqlite::memory:"),
+    sessionStore: z.enum(["memory", "sqlite"]).default("memory"),
+    timeout: z.number().int().positive().default(60_000),
+  })
+  .strict();
+
+const TestE2EConfigSchema = z
+  .object({
+    reserved: z.literal(true).optional(),
+  })
+  .strict();
+
+const TestCoverageConfigSchema = z
+  .object({
+    lines: z.number().min(0).max(100).optional(),
+    branches: z.number().min(0).max(100).optional(),
+  })
+  .strict();
+
+const TestConfigSchema = z
+  .object({
+    unit: TestUnitConfigSchema.default({}),
+    integration: TestIntegrationConfigSchema.default({}),
+    e2e: TestE2EConfigSchema.default({}),
+    coverage: TestCoverageConfigSchema.default({}),
+  })
+  .strict();
+
 const AdapterConfigSchema = z.custom<ManduAdapter | undefined>(
   (value) =>
     value === undefined ||
@@ -171,12 +224,26 @@ export const ManduConfigSchema = z
     dev: DevConfigSchema.default({}),
     fsRoutes: FsRoutesConfigSchema.default({}),
     seo: SeoConfigSchema.default({}),
+    test: TestConfigSchema.default({}),
     plugins: z.array(ManduPluginSchema).optional(),
     hooks: ManduHooksSchema.optional(),
   })
   .strict();
 
 export type ValidatedManduConfig = z.infer<typeof ManduConfigSchema>;
+
+/** Validated `test` block (convenience re-export for fixtures/CLI). */
+export type ValidatedTestConfig = z.infer<typeof TestConfigSchema>;
+
+/**
+ * Resolve the `test` block with defaults filled in.
+ *
+ * Use this from fixtures / CLI test runners that need a guaranteed-shaped
+ * object without having to validate the whole config.
+ */
+export function resolveTestConfig(raw?: unknown): ValidatedTestConfig {
+  return TestConfigSchema.parse(raw ?? {});
+}
 
 /**
  * 검증 결과

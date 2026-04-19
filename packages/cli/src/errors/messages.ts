@@ -84,6 +84,23 @@ export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
     message: "Configuration validation failed.",
     suggestion: "Review validation errors above and fix your config.",
   },
+
+  // Test errors (CLI_E060-CLI_E069) — Phase 12.1
+  [CLI_ERROR_CODES.TEST_NO_MATCH]: {
+    message: "No test files matched '{target}' patterns.",
+    suggestion:
+      "Create a file matching your `test.{target}.include` globs, or adjust the include/exclude patterns in mandu.config.ts.",
+  },
+  [CLI_ERROR_CODES.TEST_RUNNER_FAILED]: {
+    message: "`bun test` exited with code {exitCode} ({target}).",
+    suggestion:
+      "Review the output above for failing assertions. Re-run with `--filter <name>` to narrow scope.",
+  },
+  [CLI_ERROR_CODES.TEST_UNKNOWN_TARGET]: {
+    message: "Unknown test target: {target}",
+    suggestion: "Use one of: unit, integration, all. See `mandu test --help`.",
+  },
+
   [CLI_ERROR_CODES.UNKNOWN_COMMAND]: {
     message: "Unknown command: {command}",
     suggestion: "Run with --help to see available commands.",
@@ -95,6 +112,74 @@ export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
   [CLI_ERROR_CODES.MISSING_ARGUMENT]: {
     message: "Missing required argument: {argument}",
     suggestion: "Provide the required argument and try again.",
+  },
+
+  // Deploy errors (CLI_E200-CLI_E229) — Phase 13.1
+  [CLI_ERROR_CODES.DEPLOY_UNSUPPORTED_TARGET]: {
+    message: "Unsupported deploy target: {target}",
+    suggestion:
+      "Use one of: docker, docker-compose, fly, vercel, railway, netlify, cf-pages.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_CONFIG_INVALID]: {
+    message: "mandu.config is invalid — deploy aborted.",
+    suggestion: "Run `mandu check` to view configuration errors.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_BUILD_FAILED]: {
+    message: "Project build failed during `mandu deploy`.",
+    suggestion: "Review build errors above or run `mandu build` to reproduce.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_GUARD_FAILED]: {
+    message: "Architecture guard found {count} error(s) — deploy refused.",
+    suggestion: "Fix violations above before deploying, or run `mandu guard`.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_ARTIFACT_WRITE_FAILED]: {
+    message: "Failed to write deploy artifact at {path}.",
+    suggestion: "Check filesystem permissions and free disk space, then retry.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_PROVIDER_CLI_MISSING]: {
+    message: "{binary} is not installed — required for target {target}.",
+    suggestion: "Install {binary} and retry. See docs/deploy/README.md for setup.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_PROVIDER_CLI_OUTDATED]: {
+    message: "{binary} {actual} is older than required {required}.",
+    suggestion: "Upgrade {binary} to at least {required} before deploying.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_SECRET_MISSING]: {
+    message: "Required secret {name} is not set for target {target}.",
+    suggestion:
+      "Store it with `mandu deploy --target={target} --set-secret {name}=<value>` (OS keychain).",
+  },
+  [CLI_ERROR_CODES.DEPLOY_SECRET_STORE_UNAVAILABLE]: {
+    message: "OS keychain (Bun.secrets) is unavailable.",
+    suggestion:
+      "Set the secret via environment variable or upgrade to Bun >= 1.3.12.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_SECRET_FORMAT_INVALID]: {
+    message: "Secret pair {pair} is malformed — expected KEY=VALUE.",
+    suggestion: "Pass `--set-secret FOO=bar` (no spaces around the =).",
+  },
+  [CLI_ERROR_CODES.DEPLOY_SECRET_LEAKED_IN_ARTIFACT]: {
+    message:
+      "Refusing to write {path}: it contains the plaintext value of secret {name}.",
+    suggestion:
+      "Reference the secret as ${{{name}}} placeholder. Secrets must never be written to disk.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_EXECUTE_REQUIRES_CONFIRMATION]: {
+    message: "--execute is required to invoke the provider CLI for {target}.",
+    suggestion:
+      "Re-run with --execute after reviewing the generated artifacts, or use --dry-run to preview.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_MANIFEST_MISSING]: {
+    message: "Routes manifest is missing — build did not produce one.",
+    suggestion: "Ensure app/ contains at least one route before deploying.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_EDGE_RUNTIME_WARNING]: {
+    message: "Edge runtime compatibility for {target} is unverified (Phase 15 pending).",
+    suggestion: "Artifacts are generated but SSR may not work until Phase 15 lands.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_NOT_IMPLEMENTED]: {
+    message: "Adapter {target} does not yet support this operation.",
+    suggestion: "Check docs/deploy/README.md for the adapter capability matrix.",
   },
 };
 

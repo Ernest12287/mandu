@@ -27,6 +27,7 @@ import tpl_default_app_layout_tsx from "../templates/default/app/layout.tsx" wit
 import tpl_default_app_page_tsx from "../templates/default/app/page.tsx" with { type: "file" };
 import tpl_default_package_json from "../templates/default/package.json" with { type: "file" };
 import tpl_default_scripts_analyze_impact_ts from "../templates/default/scripts/analyze-impact.ts" with { type: "file" };
+import tpl_default_spec_seeds_example_seed_ts from "../templates/default/spec/seeds/example.seed.ts" with { type: "file" };
 import tpl_default_src_client_app_index_ts from "../templates/default/src/client/app/index.ts" with { type: "file" };
 import tpl_default_src_client_entities_index_ts from "../templates/default/src/client/entities/index.ts" with { type: "file" };
 import tpl_default_src_client_features_index_ts from "../templates/default/src/client/features/index.ts" with { type: "file" };
@@ -145,6 +146,7 @@ export const TEMPLATE_MANIFEST = new Map([
     ["app/page.tsx", tpl_default_app_page_tsx],
     ["package.json", tpl_default_package_json],
     ["scripts/analyze-impact.ts", tpl_default_scripts_analyze_impact_ts],
+    ["spec/seeds/example.seed.ts", tpl_default_spec_seeds_example_seed_ts],
     ["src/client/app/index.ts", tpl_default_src_client_app_index_ts],
     ["src/client/entities/index.ts", tpl_default_src_client_entities_index_ts],
     ["src/client/features/index.ts", tpl_default_src_client_features_index_ts],
@@ -252,4 +254,4 @@ export const TEMPLATE_MANIFEST = new Map([
 ]);
 
 /** Total number of embedded template files (sanity check). */
-export const EMBEDDED_FILE_COUNT = 110;
+export const EMBEDDED_FILE_COUNT = 111;

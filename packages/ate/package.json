@@ -21,7 +21,8 @@
     "./types": "./src/types.ts",
     "./smart-select": "./src/smart-select.ts",
     "./coverage-gap": "./src/coverage-gap.ts",
-    "./precommit": "./src/precommit.ts"
+    "./precommit": "./src/precommit.ts",
+    "./prompts": "./src/prompts/index.ts"
   },
   "files": [
     "src/**/*"
