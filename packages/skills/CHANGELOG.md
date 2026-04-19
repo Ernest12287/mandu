@@ -1,5 +1,57 @@
 # @mandujs/skills
 
+## 5.0.0
+
+### Patch Changes
+
+- Wave D — 8 GitHub issues + Phase 17 memory/observability:
+
+  - **#193 (BREAKING)** — SPA navigation is opt-out by default. Plain
+    `<a href="/about">` now triggers client-side nav with View
+    Transitions. Opt-out per link: `data-no-spa`. Opt-out global:
+    `mandu.config.ts` `spa: false`. Legacy `data-mandu-link` still works.
+
+  - **#194** — `@mandujs/core` exports map exposes `./kitchen` so
+    `@mandujs/mcp` can import `computeAgentStats`.
+
+  - **#195** — `mandu dev` prints a synchronous boot banner before any
+    `await`, so a hang is always observable. `MANDU_DEBUG_BOOT=1` emits
+    a phase trace.
+
+  - **#196** — `mandu dev` auto-discovers and runs `scripts/prebuild-*.
+{ts,tsx,js,mjs}` before serving. In watch mode, `content/` changes
+    re-execute prebuild (500ms debounced) and broadcast HMR reload.
+    Opt-out: `dev.autoPrebuild: false`.
+
+  - **#197** — `@mandujs/skills` now writes every skill as
+    `.claude/skills/<name>/SKILL.md` (Claude Code spec). All three
+    installer paths (dev, CLI binary mode, per-project generator)
+    corrected.
+
+  - **#198** — SSR resolves `async function` components. `export default
+async function Page()` / async layouts / async generateMetadata work.
+    4 callsites pre-resolve via `resolveAsyncElement()`.
+
+  - **#199 (MVP)** — `@mandujs/core/content`: `defineCollection`,
+    frontmatter parser (no new runtime deps), `slugFromPath`,
+    `generateSidebar`, `generateLLMSTxt`, content-types.d.ts emitter.
+    Legacy `defineCollection({ loader })` preserved.
+
+  - **#200** — runtime registry: `getGenerated`, `getManifest`,
+    `registerManifest` at `@mandujs/core/runtime`. Guard
+    `INVALID_GENERATED_IMPORT` message now points at
+    `mandujs.com/docs/architect/generated-access`.
+
+  - **Phase 17** — bounded LRU (patternCache/fetchCache/perFileTimers),
+    `/_mandu/heap` + `/_mandu/metrics` endpoints (dev auto-on, prod
+    gated), MCP heap heartbeat, long-run smoke harness.
+
+  Quality: 6 packages typecheck clean, 200+ new regression tests, zero
+  new runtime deps.
+
+- Updated dependencies []:
+  - @mandujs/core@0.25.0
+
 ## 4.0.0
 
 ### Patch Changes
