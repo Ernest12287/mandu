@@ -92,10 +92,19 @@ async function runBuild(opts: BuildOptions): Promise<void> {
     args.push("--target", opts.target);
   }
 
-  // Windows metadata (SmartScreen-friendly; takes effect only for Windows targets).
-  if (opts.windowsTitle) args.push(`--windows-title=${opts.windowsTitle}`);
-  if (opts.windowsPublisher) args.push(`--windows-publisher=${opts.windowsPublisher}`);
-  if (opts.windowsVersion) args.push(`--windows-version=${opts.windowsVersion}`);
+  // Windows metadata (SmartScreen-friendly). `bun build --compile` REJECTS
+  // these flags when the compile target is not Windows, so we only attach
+  // them for the host-Windows build or an explicit `--target bun-windows-*`.
+  // Cross-compiling to Linux/macOS from a Windows host is a supported path
+  // (tested in Phase 9.R2 bench), and this guard keeps that flow clean.
+  const isWindowsTarget = opts.target
+    ? opts.target.startsWith("bun-windows-")
+    : process.platform === "win32";
+  if (isWindowsTarget) {
+    if (opts.windowsTitle) args.push(`--windows-title=${opts.windowsTitle}`);
+    if (opts.windowsPublisher) args.push(`--windows-publisher=${opts.windowsPublisher}`);
+    if (opts.windowsVersion) args.push(`--windows-version=${opts.windowsVersion}`);
+  }
 
   // eslint-disable-next-line no-console
   console.log(`→ ${["bun", ...args].join(" ")}`);

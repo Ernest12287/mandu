@@ -1,6 +1,13 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { renderMarkdown } from "../cli-ux/markdown.js";
+// Phase 9.R2 — Error markdown payloads are pre-embedded as strings via
+// `with { type: "text" }` in the generated CLI-UX manifest. This gives us
+// **synchronous** access to the template body in both dev (`bun run`) and
+// compiled-binary (`bun build --compile`) modes. The old `readFileSync`
+// path was broken inside compiled binaries because the file imports
+// resolved to `$bunfs/...` virtual paths, which `node:fs` cannot open.
+//
+// See packages/cli/scripts/generate-template-manifest.ts → generateUxSources.
+import { CLI_UX_TEMPLATES } from "../../generated/cli-ux-manifest.js";
 import { CLI_ERROR_CODES, type CLIErrorCode } from "./codes";
 
 interface ErrorInfo {
@@ -8,11 +15,11 @@ interface ErrorInfo {
   suggestion?: string;
   docLink?: string;
   /**
-   * When provided, resolves to a markdown template file under
-   * `packages/cli/templates/errors/<code>.md`. The template is
-   * rendered via `renderMarkdown()` and fully replaces the legacy
-   * 3-line fixed format. Falls back to the legacy format when the
-   * template file is missing or unreadable.
+   * When provided, selects a markdown payload from the CLI-UX manifest
+   * (key: `errors/<template>`). The template is rendered via
+   * `renderMarkdown()` and fully replaces the legacy 3-line fixed
+   * format. Falls back to the legacy format when the template is
+   * missing or unreadable.
    */
   template?: string;
 }
@@ -103,21 +110,16 @@ function interpolate(text: string, context?: Record<string, string | number>): s
 }
 
 /**
- * Resolve the directory that contains markdown error templates.
- * Uses `import.meta.dir` so the path survives bundling into `dist/`.
+ * Look up an error markdown payload from the CLI-UX manifest.
+ *
+ * Keys in the manifest follow the form `errors/<code>` (e.g.
+ * `"errors/CLI_E001"`). The returned string is the exact on-disk content
+ * of `packages/cli/templates/errors/<code>.md`, embedded at compile-time
+ * by `bun build --compile`. Returns `null` when the code isn't registered
+ * so callers can fall back to the legacy format.
  */
-function getErrorTemplatesDir(): string {
-  // packages/cli/src/errors → templates/errors
-  return path.resolve(import.meta.dir, "..", "..", "templates", "errors");
-}
-
-function loadTemplate(code: string): string | null {
-  try {
-    const filePath = path.join(getErrorTemplatesDir(), `${code}.md`);
-    return readFileSync(filePath, "utf-8");
-  } catch {
-    return null;
-  }
+function loadErrorTemplate(code: string): string | null {
+  return CLI_UX_TEMPLATES.get(`errors/${code}`) ?? null;
 }
 
 function formatLegacy(
@@ -144,12 +146,12 @@ function formatLegacy(
  *
  * External signature is stable — all call sites continue to receive a
  * plain string. Internally we now look up an optional markdown template
- * (`templates/errors/<CODE>.md`), interpolate `{{placeholders}}`, and
- * pipe the result through `renderMarkdown()` so the output adapts to
- * the terminal (ANSI in TTY, plain text under NO_COLOR / CI / pipes).
+ * from the pre-embedded CLI-UX manifest, interpolate `{{placeholders}}`,
+ * and pipe the result through `renderMarkdown()` so the output adapts
+ * to the terminal (ANSI in TTY, plain text under NO_COLOR / CI / pipes).
  *
- * When no template is registered for a code, we fall back to the
- * legacy 3-line format so nothing regresses.
+ * When no template is registered for a code (or the manifest lookup
+ * misses), we fall back to the legacy 3-line format so nothing regresses.
  */
 export function formatCLIError(
   code: CLIErrorCode,
@@ -159,7 +161,7 @@ export function formatCLIError(
   const templateName = info?.template;
 
   if (templateName) {
-    const raw = loadTemplate(templateName);
+    const raw = loadErrorTemplate(templateName);
     if (raw) {
       const interpolated = interpolate(raw, {
         ...(context ?? {}),

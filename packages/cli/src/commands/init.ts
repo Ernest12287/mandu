@@ -1,6 +1,5 @@
 import path from "path";
 import fs from "fs/promises";
-import { readFileSync } from "node:fs";
 import { createInterface } from "readline/promises";
 import { CLI_ERROR_CODES, printCLIError } from "../errors";
 import { renderMarkdown } from "../cli-ux/markdown.js";
@@ -14,6 +13,12 @@ import {
   loadTemplate as loadEmbeddedTemplate,
   resolveEmbeddedPath,
 } from "../util/templates";
+// Phase 9.R2 — init-landing markdown payload is pre-embedded as a string
+// via `with { type: "text" }` so `renderInitLanding()` can stay
+// synchronous and work identically in compiled binaries. The old
+// `readFileSync(… init-landing.md)` path was broken inside binaries
+// because the file import resolved to a `$bunfs` virtual path.
+import { CLI_UX_TEMPLATES } from "../../generated/cli-ux-manifest.js";
 import {
   generateLockfile,
   writeLockfile,
@@ -677,15 +682,19 @@ interface McpConfigResult {
 }
 
 /**
- * Resolve the path to the shared init landing markdown template.
+ * Look up the init-landing markdown payload from the pre-embedded
+ * CLI-UX manifest.
  *
- * Using `import.meta.dir` keeps the path stable across the
- * `src/` → `dist/` layout and survives `bun --compile` as long as the
- * file remains packaged under `templates/`.
+ * The manifest is populated by `scripts/generate-template-manifest.ts`
+ * (using `with { type: "text" }`), which inlines the raw markdown
+ * **string** at compile time. Both `bun run` (dev) and
+ * `bun build --compile` (binary) resolve it identically and
+ * synchronously — no filesystem I/O is required. Returns `null` only
+ * if the manifest was regenerated without the landing entry (should
+ * never happen under normal build flow).
  */
-function getInitLandingTemplatePath(): string {
-  // packages/cli/src/commands → templates/init-landing.md
-  return path.resolve(import.meta.dir, "..", "..", "templates", "init-landing.md");
+function loadInitLandingTemplate(): string | null {
+  return CLI_UX_TEMPLATES.get("init-landing") ?? null;
 }
 
 interface InitLandingContext {
@@ -766,11 +775,17 @@ function renderInitLanding(ctx: InitLandingContext): void {
     ? `- \`${LOCKFILE_PATH}\` created\n- Hash: \`${ctx.lockfileResult.hash ?? ""}\``
     : "- Lockfile generation skipped (no config)";
 
-  let template: string;
-  try {
-    template = readFileSync(getInitLandingTemplatePath(), "utf-8");
-  } catch {
-    // Last-resort fallback — keeps init usable even if templates are missing.
+  // Phase 9.R2 — synchronous access; no try/catch needed around the
+  // manifest lookup since it is a pure in-memory map populated at
+  // module-init time. We still guard for a missing key (defensively) so
+  // a partially-regenerated manifest cannot crash the happy path of
+  // `mandu init`.
+  const template = loadInitLandingTemplate();
+  if (template === null) {
+    // Last-resort fallback — keeps init usable if the manifest was
+    // regenerated without the "init-landing" entry (should not happen
+    // in normal builds — the generator hard-fails when the source file
+    // is missing, so this only triggers for malformed hand-edits).
     console.log(`\n${theme.success("✅")} ${theme.heading("Project created!")}\n`);
     console.log(`Location: ${theme.path(ctx.targetDir)}`);
     console.log(`\nNext: cd ${ctx.projectName} && bun run dev`);
