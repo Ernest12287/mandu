@@ -622,6 +622,39 @@ export function getActionData<T = unknown>(): T | undefined {
 let initialized = false;
 
 /**
+ * Phase 7.3 L-01 — HDR loader payload shape predicate.
+ *
+ * Exported as an escape hatch for unit tests. Accepts only:
+ *   - `null` (loader explicitly returned "no data" — a valid outcome).
+ *   - plain `object` (the typical loader return value shape).
+ * Rejects:
+ *   - `undefined` (we require the server contract to emit `null` explicitly
+ *     when there is no data, mirroring `Response.json` behaviour).
+ *   - primitives (`string`, `number`, `boolean`, `symbol`, `bigint`).
+ *   - `Array` — React loader data is always a bag-of-props, never a bare
+ *     array. An array payload signals the server contract changed under us.
+ *
+ * This is DEFENSE-IN-DEPTH: the HDR response is always same-origin, so an
+ * attacker cannot inject here without already controlling the server. The
+ * predicate catches the real-world failure mode: a skew between server +
+ * client versions during a rolling deploy (cached old client fetches new
+ * `_data=1` response with a reshape), or a loader that drifted to return
+ * a primitive by mistake.
+ *
+ * We DO allow unknown object keys — loaders legitimately return arbitrary
+ * shapes. We only check the outer container.
+ *
+ * @internal exposed for `__tests__/hdr-l-fixes.test.ts`
+ */
+export function isValidHDRLoaderData(value: unknown): value is object | null {
+  if (value === null) return true;
+  if (typeof value !== "object") return false;
+  // Arrays are `typeof === "object"` — reject them explicitly.
+  if (Array.isArray(value)) return false;
+  return true;
+}
+
+/**
  * Phase 7.2 — HDR (Hot Data Revalidation) hook.
  *
  * The dev-time HMR client script (see `bundler/dev.ts`
@@ -638,6 +671,15 @@ let initialized = false;
  * Exposed on `window` because the HMR client script (emitted as a
  * raw string) has no module system. Typed via `window-state.ts` if
  * we ever lift the typing, but inline here for now.
+ *
+ * Phase 7.3 L-01: the incoming `loaderData` is schema-checked via
+ * `isValidHDRLoaderData` before we commit it to router state. This is
+ * defense-in-depth — the HDR response is same-origin and already
+ * trusted, but a version skew between server + client (cached stale
+ * client fetching a reshape loader) would otherwise crash React with
+ * an unhelpful `undefined.x` inside a fiber. On rejection we log a
+ * descriptive warning and drop the update; the next navigation or
+ * full reload will resynchronize.
  */
 function applyHDRUpdate(routeId: string, loaderData: unknown): void {
   const current = getRouterStateInternal();
@@ -645,6 +687,18 @@ function applyHDRUpdate(routeId: string, loaderData: unknown): void {
   if (!route || route.id !== routeId) {
     // Route mismatch — the user navigated away between the
     // slot-refetch broadcast and the fetch response. Safe to drop.
+    return;
+  }
+  // Phase 7.3 L-01: validate the loaderData shape. On failure keep the
+  // existing `loaderData` and warn so the developer notices the
+  // contract drift immediately (instead of a cryptic React crash).
+  if (!isValidHDRLoaderData(loaderData)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[Mandu HDR] applyHDRUpdate rejected a loader payload that was not a plain object or null. " +
+        "This usually signals a server/client version skew — a full reload will resynchronize. " +
+        `Received: ${Array.isArray(loaderData) ? "array" : typeof loaderData}`,
+    );
     return;
   }
   const nextState: RouterState = {
@@ -675,6 +729,30 @@ function applyHDRUpdate(routeId: string, loaderData: unknown): void {
 }
 
 /**
+ * Phase 7.3 L-03 — dev-only detection for the HDR revalidate hook.
+ *
+ * The router module is bundled into both dev and prod client bundles.
+ * We want `window.__MANDU_ROUTER_REVALIDATE__` installed ONLY in dev,
+ * because in prod no HMR client script is present to call it — so the
+ * global is pure attack surface (an XSS payload could hijack it to
+ * coerce the router into rendering arbitrary loader shapes).
+ *
+ * Mandu's bundler (`packages/core/src/bundler/build.ts`) injects
+ * `define: { "process.env.NODE_ENV": JSON.stringify(NODE_ENV) }` into
+ * every client bundle, so `process.env.NODE_ENV` is a compile-time
+ * constant in the browser. When `NODE_ENV === "production"` the `if`
+ * body below is dead-code-eliminated by Bun's minifier.
+ *
+ * Tested in `__tests__/hdr-l-fixes.test.ts` against both mocked envs.
+ */
+function shouldInstallHDRHook(): boolean {
+  // typeof-guard so tests that run without a `process` global (pure
+  // happy-dom) don't blow up.
+  if (typeof process === "undefined") return true;
+  return process.env?.NODE_ENV !== "production";
+}
+
+/**
  * 라우터 초기화
  */
 export function initializeRouter(): void {
@@ -691,11 +769,17 @@ export function initializeRouter(): void {
   // 링크 클릭 이벤트 위임
   document.addEventListener("click", handleLinkClick);
 
-  // Phase 7.2 — expose HDR revalidate hook. Only in dev does the HMR
-  // client script call this; prod builds omit the script.
-  (window as unknown as {
-    __MANDU_ROUTER_REVALIDATE__?: (routeId: string, loaderData: unknown) => void;
-  }).__MANDU_ROUTER_REVALIDATE__ = applyHDRUpdate;
+  // Phase 7.3 L-03 — expose HDR revalidate hook ONLY in dev builds.
+  // The prod client bundle has `process.env.NODE_ENV === "production"`
+  // inlined at build time (see `bundler/build.ts` define option), so
+  // the entire install block is eliminated from production output.
+  // This closes the XSS amplification vector described in the Phase
+  // 7.2 security audit (docs/security/phase-7-2-audit.md L-03).
+  if (shouldInstallHDRHook()) {
+    (window as unknown as {
+      __MANDU_ROUTER_REVALIDATE__?: (routeId: string, loaderData: unknown) => void;
+    }).__MANDU_ROUTER_REVALIDATE__ = applyHDRUpdate;
+  }
 
   console.log("[Mandu Router] Initialized");
 }
@@ -720,6 +804,15 @@ export function cleanupRouter(): void {
   document.removeEventListener("click", handleLinkClick);
   listeners.current.clear();
   initialized = false;
+  // Phase 7.3 L-03: also remove the HDR hook so subsequent
+  // re-initialization after a teardown starts from a clean slate.
+  if (typeof window !== "undefined") {
+    try {
+      delete (window as unknown as { __MANDU_ROUTER_REVALIDATE__?: unknown }).__MANDU_ROUTER_REVALIDATE__;
+    } catch {
+      // some browsers refuse `delete` on globals; best-effort is fine.
+    }
+  }
 }
 
 // 자동 초기화 (DOM 준비 시)
@@ -730,3 +823,8 @@ if (typeof window !== "undefined") {
     initializeRouter();
   }
 }
+
+// Phase 7.3 L-01: export `applyHDRUpdate` itself for unit tests so we
+// can exercise the schema-check path directly without round-tripping
+// through `window.__MANDU_ROUTER_REVALIDATE__`.
+export { applyHDRUpdate as _testOnly_applyHDRUpdate };

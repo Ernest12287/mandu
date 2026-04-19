@@ -2207,7 +2207,13 @@ async function handlePageRoute(
     // refetches from normal SPA navigations. The JSON body is
     // identical — HDR reuses the existing `_data=1` contract — so
     // this header is purely advisory.
-    const isHDR = req.headers.get("x-mandu-hdr") === "1";
+    //
+    // Phase 7.3 L-04: only echo the header in dev. HDR is a dev-time
+    // feature (slot file watching + client HMR script) so no legitimate
+    // production client should ever send `X-Mandu-HDR: 1`. Echoing it
+    // in prod is zero-value attack surface (request-triggered response
+    // header reflection). Silently ignore the request header instead.
+    const isHDR = settings.isDev && req.headers.get("x-mandu-hdr") === "1";
     const jsonResponse = Response.json({
       routeId: route.id,
       pattern: route.pattern,

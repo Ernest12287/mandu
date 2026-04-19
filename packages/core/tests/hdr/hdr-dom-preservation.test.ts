@@ -311,28 +311,47 @@ describe("Phase 7.2.R2 D — HDR DOM state preservation", () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // 9. Empty / falsy loader data — null, undefined, empty objects must
-  //    all pass through cleanly.
+  // 9. Empty / falsy loader data — null + empty objects pass through;
+  //    Phase 7.3 L-01 now rejects undefined + primitives (contract
+  //    drift indicator). Detailed predicate semantics are exercised by
+  //    tests/hdr/hdr-l-fixes.test.ts — this case only checks that the
+  //    guard rejects without breaking the existing router state.
   // ───────────────────────────────────────────────────────────────────
 
-  test("[9] applyHDRUpdate handles falsy loader data values", () => {
+  test("[9] applyHDRUpdate handles falsy loader data values (post-L-01)", () => {
     seedRouterState("home", { v: 0 });
     const revalidate = getManduWindow().__MANDU_ROUTER_REVALIDATE__!;
 
+    // ACCEPTED: null is an explicit "no data" loader return.
     revalidate("home", null);
     expect(getLoader()).toBeNull();
 
-    revalidate("home", undefined);
-    expect(getLoader()).toBeUndefined();
-
+    // ACCEPTED: empty object is a valid loader shape.
     revalidate("home", {});
     expect(getLoader()).toEqual({});
 
-    revalidate("home", 0);
-    expect(getLoader()).toBe(0);
+    // REJECTED (Phase 7.3 L-01): undefined + primitives. Silence the
+    // warning so the test output stays clean; the detailed predicate
+    // contract is in tests/hdr/hdr-l-fixes.test.ts.
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+      // Seed a known baseline; the guard must preserve it through
+      // every rejection.
+      revalidate("home", { keep: "this" });
+      expect(getLoader()).toEqual({ keep: "this" });
 
-    revalidate("home", "");
-    expect(getLoader()).toBe("");
+      revalidate("home", undefined);
+      expect(getLoader()).toEqual({ keep: "this" });
+
+      revalidate("home", 0);
+      expect(getLoader()).toEqual({ keep: "this" });
+
+      revalidate("home", "");
+      expect(getLoader()).toEqual({ keep: "this" });
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   // ───────────────────────────────────────────────────────────────────

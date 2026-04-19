@@ -1,5 +1,6 @@
 /**
  * Phase 7.2 R1 Agent B — Playwright browser-state preservation E2E.
+ * Phase 7.3 B — full HDR path exercise via `spec/slots/index.slot.ts`.
  *
  * Goal: prove that a `.slot.ts` file edit in dev mode triggers the
  * Mandu HDR (Hot Data Revalidation) path — loader JSON refetched via
@@ -10,21 +11,34 @@
  * Why this is separate from `auth-flow.spec.ts`:
  *   - auth-flow.spec.ts uses `mandu start` (production). HDR only
  *     applies in dev mode so we need a separate spawn.
- *   - This spec mutates files under `app/` during the test. We
- *     restore them in `afterEach` so rerunning the suite is safe.
+ *   - This spec mutates files under `app/` and `spec/slots/` during
+ *     the test. We restore them in `afterEach` so rerunning the suite
+ *     is safe.
  *
  * Skipping rules:
  *   - If `@mandujs/cli` is unavailable in node_modules we skip the
- *     entire file (typical CI misconfiguration — not a test
- *     failure).
+ *     entire file (typical CI misconfiguration — not a test failure).
  *   - If the dev server fails to emit the ready line within the
  *     timeout we fail with a diagnostic pointing at the captured
  *     stdout, not a generic Playwright timeout.
  *
+ * Phase 7.3 — new tests target the INDEX slot at `spec/slots/index.slot.ts`
+ * which IS wired into `manifest.routes[].slotModule` via the fs-scanner
+ * auto-link (`packages/core/src/router/fs-routes.ts` `resolveAutoLinks`).
+ * That means mutations to this file take the HDR path strictly — the
+ * wire is `mandu:slot-refetch` + `X-Mandu-HDR: 1` + `applyHDRUpdate`.
+ *
+ * The legacy layout.slot.ts mutation tests (first three `test(...)`)
+ * remain: they exercise the fallback-reload path (layout slot is NOT
+ * slot-module-linked) and prove the HMR pipeline doesn't crash in
+ * either mode.
+ *
  * References:
  *   docs/bun/phase-7-2-team-plan.md §3 Agent B
+ *   docs/security/phase-7-2-audit.md §3 (L-01 ~ L-04 follow-ups)
  *   packages/core/src/bundler/dev.ts — generateHMRClientScript
  *   packages/core/src/runtime/ssr.ts — generateHMRScript
+ *   packages/core/src/client/router.ts — applyHDRUpdate
  */
 import { test, expect } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -44,6 +58,8 @@ const __dirname = path.dirname(__filename);
 
 const DEMO_ROOT = path.resolve(__dirname, "../..");
 const LAYOUT_SLOT = path.join(DEMO_ROOT, "app", "layout.slot.ts");
+// Phase 7.3 — the wired-via-manifest slot used for real HDR exercises.
+const INDEX_SLOT = path.join(DEMO_ROOT, "spec", "slots", "index.slot.ts");
 
 /**
  * Pick a free TCP port by asking the OS for one. Unlike a hardcoded
@@ -170,8 +186,26 @@ async function mutateLayoutSlot(): Promise<void> {
   await fs.writeFile(LAYOUT_SLOT, original + marker, "utf-8");
 }
 
+/**
+ * Phase 7.3 — mutate the INDEX slot file (the one that IS wired into
+ * the manifest's slotModule entry for the "/" route). Every invocation
+ * rewrites the `HOME_SLOT_MARKER` constant to a fresh Date.now() string
+ * so the source is meaningfully different (not just whitespace) and
+ * the file watcher can't coalesce the change away.
+ */
+async function mutateIndexSlot(): Promise<void> {
+  const original = await fs.readFile(INDEX_SLOT, "utf-8");
+  const stamp = Date.now();
+  const next = original.replace(
+    /export const HOME_SLOT_MARKER = "[^"]*";/,
+    `export const HOME_SLOT_MARKER = "phase-7-3-hdr-${stamp}";`,
+  );
+  await fs.writeFile(INDEX_SLOT, next, "utf-8");
+}
+
 let devServer: DevServer | null = null;
 let layoutSlotBackup: string | null = null;
+let indexSlotBackup: string | null = null;
 
 test.beforeAll(async () => {
   // Verify the CLI is reachable before spinning up; bail cleanly
@@ -182,6 +216,15 @@ test.beforeAll(async () => {
     test.skip(
       true,
       `auth-starter/app/layout.slot.ts not readable: ${(err as Error).message}`,
+    );
+    return;
+  }
+  try {
+    indexSlotBackup = await fs.readFile(INDEX_SLOT, "utf-8");
+  } catch (err) {
+    test.skip(
+      true,
+      `auth-starter/spec/slots/index.slot.ts not readable: ${(err as Error).message}`,
     );
     return;
   }
@@ -197,10 +240,13 @@ test.beforeAll(async () => {
 });
 
 test.afterEach(async () => {
-  // Restore the slot file after EACH mutation so the server's
+  // Restore both slot files after EACH mutation so the server's
   // subsequent reads see pristine content.
   if (layoutSlotBackup !== null) {
     await fs.writeFile(LAYOUT_SLOT, layoutSlotBackup, "utf-8");
+  }
+  if (indexSlotBackup !== null) {
+    await fs.writeFile(INDEX_SLOT, indexSlotBackup, "utf-8");
   }
   // Let the file watcher settle so the next test isn't racing a
   // pending rebuild.
@@ -216,9 +262,12 @@ test.afterAll(async () => {
     // Final restore — guards against an afterEach skip.
     await fs.writeFile(LAYOUT_SLOT, layoutSlotBackup, "utf-8");
   }
+  if (indexSlotBackup !== null) {
+    await fs.writeFile(INDEX_SLOT, indexSlotBackup, "utf-8");
+  }
 });
 
-test.describe("Phase 7.2 HDR — browser state preservation", () => {
+test.describe("Phase 7.2 HDR — browser state preservation (legacy layout.slot path)", () => {
   test("form input value survives a slot-file edit (HDR path)", async ({
     page,
   }) => {
@@ -370,6 +419,213 @@ test.describe("Phase 7.2 HDR — browser state preservation", () => {
         "[fast-refresh.spec] HDR marks not observed (likely fallback reload). Acceptable.",
       );
       expect(true).toBe(true);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 7.3 — full HDR path via the wired index slot.
+//
+// `spec/slots/index.slot.ts` is picked up by `resolveAutoLinks` and
+// populates `route.slotModule` for the "/" route. Mutations to that
+// file take the STRICT HDR path:
+//
+//   file change
+//     → handleSSRChange detects `.slot.ts` + slotRouteId === "index"
+//     → hmrServer.broadcastVite("custom", "mandu:slot-refetch", { routeId, … })
+//     → client's HMR script receives it, fetches "/?_data=1" + X-Mandu-HDR: 1
+//     → server echoes the HDR header (L-04 dev gating) + returns fresh
+//       loaderData (Date.now() counter)
+//     → `applyHDRUpdate(routeId, loaderData)` in
+//       `packages/core/src/client/router.ts` re-enters React.startTransition
+//     → form input keeps its value; HDR counter increases
+//
+// These tests assert on the HARD outcome (counter strictly increases +
+// input value strictly preserved) because the slot file IS route-linked
+// — there's no valid fallback path here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe("Phase 7.3 HDR — full path via wired index slot", () => {
+  test("home-page counter increases AND probe input value is preserved", async ({
+    page,
+  }) => {
+    test.skip(!devServer, "dev server unavailable");
+    const baseURL = `http://localhost:${devServer!.port}`;
+
+    // 1. Visit the home page and wait for HMR to connect. Without
+    //    __MANDU_HMR_PORT__ the slot-refetch event can race past the
+    //    client's ws handler (CI timing variability).
+    await page.goto(`${baseURL}/`);
+    await expect(page.getByTestId("hdr-counter")).toBeVisible();
+    await page.waitForFunction(
+      () =>
+        typeof (window as unknown as { __MANDU_HMR_PORT__?: number })
+          .__MANDU_HMR_PORT__ === "number",
+    );
+
+    // 2. Capture initial counter + type a distinctive phrase into
+    //    the probe input. If HDR remounts the component tree the
+    //    input value is lost; the whole test then fails loudly.
+    const counterBefore = await page
+      .getByTestId("hdr-counter")
+      .textContent();
+    const probe = page.getByTestId("hdr-probe-input");
+    const typed = "keep-me-through-hdr-" + Date.now();
+    await probe.fill(typed);
+    // Sanity: input is filled.
+    expect(await probe.inputValue()).toBe(typed);
+
+    // 3. Small settle delay so the HMR connection is definitely up
+    //    before we edit the slot.
+    await page.waitForTimeout(500);
+
+    // 4. Mutate the WIRED slot. The CLI sees this as a slotRouteId
+    //    === "index" match and takes the HDR broadcast branch.
+    await mutateIndexSlot();
+
+    // 5. Wait for HDR to propagate + React to commit the new
+    //    loaderData. We poll for the counter change rather than a
+    //    fixed sleep so the test is robust across CI speeds.
+    await page.waitForFunction(
+      (prev) => {
+        const el = document.querySelector(
+          '[data-testid="hdr-counter"]',
+        );
+        const now = el?.textContent ?? "";
+        return now.length > 0 && now !== prev;
+      },
+      counterBefore,
+      { timeout: 10_000 },
+    );
+
+    // 6. Assertions.
+    //    (a) counter changed — loader re-ran via HDR fetch.
+    const counterAfter = await page
+      .getByTestId("hdr-counter")
+      .textContent();
+    expect(counterAfter).not.toBe(counterBefore);
+    // Counter is a numeric timestamp; make sure it went forward.
+    const nBefore = Number(counterBefore);
+    const nAfter = Number(counterAfter);
+    expect(Number.isFinite(nBefore)).toBe(true);
+    expect(Number.isFinite(nAfter)).toBe(true);
+    expect(nAfter).toBeGreaterThan(nBefore);
+
+    //    (b) probe input value still intact — DOM was NOT remounted.
+    const probeAfter = await probe.inputValue();
+    expect(probeAfter).toBe(typed);
+  });
+
+  test("HDR response carries X-Mandu-HDR: 1 echo header (dev L-04)", async ({
+    page,
+  }) => {
+    test.skip(!devServer, "dev server unavailable");
+    const baseURL = `http://localhost:${devServer!.port}`;
+
+    // We attach a response listener BEFORE navigating so every
+    // `_data=1` fetch (including HDR refetches) is observable.
+    const hdrResponses: Array<{ url: string; hdrHeader: string | null }> = [];
+    page.on("response", (response) => {
+      const url = response.url();
+      if (url.includes("?_data=1") || url.includes("&_data=1")) {
+        hdrResponses.push({
+          url,
+          hdrHeader: response.headers()["x-mandu-hdr"] ?? null,
+        });
+      }
+    });
+
+    await page.goto(`${baseURL}/`);
+    await expect(page.getByTestId("hdr-counter")).toBeVisible();
+    await page.waitForFunction(
+      () =>
+        typeof (window as unknown as { __MANDU_HMR_PORT__?: number })
+          .__MANDU_HMR_PORT__ === "number",
+    );
+    await page.waitForTimeout(500);
+
+    const counterBefore = await page
+      .getByTestId("hdr-counter")
+      .textContent();
+
+    await mutateIndexSlot();
+
+    // Wait for the HDR loader-result to land (counter advances).
+    await page.waitForFunction(
+      (prev) => {
+        const el = document.querySelector(
+          '[data-testid="hdr-counter"]',
+        );
+        const now = el?.textContent ?? "";
+        return now.length > 0 && now !== prev;
+      },
+      counterBefore,
+      { timeout: 10_000 },
+    );
+
+    // At LEAST one _data=1 fetch must have occurred, and at least one
+    // of them must have carried the X-Mandu-HDR: 1 echo header (the
+    // Phase 7.3 L-04 dev-only contract).
+    expect(hdrResponses.length).toBeGreaterThan(0);
+    const sawHdrEcho = hdrResponses.some((r) => r.hdrHeader === "1");
+    expect(sawHdrEcho).toBe(true);
+  });
+
+  test("mutating index slot three times yields three counter advances", async ({
+    page,
+  }) => {
+    // Regression for "HDR runs once then silently becomes a reload" —
+    // we rotate the slot three times and assert the loader re-runs
+    // each time, keeping the input value across ALL three mutations.
+    test.skip(!devServer, "dev server unavailable");
+    const baseURL = `http://localhost:${devServer!.port}`;
+
+    await page.goto(`${baseURL}/`);
+    await expect(page.getByTestId("hdr-counter")).toBeVisible();
+    await page.waitForFunction(
+      () =>
+        typeof (window as unknown as { __MANDU_HMR_PORT__?: number })
+          .__MANDU_HMR_PORT__ === "number",
+    );
+
+    const probe = page.getByTestId("hdr-probe-input");
+    const typed = "survives-3-rebuilds";
+    await probe.fill(typed);
+    expect(await probe.inputValue()).toBe(typed);
+
+    await page.waitForTimeout(400);
+
+    const seen: number[] = [];
+    seen.push(Number(await page.getByTestId("hdr-counter").textContent()));
+
+    for (let i = 0; i < 3; i++) {
+      const currentText = await page
+        .getByTestId("hdr-counter")
+        .textContent();
+      await mutateIndexSlot();
+      await page.waitForFunction(
+        (prev) => {
+          const el = document.querySelector(
+            '[data-testid="hdr-counter"]',
+          );
+          return el?.textContent !== prev;
+        },
+        currentText,
+        { timeout: 10_000 },
+      );
+      seen.push(Number(await page.getByTestId("hdr-counter").textContent()));
+
+      // Input MUST still be intact on every iteration — no partial
+      // "first HDR works then it degrades" regressions allowed.
+      expect(await probe.inputValue()).toBe(typed);
+    }
+
+    // Four distinct counter values: initial + 3 mutations.
+    const unique = new Set(seen);
+    expect(unique.size).toBe(4);
+    // And each subsequent value is strictly greater (time monotonic).
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i]).toBeGreaterThan(seen[i - 1]);
     }
   });
 });

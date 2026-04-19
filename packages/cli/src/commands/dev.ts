@@ -40,6 +40,7 @@ import {
 import { registerManifestHandlers } from "../util/handlers";
 import { getFsRoutesGuardPolicy } from "../util/guard-policy";
 import { openBrowser } from "../util/browser";
+import { startJitPrewarm, logPrewarmResult } from "../util/jit-prewarm";
 import {
   handleDevShortcutInput,
   renderDevReadySummary,
@@ -47,6 +48,30 @@ import {
 } from "../util/dev-shortcuts";
 import { removeRuntimeControl, writeRuntimeControl } from "../util/runtime-control";
 import path from "path";
+/**
+ * Phase 7.3 L-02 — mask a slot file path for HMR broadcast.
+ *
+ * Returns a root-relative, forward-slash path. If the computed path
+ * escapes rootDir (starts with "..") or is somehow absolute (e.g.
+ * `path.relative` gives up on Windows cross-drive paths), we fall
+ * back to the bare basename so the HDRPayload never leaks an
+ * unrelated directory structure. Windows backslashes are normalized
+ * to forward slashes so the wire format is platform-agnostic.
+ *
+ * Exported from this module so unit tests can exercise the pure
+ * function without a live dev server.
+ */
+export function maskSlotPath(rootDir: string, filePath: string): string {
+  try {
+    const rel = path.relative(rootDir, filePath).replace(/\\/g, "/");
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+      return path.basename(filePath);
+    }
+    return rel;
+  } catch {
+    return path.basename(filePath);
+  }
+}
 
 export interface DevOptions {
   port?: number;
@@ -85,6 +110,29 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   const plugins = config.plugins ?? [];
   const hooks = config.hooks;
   const HMR_OFFSET = 1;
+
+  // Phase 7.3 A — JIT prewarm kick-off.
+  //
+  // Fire-and-forget — `startJitPrewarm` returns a Promise that we do NOT
+  // await. See packages/cli/src/util/jit-prewarm.ts for the full rationale.
+  // Placed here (after `validateAndReport`, before the boot-parallel
+  // allSettled block) so that:
+  //   1. The imports race alongside lockfile/env I/O instead of contending
+  //      with the main thread while validateAndReport is still parsing
+  //      the config.
+  //   2. The catch handler attached via `.catch(() => {})` in the Promise
+  //      factory itself means no "unhandled rejection" will ever surface
+  //      even if a downstream await on this promise is forgotten.
+  //
+  // Promise is captured in a void-typed const so linters don't flag the
+  // discarded return value; we re-attach a logging tap when MANDU_PERF=1.
+  const jitPrewarmPromise = startJitPrewarm();
+  if (process.env.MANDU_PERF === "1") {
+    jitPrewarmPromise.then(logPrewarmResult).catch(() => {
+      // startJitPrewarm never rejects — this catch is a belt-and-braces
+      // guard for future refactors.
+    });
+  }
 
   // Phase 7.1 R1 Agent C — boot parallelization (Tier 1, -40~70ms).
   //
@@ -543,12 +591,24 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             : null;
         if (slotRouteId && hmrServer) {
           await withPerf(HMR_PERF.HMR_BROADCAST, async () => {
+            // Phase 7.3 L-02 — emit a root-relative, forward-slash
+            // slotPath so the HMR payload never leaks the developers
+            // absolute filesystem path. The client uses this only for
+            // console logging + dedup; it is not required to be
+            // filesystem-resolvable on the browser side. If the
+            // computed relative path tries to escape rootDir
+            // (starts with ".."), we fall back to the bare basename
+            // so even a misconfigured fs watcher cannot leak
+            // unrelated directory structure. Windows paths are
+            // normalized to forward slashes so the wire format is
+            // platform-agnostic.
+            const relSlotPath = maskSlotPath(rootDir, filePath);
             hmrServer!.broadcastVite({
               type: "custom",
               event: "mandu:slot-refetch",
               data: {
                 routeId: slotRouteId,
-                slotPath: filePath,
+                slotPath: relSlotPath,
                 timestamp: Date.now(),
               },
             });
@@ -636,30 +696,45 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   };
 
   // API route file change callback (route.ts -> re-register API handler + browser reload)
-  const handleAPIChange = async (filePath: string) => {
-    logDevEvent("API route changed", [
-      `File: ${path.relative(rootDir, filePath)}`,
-      "Action: re-register API handler",
-    ]);
-    // Phase 7.0 B5 wire-up — single-file change, let incremental path hit.
-    await registerHandlers(manifest, true, filePath);
+  //
+  // Phase 7.3 A — perf wrap added.
+  //
+  // `handleAPIChange` was missing a top-level `withPerf()` wrapping, which
+  // meant MANDU_PERF=1 traces couldn't attribute the total walltime of an
+  // API route reload (only the inner `register-handlers` marker fired).
+  // Phase 7.2 §7.4 (docs/bun/phase-7-2-benchmarks.md) flagged this as a
+  // Phase 7.3 follow-up.
+  //
+  // We use the NEW `API_HANDLER_RELOAD` marker rather than re-using
+  // `SSR_HANDLER_RELOAD` so benchmarks can separate page-reload from
+  // API-reload populations. The two code paths have different cost
+  // profiles (API = single-module import; SSR = page + layout chain),
+  // and commingling them hides API regressions behind page noise.
+  const handleAPIChange = (filePath: string): Promise<void> =>
+    withPerf(HMR_PERF.API_HANDLER_RELOAD, async () => {
+      logDevEvent("API route changed", [
+        `File: ${path.relative(rootDir, filePath)}`,
+        "Action: re-register API handler",
+      ]);
+      // Phase 7.0 B5 wire-up — single-file change, let incremental path hit.
+      await registerHandlers(manifest, true, filePath);
 
-    // Broadcast file change for Kitchen Preview
-    hmrServer?.broadcast({
-      type: "kitchen:file-change",
-      data: {
-        file: filePath,
-        changeType: "change",
-        timestamp: Date.now(),
-      },
-    });
+      // Broadcast file change for Kitchen Preview
+      hmrServer?.broadcast({
+        type: "kitchen:file-change",
+        data: {
+          file: filePath,
+          changeType: "change",
+          timestamp: Date.now(),
+        },
+      });
 
-    hmrServer?.broadcast({
-      type: "reload",
-      data: { timestamp: Date.now() },
+      hmrServer?.broadcast({
+        type: "reload",
+        data: { timestamp: Date.now() },
+      });
+      console.log("  Status: API handler refreshed");
     });
-    console.log("  Status: API handler refreshed");
-  };
 
   // Phase 7.0 R2 Agent D — config/env reload → auto-restart the dev server.
   //

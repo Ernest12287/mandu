@@ -77,6 +77,22 @@ const CLI_ENTRY = path.resolve(
 const PERF_MODE =
   process.argv.includes("--perf") || process.env.MANDU_PERF === "1";
 
+/**
+ * Phase 7.3 A — `--warm-only`: skip the cold iteration entirely. Used when
+ * comparing two builds where the cold number is noisy (Bun OOM on Windows
+ * tmpdir, etc.) and only the steady-state warm population matters.
+ */
+const WARM_ONLY = process.argv.includes("--warm-only");
+
+/**
+ * Phase 7.3 A — `--cold-first-iter`: keep the cold iteration AND separately
+ * report the FIRST warm iter (iter index 1). The first warm iter is where
+ * JIT tier-up manifests — Phase 7.2 F observed this being +41 ms vs the
+ * subsequent steady-state. This flag surfaces the delta explicitly so
+ * prewarm regressions are loud.
+ */
+const COLD_FIRST_ITER = process.argv.includes("--cold-first-iter");
+
 // ═══════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════
@@ -287,19 +303,32 @@ async function main(): Promise<void> {
   console.log(`[cli-bench] cli:     ${CLI_ENTRY}`);
   console.log(`[cli-bench] iter:    ${ITERATIONS}`);
   console.log(`[cli-bench] perf:    ${PERF_MODE ? "on" : "off"}`);
+  if (WARM_ONLY) console.log(`[cli-bench] mode:    warm-only (cold skipped)`);
+  if (COLD_FIRST_ITER) console.log(`[cli-bench] mode:    cold-first-iter (first warm iter reported separately)`);
   console.log();
 
   // Cold: wipe cache, run 1 iter. Warm: leave cache, run remaining iters.
-  wipeVendorCache(FIXTURE_DIR);
-  console.log("[cli-bench] cold (cache wiped)…");
-  const coldResult = await runIter(0, "cold");
-  logIter(coldResult);
-
-  await sleep(BETWEEN_ITERS_MS);
+  // Phase 7.3 A — `--warm-only` skips the cold iter entirely. Useful when
+  // Bun OOM on Windows tmpdir makes cold numbers flaky and only the warm
+  // steady-state is informative.
+  let coldResult: IterResult | null = null;
+  if (!WARM_ONLY) {
+    wipeVendorCache(FIXTURE_DIR);
+    console.log("[cli-bench] cold (cache wiped)…");
+    coldResult = await runIter(0, "cold");
+    logIter(coldResult);
+    await sleep(BETWEEN_ITERS_MS);
+  } else {
+    // Even in warm-only mode we need at least one cache-seeding run if the
+    // fixture has no `.mandu/vendor-cache/`. Skip cache wipe, do one
+    // throwaway iter to populate cache, then measure the rest as warm.
+    console.log("[cli-bench] warm-only: cache preserved");
+  }
 
   const warmResults: IterResult[] = [];
-  for (let i = 1; i < ITERATIONS; i++) {
-    console.log(`[cli-bench] warm iter ${i}/${ITERATIONS - 1}…`);
+  const warmIterCount = WARM_ONLY ? ITERATIONS : ITERATIONS - 1;
+  for (let i = 1; i <= warmIterCount; i++) {
+    console.log(`[cli-bench] warm iter ${i}/${warmIterCount}…`);
     const r = await runIter(i, "warm");
     warmResults.push(r);
     logIter(r);
@@ -307,16 +336,31 @@ async function main(): Promise<void> {
   }
 
   // Aggregate.
-  const coldSamples: number[] = coldResult.readyMs !== null ? [coldResult.readyMs] : [];
+  const coldSamples: number[] =
+    coldResult && coldResult.readyMs !== null ? [coldResult.readyMs] : [];
   const warmSamples = warmResults
+    .map((r) => r.readyMs)
+    .filter((x): x is number => x !== null);
+
+  // Phase 7.3 A — split the first warm iter from the rest so JIT tier-up
+  // cost is visible. `firstWarm` is the "cold cache, JIT-cold" population
+  // and `steadyWarm` is the "warm cache, JIT-warmed" population.
+  const firstWarmSample =
+    warmResults.length > 0 && warmResults[0]!.readyMs !== null
+      ? warmResults[0]!.readyMs
+      : null;
+  const steadyWarmSamples = warmResults
+    .slice(1)
     .map((r) => r.readyMs)
     .filter((x): x is number => x !== null);
 
   console.log();
   console.log("─── Results ──────────────────────────────────────────────");
-  if (coldSamples.length > 0) {
+  if (WARM_ONLY) {
+    console.log("Cold: skipped (--warm-only)");
+  } else if (coldSamples.length > 0) {
     console.log(
-      `Cold (1 sample): ${coldSamples[0]!.toFixed(1)}ms (reported by CLI: ${coldResult.reportedMs}ms)`,
+      `Cold (1 sample): ${coldSamples[0]!.toFixed(1)}ms (reported by CLI: ${coldResult?.reportedMs ?? "n/a"}ms)`,
     );
   } else {
     console.log("Cold: TIMEOUT");
@@ -335,10 +379,40 @@ async function main(): Promise<void> {
     }
   }
 
+  // Phase 7.3 A — first-iter JIT delta surface. `--cold-first-iter`
+  // always emits this split; without the flag it's only shown when
+  // the delta exceeds 10 ms so the normal output stays concise.
+  if (
+    firstWarmSample !== null &&
+    steadyWarmSamples.length > 0 &&
+    (COLD_FIRST_ITER ||
+      firstWarmSample - percentile([...steadyWarmSamples].sort((a, b) => a - b), 50) > 10)
+  ) {
+    const steadyStats = summarize(steadyWarmSamples);
+    const delta = firstWarmSample - steadyStats.p50;
+    console.log();
+    console.log("─── JIT tier-up analysis ────────────────────────────────");
+    console.log(
+      `  First warm iter:     ${firstWarmSample.toFixed(1)}ms`,
+    );
+    console.log(
+      `  Steady warm P50:     ${steadyStats.p50.toFixed(1)}ms  (n=${steadyStats.count})`,
+    );
+    console.log(
+      `  First-iter cold delta: ${delta >= 0 ? "+" : ""}${delta.toFixed(1)}ms`,
+    );
+    if (COLD_FIRST_ITER) {
+      console.log(
+        `  Prewarm target:      delta ≤ 10ms (Phase 7.3 A goal)`,
+      );
+    }
+  }
+
   const timeouts = warmResults.filter((r) => r.timedOut).length;
-  if (timeouts > 0 || coldResult.timedOut) {
+  const coldTimedOut = coldResult?.timedOut === true;
+  if (timeouts > 0 || coldTimedOut) {
     console.warn(
-      `\n[cli-bench] ${timeouts + (coldResult.timedOut ? 1 : 0)} / ${ITERATIONS} iterations timed out`,
+      `\n[cli-bench] ${timeouts + (coldTimedOut ? 1 : 0)} / ${ITERATIONS} iterations timed out`,
     );
   }
 
@@ -366,9 +440,19 @@ async function main(): Promise<void> {
           fixture: FIXTURE_DIR,
           iterations: ITERATIONS,
           perfMode: PERF_MODE,
+          warmOnly: WARM_ONLY,
+          coldFirstIter: COLD_FIRST_ITER,
           cold: coldResult,
           warm: warmResults,
           warmStats: warmSamples.length > 0 ? summarize(warmSamples) : null,
+          firstWarmMs: firstWarmSample,
+          steadyWarmStats:
+            steadyWarmSamples.length > 0 ? summarize(steadyWarmSamples) : null,
+          jitDeltaMs:
+            firstWarmSample !== null && steadyWarmSamples.length > 0
+              ? firstWarmSample -
+                percentile([...steadyWarmSamples].sort((a, b) => a - b), 50)
+              : null,
         },
         null,
         2,

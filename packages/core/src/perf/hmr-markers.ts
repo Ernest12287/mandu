@@ -160,6 +160,31 @@ export const HMR_PERF = {
    *  refetch without a React tree remount. Measures WS broadcast →
    *  client loader settled → props applied. Target: ≤ 150 ms P95. */
   HDR_REFETCH: "hdr:refetch",
+
+  // ─── Phase 7.3 ─────────────────────────────────────────────────────────
+
+  /** JIT pre-warm — `mandu dev` boot kicks off fire-and-forget imports
+   *  of the hot SSR modules (react, react-dom, react-dom/server) so
+   *  Bun's JITTier compiler has them ready before the user's first edit.
+   *
+   *  This marker measures the prewarm Promise's total wall-clock from
+   *  boot-start to all `import()` settling — it is NOT on the critical
+   *  path to "ready" (see `startPrewarmIdle`), so values here are
+   *  informational for benchmarks only. Phase 7.2 F observed first-iter
+   *  cold +41 ms vs warm steady-state; the goal is to absorb that into
+   *  prewarm before the user hits a file save. */
+  JIT_PREWARM: "boot:jit-prewarm",
+
+  /** API route handler reload (`handleAPIChange`) — `.route.ts` /
+   *  `.route.tsx` change. Symmetric to `SSR_HANDLER_RELOAD` for page /
+   *  layout reloads. Phase 7.2 §7.4 flagged that `handleAPIChange` was
+   *  missing a top-level `withPerf()` wrap so Agent D's MANDU_PERF=1
+   *  trace couldn't attribute API reload walltime.
+   *
+   *  Semantically API reloads are a subset of "route handler reload"
+   *  (`SSR_HANDLER_RELOAD`), but a distinct marker lets benchmark scripts
+   *  separate page vs API reload populations when computing P95. */
+  API_HANDLER_RELOAD: "api:handler-reload",
 } as const;
 
 /**
