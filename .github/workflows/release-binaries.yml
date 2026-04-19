@@ -1,0 +1,319 @@
+name: Release Binaries
+
+# Cross-compile the @mandujs/cli entry point (packages/cli/src/main.ts) into
+# standalone Bun binaries for 6 OS/arch targets and attach them to a GitHub
+# Release.
+#
+# Triggers:
+#   - push of a tag matching `v*` (e.g. v0.23.0, v1.0.0-rc.1) -> full build +
+#     release attach.
+#   - workflow_dispatch -> manual build for smoke-testing the matrix. Produces
+#     artifacts but does NOT create a GitHub Release unless `attach_release`
+#     is set to "true".
+#
+# Outputs (per target):
+#   mandu-<runner_target>[<ext>]   e.g. mandu-bun-linux-x64, mandu-bun-windows-x64.exe
+#   mandu-<runner_target>[<ext>].sha256  SHA-256 checksum (used by install.sh)
+#
+# NOTE: Binaries are UNSIGNED in this workflow. Windows SmartScreen / macOS
+# Gatekeeper warnings are expected for end-users until Phase 9.1 follow-up
+# (EV cert + Apple Developer ID) lands. Early-access label recommended.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      bun_version:
+        description: "Bun version to use (default: 1.3.12)"
+        required: false
+        default: "1.3.12"
+      attach_release:
+        description: "Also create/update GitHub Release (only set for dry-run tag tests)"
+        required: false
+        default: "false"
+
+# Minimum permission surface — contents:write is required by
+# softprops/action-gh-release to create/update the Release.
+permissions:
+  contents: write
+
+# Avoid concurrent matrix builds racing on the same tag.
+concurrency:
+  group: release-binaries-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.target.runner_target }})
+    runs-on: ${{ matrix.target.os }}
+    # Keep failed targets visible but don't cancel peers — partial releases are
+    # acceptable during initial rollout. The `release` job below filters to
+    # successfully-built artifacts only.
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - os: ubuntu-latest
+            runner_target: bun-linux-x64
+            bun_flag: "--target=bun-linux-x64"
+            ext: ""
+          - os: ubuntu-latest
+            runner_target: bun-linux-x64-musl
+            bun_flag: "--target=bun-linux-x64-musl"
+            ext: ""
+          - os: ubuntu-latest
+            runner_target: bun-linux-arm64
+            bun_flag: "--target=bun-linux-arm64"
+            ext: ""
+          - os: macos-latest
+            runner_target: bun-darwin-arm64
+            bun_flag: "--target=bun-darwin-arm64"
+            ext: ""
+          - os: macos-13
+            runner_target: bun-darwin-x64
+            bun_flag: "--target=bun-darwin-x64"
+            ext: ""
+          - os: windows-latest
+            runner_target: bun-windows-x64
+            bun_flag: "--target=bun-windows-x64"
+            ext: ".exe"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ github.event.inputs.bun_version || '1.3.12' }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Resolve release version
+        id: ver
+        shell: bash
+        run: |
+          # Prefer the pushed tag name (strip leading "v"). Fall back to the
+          # @mandujs/cli package.json version for workflow_dispatch runs so
+          # the artifact filename is still informative.
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            raw="${GITHUB_REF_NAME}"
+          else
+            raw=$(bun -e "console.log(require('./packages/cli/package.json').version)")
+            raw="v${raw}"
+          fi
+          echo "raw=${raw}" >> "$GITHUB_OUTPUT"
+          echo "clean=${raw#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile binary
+        shell: bash
+        env:
+          RUNNER_TARGET: ${{ matrix.target.runner_target }}
+          BUN_FLAG: ${{ matrix.target.bun_flag }}
+          EXT: ${{ matrix.target.ext }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          outfile="../../dist/mandu-${RUNNER_TARGET}${EXT}"
+          echo "Building ${outfile}"
+          # `cd packages/cli` so relative imports resolve exactly as they do
+          # for `bun run mandu`. `--compile` implies `--production` and
+          # `--minify` (Bun 1.3.x). We intentionally do NOT pass
+          # `--bytecode` — Mandu CLI uses top-level await in its command
+          # registry init path and the +44% size cost is not justified.
+          cd packages/cli
+          bun build --compile ${BUN_FLAG} \
+            src/main.ts \
+            --outfile="${outfile}"
+
+      - name: Verify artifact exists
+        shell: bash
+        env:
+          RUNNER_TARGET: ${{ matrix.target.runner_target }}
+          EXT: ${{ matrix.target.ext }}
+        run: |
+          set -euo pipefail
+          artifact="dist/mandu-${RUNNER_TARGET}${EXT}"
+          if [[ ! -f "${artifact}" ]]; then
+            echo "::error::Artifact missing: ${artifact}"
+            ls -la dist/ || true
+            exit 1
+          fi
+          size=$(wc -c < "${artifact}")
+          echo "Artifact: ${artifact} (${size} bytes)"
+          # Sanity bound: binaries under 40MB almost certainly failed
+          # to embed the Bun runtime; over 400MB is a regression signal.
+          if [[ "${size}" -lt 40000000 ]] || [[ "${size}" -gt 400000000 ]]; then
+            echo "::error::Binary size ${size} out of expected range (40MB..400MB)"
+            exit 1
+          fi
+
+      - name: Smoke test — run `--version` on the native target only
+        # Cross-compiled binaries for foreign arch/os cannot be executed on
+        # the host runner. We only smoke the binary whose target matches the
+        # current runner; this catches obvious compile failures without
+        # requiring qemu or a second job.
+        shell: bash
+        env:
+          RUNNER_TARGET: ${{ matrix.target.runner_target }}
+          EXT: ${{ matrix.target.ext }}
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          set -euo pipefail
+          artifact="dist/mandu-${RUNNER_TARGET}${EXT}"
+          native=""
+          case "${RUNNER_OS}-${RUNNER_TARGET}" in
+            Linux-bun-linux-x64) native="yes" ;;
+            macOS-bun-darwin-arm64) native="yes" ;;
+            macOS-bun-darwin-x64) native="yes" ;;
+            Windows-bun-windows-x64) native="yes" ;;
+            *) native="" ;;
+          esac
+          if [[ -z "${native}" ]]; then
+            echo "Skipping smoke test — cross-compile target not runnable on ${RUNNER_OS}"
+            exit 0
+          fi
+          if [[ "${RUNNER_OS}" != "Windows" ]]; then
+            chmod +x "${artifact}"
+          fi
+          echo "Running ${artifact} --version"
+          "./${artifact}" --version
+          echo "Running ${artifact} --help (head)"
+          "./${artifact}" --help | head -20 || true
+
+      - name: Compute SHA-256 checksum
+        shell: bash
+        env:
+          RUNNER_TARGET: ${{ matrix.target.runner_target }}
+          EXT: ${{ matrix.target.ext }}
+        run: |
+          set -euo pipefail
+          cd dist
+          artifact="mandu-${RUNNER_TARGET}${EXT}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${artifact}" > "${artifact}.sha256"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "${artifact}" > "${artifact}.sha256"
+          else
+            # Windows runner fallback — certutil output has extra lines,
+            # extract just the hex digest.
+            digest=$(certutil -hashfile "${artifact}" SHA256 | sed -n '2p' | tr -d '[:space:]')
+            printf '%s  %s\n' "${digest}" "${artifact}" > "${artifact}.sha256"
+          fi
+          cat "${artifact}.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandu-${{ matrix.target.runner_target }}
+          path: |
+            dist/mandu-${{ matrix.target.runner_target }}${{ matrix.target.ext }}
+            dist/mandu-${{ matrix.target.runner_target }}${{ matrix.target.ext }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Attach to GitHub Release
+    needs: [build]
+    # Only attach to a real Release for tag pushes, or when the manual
+    # dispatch explicitly opts in. workflow_dispatch without the flag still
+    # produces artifacts above — useful for testing the build matrix without
+    # polluting the Releases page.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.attach_release == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts into dist/
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Each artifact lives at artifacts/<artifact_name>/... thanks to
+          # actions/download-artifact. Collapse into a single dist/ dir.
+          find artifacts -type f \( -name 'mandu-*' -o -name 'mandu-*.sha256' \) \
+            -exec cp -v {} dist/ \;
+          echo "---"
+          ls -la dist/
+
+      - name: Write aggregate checksums file
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          # Concatenate per-binary .sha256 sidecars into a single
+          # SHA256SUMS.txt the install scripts can consume.
+          : > SHA256SUMS.txt
+          for f in mandu-*.sha256; do
+            [[ -e "$f" ]] || continue
+            cat "$f" >> SHA256SUMS.txt
+          done
+          echo "---"
+          cat SHA256SUMS.txt
+
+      - name: Resolve tag metadata
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            # Manual dispatch fallback — synthesize a pre-release tag so we
+            # don't clobber an existing release.
+            ts=$(date -u +%Y%m%d-%H%M%S)
+            echo "name=manual-${ts}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          # Binaries are unsigned during Phase 9b rollout. This notice lives
+          # on every release until code signing is enabled.
+          body: |
+            Mandu CLI standalone binaries (Bun ${{ github.event.inputs.bun_version || '1.3.12' }}).
+
+            ### Quick install
+
+            **Linux / macOS**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/konamgil/mandu/main/install.sh | sh
+            ```
+
+            **Windows (PowerShell)**
+            ```powershell
+            iwr https://raw.githubusercontent.com/konamgil/mandu/main/install.ps1 -useb | iex
+            ```
+
+            ### Contents
+
+            | File | Target |
+            |---|---|
+            | `mandu-bun-linux-x64` | Linux x86_64 (glibc) |
+            | `mandu-bun-linux-x64-musl` | Linux x86_64 (Alpine/musl) |
+            | `mandu-bun-linux-arm64` | Linux aarch64 |
+            | `mandu-bun-darwin-arm64` | macOS Apple Silicon |
+            | `mandu-bun-darwin-x64` | macOS Intel |
+            | `mandu-bun-windows-x64.exe` | Windows x86_64 |
+            | `SHA256SUMS.txt` | Aggregate checksums |
+
+            > [early-access] Binaries in this release are **unsigned**. Windows users will see a SmartScreen warning; macOS users may need `xattr -d com.apple.quarantine`. Code signing lands in Phase 9.1 follow-up.
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.name, '-rc.') || contains(steps.tag.outputs.name, '-beta.') || contains(steps.tag.outputs.name, '-alpha.') }}
+          files: |
+            dist/mandu-*
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true

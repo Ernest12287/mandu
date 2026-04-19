@@ -62,6 +62,22 @@
         "typescript": "^5.0.0",
       },
     },
+    "demo/desktop-starter": {
+      "name": "mandu-desktop-starter",
+      "version": "0.1.0",
+      "dependencies": {
+        "@mandujs/core": "workspace:*",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "webview-bun": "^2.4.0",
+      },
+      "devDependencies": {
+        "@mandujs/cli": "workspace:*",
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "typescript": "^5.0.0",
+      },
+    },
     "demo/starter": {
       "name": "mandu-starter",
       "version": "0.1.0",
@@ -116,10 +132,10 @@
         "mandu": "src/main.ts",
       },
       "dependencies": {
-        "@mandujs/ate": "^0.18.0",
-        "@mandujs/core": "^0.21.0",
-        "@mandujs/mcp": "^0.19.5",
-        "@mandujs/skills": "^2.0.0",
+        "@mandujs/ate": "^0.18.2",
+        "@mandujs/core": "^0.22.0",
+        "@mandujs/mcp": "^0.19.6",
+        "@mandujs/skills": "^2.0.1",
         "cfonts": "^3.3.0",
       },
     },
@@ -141,9 +157,13 @@
         "@tailwindcss/cli": ">=4.0.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
+        "react-refresh": ">=0.18.0",
+        "webview-bun": "^2.4.0",
       },
       "optionalPeers": [
         "@tailwindcss/cli",
+        "react-refresh",
+        "webview-bun",
       ],
     },
     "packages/mcp": {
@@ -155,8 +175,8 @@
         "mcp": "./src/index.ts",
       },
       "dependencies": {
-        "@mandujs/ate": "^0.18.0",
-        "@mandujs/core": "^0.21.0",
+        "@mandujs/ate": "^0.18.2",
+        "@mandujs/core": "^0.22.0",
         "@modelcontextprotocol/sdk": "^1.25.3",
       },
     },
@@ -167,7 +187,7 @@
         "mandu-skills": "./src/cli.ts",
       },
       "peerDependencies": {
-        "@mandujs/core": ">=0.21.0",
+        "@mandujs/core": ">=0.22.0",
       },
       "optionalPeers": [
         "@mandujs/core",
@@ -586,6 +606,8 @@
 
     "mandu-auth-starter": ["mandu-auth-starter@workspace:demo/auth-starter"],
 
+    "mandu-desktop-starter": ["mandu-desktop-starter@workspace:demo/desktop-starter"],
+
     "mandu-starter": ["mandu-starter@workspace:demo/starter"],
 
     "mandu-todo-app": ["mandu-todo-app@workspace:demo/todo-app"],
@@ -771,6 +793,8 @@
     "vary": ["vary@1.1.2", "", {}, "sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg=="],
 
     "webidl-conversions": ["webidl-conversions@7.0.0", "", {}, "sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g=="],
+
+    "webview-bun": ["webview-bun@2.4.0", "", {}, "sha512-0+ugnQlcUHmuW+iLeb+Lzb8rGUJh7WEdXvNsuvaVEXT3EagK380XdD7heVJu0Ek/mNxMY3G2JM142YRQ1hDUGQ=="],
 
     "whatwg-fetch": ["whatwg-fetch@3.6.20", "", {}, "sha512-EqhiFU6daOA8kpjOWTL0olhVOF3i7OrFzSYiGsEMB8GcXS+RrzauAERX65xMeNWVqxA6HXH2m69Z9LaKKdisfg=="],
 

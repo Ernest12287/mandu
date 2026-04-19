@@ -1,0 +1,26 @@
+{
+  "name": "mandu-desktop-starter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal Mandu desktop app (Phase 9c). Opens a native WebView pointing at a local Bun.serve() instance.",
+  "scripts": {
+    "desktop": "mandu desktop scaffold",
+    "build": "mandu build",
+    "start": "bun run src/desktop/main.ts",
+    "package": "mandu desktop build",
+    "compile": "bun build --compile src/desktop/main.ts --outfile mandu-desktop-app"
+  },
+  "dependencies": {
+    "@mandujs/core": "workspace:*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "webview-bun": "^2.4.0"
+  },
+  "devDependencies": {
+    "@mandujs/cli": "workspace:*",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.0.0"
+  }
+}

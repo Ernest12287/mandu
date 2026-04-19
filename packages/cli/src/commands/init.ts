@@ -1,9 +1,19 @@
 import path from "path";
 import fs from "fs/promises";
+import { readFileSync } from "node:fs";
 import { createInterface } from "readline/promises";
 import { CLI_ERROR_CODES, printCLIError } from "../errors";
+import { renderMarkdown } from "../cli-ux/markdown.js";
 import { startSpinner, runSteps } from "../terminal/progress";
 import { theme } from "../terminal/theme";
+// Phase 9b B — template bytes are embedded at compile-time via static
+// `with { type: "file" }` imports. In dev, these resolve to on-disk paths;
+// in a `bun build --compile` binary, to `$bunfs/root/...` virtual paths.
+// Both forms are readable via `Bun.file(path)`.
+import {
+  loadTemplate as loadEmbeddedTemplate,
+  resolveEmbeddedPath,
+} from "../util/templates";
 import {
   generateLockfile,
   writeLockfile,
@@ -96,50 +106,113 @@ function shouldSkipFile(relativePath: string, options: CopyOptions): boolean {
   return false;
 }
 
-async function copyDir(
-  src: string,
+/**
+ * Heuristic: decide whether a template file should be treated as UTF-8 text
+ * (placeholder substitution allowed) or raw bytes (verbatim copy).
+ *
+ * All files currently shipped under `packages/cli/templates/*` are text, but
+ * the byte path keeps the door open for binary assets (favicon.ico, fonts)
+ * without risking UTF-8 replacement-character corruption.
+ */
+const TEXT_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+  ".json", ".jsonc", ".md", ".mdx",
+  ".css", ".scss", ".html", ".xml",
+  ".yaml", ".yml", ".toml", ".ini",
+  ".txt", ".env", ".gitignore",
+]);
+
+function looksLikeText(relPath: string): boolean {
+  const basename = relPath.split("/").pop() ?? "";
+  // Dotfiles without an extension (e.g. `.gitignore`, `.env`) are text.
+  if (basename.startsWith(".") && !basename.slice(1).includes(".")) return true;
+  const dot = basename.lastIndexOf(".");
+  if (dot < 0) return false;
+  return TEXT_EXTENSIONS.has(basename.slice(dot).toLowerCase());
+}
+
+function applyPlaceholders(content: string, options: CopyOptions): string {
+  return content
+    .replace(/\{\{PROJECT_NAME\}\}/g, options.projectName)
+    .replace(/\{\{CORE_VERSION\}\}/g, options.coreVersion)
+    .replace(/\{\{CLI_VERSION\}\}/g, options.cliVersion)
+    .replace(/\{\{MCP_VERSION\}\}/g, options.mcpVersion);
+}
+
+/**
+ * Write all embedded template files for the given template into `dest`.
+ *
+ * Replaces the legacy `copyDir()` which walked the on-disk templates
+ * directory. That approach broke under `bun build --compile` because
+ * `import.meta.dir + ../../templates` does not exist inside the binary's
+ * `$bunfs` virtual root. We now iterate the static manifest produced by
+ * `scripts/generate-template-manifest.ts` and read each file through
+ * `Bun.file(path)` — a form that Bun satisfies identically in dev and
+ * compiled modes.
+ *
+ * Skip/transform semantics are preserved:
+ *   - `shouldSkipFile` still respects `--css none` / `--ui none`.
+ *   - Empty `ui/` and `lib/` directories are implicitly skipped because
+ *     only file entries exist in the manifest; mkdir is on-demand.
+ *   - Placeholder substitution (`{{PROJECT_NAME}}` etc.) runs for text
+ *     files only; binary assets (future-proofing) pass bytes through.
+ *   - Dark-mode CSS injection still triggers on `app/globals.css`.
+ */
+async function copyEmbeddedTemplate(
+  templateName: string,
   dest: string,
-  options: CopyOptions,
-  relativePath = ""
+  options: CopyOptions
 ): Promise<void> {
+  const files = loadEmbeddedTemplate(templateName);
+  if (!files) {
+    throw new Error(
+      `Embedded template not found: ${templateName}. ` +
+        `This indicates a build-time generator error — re-run ` +
+        `scripts/generate-template-manifest.ts.`
+    );
+  }
+
   await fs.mkdir(dest, { recursive: true });
-  const entries = await fs.readdir(src, { withFileTypes: true });
 
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    const currentRelativePath = relativePath
-      ? `${relativePath}/${entry.name}`
-      : entry.name;
+  for (const entry of files) {
+    if (shouldSkipFile(entry.relPath, options)) continue;
 
-    if (entry.isDirectory()) {
-      // Skip directories that would be empty when ui=none
-      if (options.ui === "none") {
-        if (entry.name === "ui" && relativePath === "src/client/shared") continue;
-        if (entry.name === "lib" && relativePath === "src/client/shared") continue;
-      }
-      await copyDir(srcPath, destPath, options, currentRelativePath);
-    } else {
-      // Check if file should be skipped
-      if (shouldSkipFile(currentRelativePath, options)) {
-        continue;
-      }
+    const destPath = path.join(dest, entry.relPath);
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
 
-      let content = await fs.readFile(srcPath, "utf-8");
-      // Replace template variables
-      content = content.replace(/\{\{PROJECT_NAME\}\}/g, options.projectName);
-      content = content.replace(/\{\{CORE_VERSION\}\}/g, options.coreVersion);
-      content = content.replace(/\{\{CLI_VERSION\}\}/g, options.cliVersion);
-      content = content.replace(/\{\{MCP_VERSION\}\}/g, options.mcpVersion);
+    const bunFile = Bun.file(entry.embeddedPath);
+    if (!(await bunFile.exists())) {
+      throw new Error(
+        `Embedded file missing at runtime: ${entry.relPath} ` +
+          `(expected at ${entry.embeddedPath}). ` +
+          `Re-run scripts/generate-template-manifest.ts and rebuild.`
+      );
+    }
 
-      // Add dark mode CSS variables if theme is enabled
-      if (options.theme && currentRelativePath === "app/globals.css") {
+    if (looksLikeText(entry.relPath)) {
+      let content = await bunFile.text();
+      content = applyPlaceholders(content, options);
+      if (options.theme && entry.relPath === "app/globals.css") {
         content = addDarkModeCSS(content);
       }
-
       await fs.writeFile(destPath, content);
+    } else {
+      const bytes = new Uint8Array(await bunFile.arrayBuffer());
+      await fs.writeFile(destPath, bytes);
     }
   }
+}
+
+// Internal test hook — exposes the legacy filesystem-walk signature so
+// callers (e.g. future e2e tests against an unpacked npm tarball) can still
+// exercise the bytes-to-disk path directly. Production code should use
+// `copyEmbeddedTemplate()`.
+export async function __copyEmbeddedTemplateForTests(
+  templateName: string,
+  dest: string,
+  options: CopyOptions
+): Promise<void> {
+  return copyEmbeddedTemplate(templateName, dest, options);
 }
 
 function addDarkModeCSS(content: string): string {
@@ -173,27 +246,38 @@ function addDarkModeCSS(content: string): string {
   );
 }
 
-function getTemplatesDir(): string {
-  // When installed via npm, templates are in the CLI package
-  const commandsDir = import.meta.dir;
-  // packages/cli/src/commands -> go up 2 levels to cli package root
-  return path.resolve(commandsDir, "../../templates");
-}
-
 /**
  * Reads CLI/Core package versions at runtime and returns them as ^major.minor.0
  * Used to replace {{CORE_VERSION}}, {{CLI_VERSION}} in template package.json
+ *
+ * Phase 9b B — The CLI's own `package.json` is embedded at bundle time via a
+ * static JSON import. In a `bun build --compile` binary, `import.meta.dir`
+ * points at a virtual `$bunfs` path where the original on-disk relative
+ * `../../package.json` cannot be read. Static JSON imports are inlined and
+ * survive the compile step. Sibling `@mandujs/*` versions still attempt a
+ * filesystem lookup (useful during dev / monorepo workflow); if that fails
+ * — as it does inside a released binary where those modules aren't
+ * node_modules-resolvable either — we fall back to the CLI version, which
+ * is guaranteed to resolve because it's embedded.
  */
 async function resolvePackageVersions(): Promise<{
   coreVersion: string;
   cliVersion: string;
   mcpVersion: string;
 }> {
-  const cliPkgPath = path.resolve(import.meta.dir, "../../package.json");
-  const cliPkg = JSON.parse(await fs.readFile(cliPkgPath, "utf-8"));
+  const cliPkg = (await import("../../package.json", { with: { type: "json" } })).default as {
+    version?: string;
+    dependencies?: Record<string, string>;
+  };
   const cliVersion = cliPkg.version ?? "0.0.0";
 
-  const resolveSibling = async (pkgName: string, workspaceDir: string): Promise<string> => {
+  const stripCaret = (range: string): string => range.replace(/^[\^~>=<\s]+/, "");
+
+  const resolveSibling = async (
+    pkgName: string,
+    workspaceDir: string
+  ): Promise<string> => {
+    // 1) In dev / monorepo, try to resolve the real installed copy.
     try {
       const pkgPath = require.resolve(`${pkgName}/package.json`, {
         paths: [path.resolve(import.meta.dir, "../..")],
@@ -201,15 +285,26 @@ async function resolvePackageVersions(): Promise<{
       const pkg = JSON.parse(await fs.readFile(pkgPath, "utf-8"));
       if (pkg.version) return pkg.version;
     } catch {
-      // fall through to workspace lookup
+      // fall through
     }
+    // 2) Still in dev — walk up to the workspace sibling.
     try {
-      const workspacePath = path.resolve(import.meta.dir, "../../../", workspaceDir, "package.json");
+      const workspacePath = path.resolve(
+        import.meta.dir,
+        "../../../",
+        workspaceDir,
+        "package.json"
+      );
       const pkg = JSON.parse(await fs.readFile(workspacePath, "utf-8"));
       if (pkg.version) return pkg.version;
     } catch {
-      // keep fallback
+      // fall through
     }
+    // 3) Compiled binary fallback — read the peer version declared in the
+    //    CLI's own embedded package.json. This keeps `mandu init` usable
+    //    even when filesystem-based module resolution is impossible.
+    const declared = cliPkg.dependencies?.[pkgName];
+    if (declared) return stripCaret(declared);
     return cliVersion;
   };
 
@@ -332,13 +427,12 @@ export async function init(options: InitOptions = {}): Promise<boolean> {
     // Directory doesn't exist, good to proceed
   }
 
-  const templatesDir = getTemplatesDir();
-  const templateDir = path.join(templatesDir, template);
-
-  // Check if template exists
-  try {
-    await fs.access(templateDir);
-  } catch {
+  // Template existence is verified against the embedded manifest — this
+  // works identically in `bun run` dev mode and in a `--compile` binary,
+  // because both resolve `Bun.file(path)` to something readable (either
+  // on-disk or via `Bun.embeddedFiles`).
+  const embeddedFiles = loadEmbeddedTemplate(template);
+  if (!embeddedFiles || embeddedFiles.length === 0) {
     printCLIError(CLI_ERROR_CODES.INIT_TEMPLATE_NOT_FOUND, { template });
     console.error(`   Available templates: ${ALLOWED_TEMPLATES.join(", ")}`);
     return false;
@@ -372,7 +466,7 @@ export async function init(options: InitOptions = {}): Promise<boolean> {
       },
       {
         label: "Copying template",
-        fn: () => copyDir(templateDir, targetDir, copyOptions),
+        fn: () => copyEmbeddedTemplate(template, targetDir, copyOptions),
       },
       {
         label: "Generating config files",
@@ -453,67 +547,17 @@ export async function init(options: InitOptions = {}): Promise<boolean> {
     }
   }
 
-  // Success message
-  console.log(`\n${theme.success("✅")} ${theme.heading("Project created!")}\n`);
-  console.log(`📍 Location: ${theme.path(targetDir)}`);
-  console.log(`\n${theme.heading("🚀 Getting started:")}`);
-  console.log(`   ${theme.command(`cd ${projectName}`)}`);
-  if (!shouldInstall) {
-    console.log(`   ${theme.command("bun install")}`);
-  }
-  console.log(`   ${theme.command("bun run dev")}`);
-  console.log(`\n💡 CLI execution reference:`);
-  console.log(`   ${theme.command("bun run dev")}        ${theme.muted("# recommended (local script)")}`);
-  console.log(`   ${theme.command("bunx mandu dev")}     ${theme.muted("# alternative if mandu is not in PATH")}`);
-  console.log(`\n📂 File structure:`);
-  console.log(`   app/layout.tsx    → Root layout`);
-  console.log(`   app/page.tsx      → http://localhost:3333/`);
-  console.log(`   app/api/*/route.ts → API endpoints`);
-  console.log(`   src/client/*      → Client layer`);
-  console.log(`   src/server/*      → Server layer`);
-  console.log(`   src/shared/contracts → Contracts (client-safe)`);
-  console.log(`   src/shared/types     → Shared types`);
-  console.log(`   src/shared/utils/client → Client-safe utils`);
-  console.log(`   src/shared/utils/server → Server-only utils`);
-  console.log(`   src/shared/schema    → Server-only schemas`);
-  console.log(`   src/shared/env       → Server-only env`);
-  if (css !== "none") {
-    console.log(`   app/globals.css   → Global CSS (Tailwind v4)`);
-  }
-  if (ui !== "none") {
-    console.log(`   src/client/shared/ui/ → UI components (shadcn)`);
-    console.log(`   src/shared/utils/client/cn.ts → Utilities (cn function)`);
-  }
-
-  // MCP config info
-  console.log(`\n🤖 AI agent integration:`);
-  logMcpConfigStatus(".mcp.json", mcpResult!.mcpJson, "Claude Code auto-connect");
-  logMcpConfigStatus(".claude.json", mcpResult!.claudeJson, "Claude MCP local scope");
-  logMcpConfigStatus(".gemini/settings.json", mcpResult!.geminiJson, "Gemini CLI auto-connect");
-  console.log(`   AGENTS.md → Agent guide (specifies Bun usage)`);
-
-  // Claude Code skills info
-  console.log(`\n🧠 Claude Code skills:`);
-  if (skillsResult!.skillsInstalled > 0) {
-    console.log(`   ${skillsResult!.skillsInstalled}/${getSkillCount()} skills installed to .claude/skills/`);
-  }
-  if (skillsResult!.settingsCreated) {
-    console.log(`   .claude/settings.json created (hooks + permissions)`);
-  }
-  if (skillsResult!.errors.length > 0) {
-    for (const err of skillsResult!.errors) {
-      console.log(`   ${theme.warn("⚠")} ${err}`);
-    }
-  }
-
-  // Lockfile info
-  console.log(`\n🔒 Config integrity:`);
-  if (lockfileResult!.success) {
-    console.log(`   ${LOCKFILE_PATH} created`);
-    console.log(`   Hash: ${lockfileResult!.hash}`);
-  } else {
-    console.log(`   Lockfile generation skipped (no config)`);
-  }
+  // Success message (markdown landing — Phase 9a)
+  renderInitLanding({
+    projectName,
+    targetDir,
+    shouldInstall,
+    css,
+    ui,
+    mcpResult: mcpResult!,
+    skillsResult: skillsResult!,
+    lockfileResult: lockfileResult!,
+  });
 
   if (options.exitOnSuccess) {
     process.exit(0);
@@ -630,6 +674,120 @@ interface McpConfigResult {
   mcpJson: McpConfigFileResult;
   claudeJson: McpConfigFileResult;
   geminiJson: McpConfigFileResult;
+}
+
+/**
+ * Resolve the path to the shared init landing markdown template.
+ *
+ * Using `import.meta.dir` keeps the path stable across the
+ * `src/` → `dist/` layout and survives `bun --compile` as long as the
+ * file remains packaged under `templates/`.
+ */
+function getInitLandingTemplatePath(): string {
+  // packages/cli/src/commands → templates/init-landing.md
+  return path.resolve(import.meta.dir, "..", "..", "templates", "init-landing.md");
+}
+
+interface InitLandingContext {
+  projectName: string;
+  targetDir: string;
+  shouldInstall: boolean;
+  css: CSSFramework;
+  ui: UILibrary;
+  mcpResult: McpConfigResult;
+  skillsResult: SkillsSetupResult;
+  lockfileResult: { success: boolean; hash?: string };
+}
+
+function mcpStatusLine(
+  label: string,
+  result: McpConfigFileResult,
+  createdNote?: string
+): string[] {
+  const lines: string[] = [];
+  if (result.status === "created") {
+    lines.push(`- \`${label}\` created${createdNote ? ` (${createdNote})` : ""}`);
+  } else if (result.status === "updated") {
+    lines.push(`- \`${label}\` mandu server added/updated`);
+  } else if (result.status === "unchanged") {
+    lines.push(`- \`${label}\` already up to date`);
+  } else if (result.status === "backed-up") {
+    lines.push(`- \`${label}\` parse failed → backed up and recreated`);
+    if (result.backupPath) {
+      lines.push(`  - Backup: \`${result.backupPath}\``);
+    }
+  } else if (result.status === "error") {
+    lines.push(`- \`${label}\` setup failed: ${result.error ?? "unknown error"}`);
+  }
+  return lines;
+}
+
+/**
+ * Render the `mandu init` completion landing screen.
+ *
+ * Loads the shared markdown template, substitutes project context
+ * placeholders, and pipes the result through `renderMarkdown()` so it
+ * adapts to the terminal (rich ANSI in TTY / plain text under NO_COLOR
+ * / CI / pipes). Falls back to a minimal plain summary if the template
+ * file cannot be read — never throws.
+ */
+function renderInitLanding(ctx: InitLandingContext): void {
+  const cssLine = ctx.css !== "none"
+    ? "\n- `app/globals.css` — Global CSS (Tailwind v4)"
+    : "";
+  const uiLines = ctx.ui !== "none"
+    ? "\n- `src/client/shared/ui/` — UI components (shadcn)\n- `src/shared/utils/client/cn.ts` — Utilities (cn function)"
+    : "";
+  const installHint = ctx.shouldInstall ? "" : "\nbun install";
+
+  const mcpLines = [
+    ...mcpStatusLine(".mcp.json", ctx.mcpResult.mcpJson, "Claude Code auto-connect"),
+    ...mcpStatusLine(".claude.json", ctx.mcpResult.claudeJson, "Claude MCP local scope"),
+    ...mcpStatusLine(".gemini/settings.json", ctx.mcpResult.geminiJson, "Gemini CLI auto-connect"),
+  ].join("\n");
+
+  const skillsLines: string[] = [];
+  if (ctx.skillsResult.skillsInstalled > 0) {
+    skillsLines.push(`- ${ctx.skillsResult.skillsInstalled}/${getSkillCount()} skills installed to \`.claude/skills/\``);
+  }
+  if (ctx.skillsResult.settingsCreated) {
+    skillsLines.push("- `.claude/settings.json` created (hooks + permissions)");
+  }
+  if (ctx.skillsResult.errors.length > 0) {
+    for (const err of ctx.skillsResult.errors) {
+      skillsLines.push(`- **Warning**: ${err}`);
+    }
+  }
+  if (skillsLines.length === 0) {
+    skillsLines.push("- No skills installed");
+  }
+
+  const lockfileLines = ctx.lockfileResult.success
+    ? `- \`${LOCKFILE_PATH}\` created\n- Hash: \`${ctx.lockfileResult.hash ?? ""}\``
+    : "- Lockfile generation skipped (no config)";
+
+  let template: string;
+  try {
+    template = readFileSync(getInitLandingTemplatePath(), "utf-8");
+  } catch {
+    // Last-resort fallback — keeps init usable even if templates are missing.
+    console.log(`\n${theme.success("✅")} ${theme.heading("Project created!")}\n`);
+    console.log(`Location: ${theme.path(ctx.targetDir)}`);
+    console.log(`\nNext: cd ${ctx.projectName} && bun run dev`);
+    return;
+  }
+
+  const filled = template
+    .replace(/\{\{projectName\}\}/g, ctx.projectName)
+    .replace(/\{\{targetDir\}\}/g, ctx.targetDir)
+    .replace(/\{\{installHint\}\}/g, installHint)
+    .replace(/\{\{cssLine\}\}/g, cssLine)
+    .replace(/\{\{uiLines\}\}/g, uiLines)
+    .replace(/\{\{mcpLines\}\}/g, mcpLines)
+    .replace(/\{\{skillsLines\}\}/g, skillsLines.join("\n"))
+    .replace(/\{\{lockfileLines\}\}/g, lockfileLines);
+
+  console.log(`\n${renderMarkdown(filled)}`);
 }
 
 function logMcpConfigStatus(
@@ -822,32 +980,46 @@ async function setupLockfile(targetDir: string): Promise<LockfileResult> {
 
 /**
  * Generate CI/CD workflow files (.github/workflows)
+ *
+ * Sources the workflow YAMLs and `scripts/analyze-impact.ts` from the
+ * embedded `default` template manifest. This keeps CI setup working
+ * identically under `bun run` and under a compiled binary where the
+ * on-disk `templates/default/.github/workflows` directory does not exist.
  */
 async function setupCiWorkflows(targetDir: string): Promise<void> {
   const workflowsDir = path.join(targetDir, ".github/workflows");
   await fs.mkdir(workflowsDir, { recursive: true });
 
-  const templatesDir = getTemplatesDir();
-  const sourceWorkflowsDir = path.join(templatesDir, "default/.github/workflows");
-
   try {
-    // Copy all workflow files
-    const workflowFiles = await fs.readdir(sourceWorkflowsDir);
-    for (const file of workflowFiles) {
-      const src = path.join(sourceWorkflowsDir, file);
-      const dest = path.join(workflowsDir, file);
-      const content = await fs.readFile(src, "utf-8");
-      await fs.writeFile(dest, content);
+    const defaultFiles = loadEmbeddedTemplate("default");
+    if (!defaultFiles) {
+      console.warn("⚠️  CI/CD workflow setup skipped: default template manifest missing.");
+      return;
     }
 
-    // Copy impact analysis script
-    const scriptsDir = path.join(targetDir, "scripts");
-    await fs.mkdir(scriptsDir, { recursive: true });
+    // Copy every `.github/workflows/*.yml` from the default template.
+    const workflowEntries = defaultFiles.filter((f) =>
+      f.relPath.startsWith(".github/workflows/")
+    );
+    for (const entry of workflowEntries) {
+      const destPath = path.join(targetDir, entry.relPath);
+      await fs.mkdir(path.dirname(destPath), { recursive: true });
+      const content = await Bun.file(entry.embeddedPath).text();
+      await fs.writeFile(destPath, content);
+    }
 
-    const analyzeImpactSrc = path.join(templatesDir, "default/scripts/analyze-impact.ts");
-    const analyzeImpactDest = path.join(scriptsDir, "analyze-impact.ts");
-    const analyzeImpactContent = await fs.readFile(analyzeImpactSrc, "utf-8");
-    await fs.writeFile(analyzeImpactDest, analyzeImpactContent);
+    // Copy the impact-analysis script (used by the workflow's `on: pull_request` job).
+    const analyzeImpactPath = resolveEmbeddedPath(
+      "default",
+      "scripts/analyze-impact.ts"
+    );
+    if (analyzeImpactPath) {
+      const scriptsDir = path.join(targetDir, "scripts");
+      await fs.mkdir(scriptsDir, { recursive: true });
+      const analyzeImpactDest = path.join(scriptsDir, "analyze-impact.ts");
+      const content = await Bun.file(analyzeImpactPath).text();
+      await fs.writeFile(analyzeImpactDest, content);
+    }
   } catch (error) {
     console.warn(`⚠️  CI/CD workflow setup warning:`, error);
     // CI setup failure does not abort project creation

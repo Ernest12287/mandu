@@ -1,15 +1,27 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { renderMarkdown } from "../cli-ux/markdown.js";
 import { CLI_ERROR_CODES, type CLIErrorCode } from "./codes";
 
 interface ErrorInfo {
   message: string;
   suggestion?: string;
   docLink?: string;
+  /**
+   * When provided, resolves to a markdown template file under
+   * `packages/cli/templates/errors/<code>.md`. The template is
+   * rendered via `renderMarkdown()` and fully replaces the legacy
+   * 3-line fixed format. Falls back to the legacy format when the
+   * template file is missing or unreadable.
+   */
+  template?: string;
 }
 
 export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
   [CLI_ERROR_CODES.INIT_DIR_EXISTS]: {
     message: "Directory already exists: {path}",
     suggestion: "Choose a different project name or remove the existing directory.",
+    template: "CLI_E001",
   },
   [CLI_ERROR_CODES.INIT_BUN_NOT_FOUND]: {
     message: "Bun runtime not found.",
@@ -22,6 +34,7 @@ export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
   [CLI_ERROR_CODES.DEV_PORT_IN_USE]: {
     message: "Port {port} is already in use.",
     suggestion: "Set PORT or mandu.config server.port to pick a different port, or stop the process using this port.",
+    template: "CLI_E010",
   },
   [CLI_ERROR_CODES.DEV_MANIFEST_NOT_FOUND]: {
     message: "Routes manifest not found.",
@@ -42,6 +55,7 @@ export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
   [CLI_ERROR_CODES.GUARD_VIOLATION_FOUND]: {
     message: "{count} architecture violation(s) found.",
     suggestion: "Fix violations above or set MANDU_OUTPUT=agent for AI-friendly output.",
+    template: "CLI_E022",
   },
   [CLI_ERROR_CODES.BUILD_ENTRY_NOT_FOUND]: {
     message: "Build entry not found: {entry}",
@@ -81,16 +95,36 @@ function interpolate(text: string, context?: Record<string, string | number>): s
   if (!context) return text;
   let result = text;
   for (const [key, value] of Object.entries(context)) {
+    // Support both legacy {key} and markdown {{key}} placeholder styles.
+    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), String(value));
     result = result.replace(new RegExp(`\\{${key}\\}`, "g"), String(value));
   }
   return result;
 }
 
-export function formatCLIError(
+/**
+ * Resolve the directory that contains markdown error templates.
+ * Uses `import.meta.dir` so the path survives bundling into `dist/`.
+ */
+function getErrorTemplatesDir(): string {
+  // packages/cli/src/errors → templates/errors
+  return path.resolve(import.meta.dir, "..", "..", "templates", "errors");
+}
+
+function loadTemplate(code: string): string | null {
+  try {
+    const filePath = path.join(getErrorTemplatesDir(), `${code}.md`);
+    return readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+function formatLegacy(
   code: CLIErrorCode,
+  info: ErrorInfo | undefined,
   context?: Record<string, string | number>
 ): string {
-  const info = ERROR_MESSAGES[code];
   const message = interpolate(info?.message ?? "Unknown error", context);
   const suggestion = info?.suggestion ? interpolate(info.suggestion, context) : undefined;
 
@@ -103,6 +137,45 @@ export function formatCLIError(
   }
   lines.push("");
   return lines.join("\n");
+}
+
+/**
+ * Format a CLI error for human display.
+ *
+ * External signature is stable — all call sites continue to receive a
+ * plain string. Internally we now look up an optional markdown template
+ * (`templates/errors/<CODE>.md`), interpolate `{{placeholders}}`, and
+ * pipe the result through `renderMarkdown()` so the output adapts to
+ * the terminal (ANSI in TTY, plain text under NO_COLOR / CI / pipes).
+ *
+ * When no template is registered for a code, we fall back to the
+ * legacy 3-line format so nothing regresses.
+ */
+export function formatCLIError(
+  code: CLIErrorCode,
+  context?: Record<string, string | number>
+): string {
+  const info = ERROR_MESSAGES[code];
+  const templateName = info?.template;
+
+  if (templateName) {
+    const raw = loadTemplate(templateName);
+    if (raw) {
+      const interpolated = interpolate(raw, {
+        ...(context ?? {}),
+        message: interpolate(info?.message ?? "", context),
+        title: `${code}`,
+      });
+      try {
+        const rendered = renderMarkdown(interpolated);
+        return `\n${rendered}\n`;
+      } catch {
+        // Fall through to legacy format on any unexpected renderer failure.
+      }
+    }
+  }
+
+  return formatLegacy(code, info, context);
 }
 
 export class CLIError extends Error {

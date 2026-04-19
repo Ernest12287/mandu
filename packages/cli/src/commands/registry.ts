@@ -770,6 +770,28 @@ registerCommand({
 });
 
 registerCommand({
+  id: "desktop",
+  description: "Scaffold and build desktop targets (Phase 9c prototype)",
+  subcommands: ["scaffold", "dev", "build"],
+  defaultSubcommand: "scaffold",
+  exitOnSuccess: true,
+  async run(ctx) {
+    const sub = ctx.args[1];
+    const hasSub = !!(sub && !sub.startsWith("--"));
+    const mode: "scaffold" | "dev" | "build" =
+      hasSub && (sub === "dev" || sub === "build" || sub === "scaffold")
+        ? sub
+        : "scaffold";
+    const { desktop } = await import("./desktop");
+    return desktop({
+      mode,
+      entry: ctx.options.entry,
+      force: ctx.options.force === "true",
+    });
+  },
+});
+
+registerCommand({
   id: "completion",
   description: "Output shell completion script (bash, zsh, fish)",
   exitOnSuccess: true,

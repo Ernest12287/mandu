@@ -251,39 +251,42 @@ Phase 3.3 데모 작업 중 쉽게 추가 가능:
 
 ---
 
-## 7A. Bun 1.3.12 새 OS 통합 기능 — 전용 phase 후보
+## 7A. Phase 9 — OS 통합 (2026-04-19 R0 진단 기반 재구성)
 
-**`Bun.WebView` (1.3.12, native OS WebView 통합)** 와 **`Bun.markdown` (1.3.12, 터미널 마크다운 렌더링)** 은 Mandu 의 수직 스토리를 확장할 수 있는 네이티브 기능. Phase 4~6 이 "웹 앱 백엔드" 라면 이것은 **데스크톱 / CLI UX 확장**.
+> ⚠️ **원안 경정**: 이전 기획 (§9.1 원안) 은 `Bun.WebView` 를 "macOS WKWebView / Windows WebView2 / Linux WebKitGTK 통합" 으로 가정했으나 **2026-04-19 R0 진단 결과 사실과 다름**. `Bun.WebView` 는 headless browser 자동화 API (Playwright 대체 성격). 3-파트 재구성으로 원 목표 달성.
 
-### Phase 9 (신규 제안, optional) — Desktop & CLI 통합 (2~3주)
+### Phase 9a — CLI UX (`Bun.markdown`) — 🟢 GREEN, 1~2일
 
-**9.1 — `Bun.WebView` 기반 데스크톱 배포 (2주)**
-- Mandu 앱을 OS 네이티브 WebView 로 번들링 (macOS: WKWebView, Windows: WebView2, Linux: WebKitGTK)
-- Electron/Tauri 없이 **Bun 단일 바이너리 + Web UI** — 용량/성능 이득
-- Phase 7 의 `--compile` 바이너리와 결합: `mandu build --target=desktop`
-- 구조 예시:
-  ```ts
-  // desktop/main.ts
-  import { createWebView } from "@mandujs/core/desktop";
-  import { startServer } from "@mandujs/core";
-  import manifest from "./.mandu/manifest.json" with { type: "json" };
+- Bun 1.3.12 네이티브 `Bun.markdown.{ansi,html,render,react}` 4종 (ansi 23μs/회)
+- `mandu init` 랜딩 → `templates/init-landing.md` 로 분리
+- `CLI_E001/E010/E022` 3종 마크다운 템플릿 시범
+- `isRich()` 래퍼 (`NO_COLOR`/`isTTY` 감지)
+- `formatCLIError` 내부 주입 — 외부 callsite 시그니처 무변경, 점진 마이그레이션
+- 근거: `docs/bun/phase-9-diagnostics/markdown-cli-ux.md`
 
-  const server = startServer(manifest, { port: 0, hostname: "127.0.0.1" });
-  await createWebView({ url: `http://127.0.0.1:${server.port}`, title: "My App" });
-  ```
-- 주의: `Bun.WebView` 가 1.3.12 experimental 인지 stable 인지 catalog 재확인
-- 사용자 가치: **동일 Mandu 앱 코드 → 웹 + 데스크톱 두 타깃**. Tauri 대체.
+### Phase 9b — CLI 단일 바이너리 (`bun build --compile`) — 🟡 YELLOW, 9.5일 + signing
 
-**9.2 — `Bun.markdown` 기반 CLI UX (3~5일)**
-- `mandu init` 실행 시 랜딩 마크다운 터미널 렌더 (설명/다음 단계/링크)
-- `mandu --help`, `mandu doctor` 출력이 구조화된 마크다운
-- 에러 메시지 (CLI_E0*) 를 마크다운 템플릿으로 통일 → code block / 링크 / 강조 자동
-- 사용자 가치: CLI 첫인상 + 진단 출력 품질 향상. 의존성 0.
-- `@mandujs/cli` 내부에서만 사용 — 공개 API 아님
+- 1.3.12 에서 작동 확인: 132MB / 2.8s / 콜드 800ms
+- **Blocker**: `packages/cli/templates/` 가 `import.meta.dir + ../../templates` 로드 → 컴파일 후 실패. `Bun.embeddedFiles` 리팩터 필수 (~2일)
+- 5 OS × arch 크로스컴파일 (macOS ARM64/x64, Linux x64/musl, Windows x64)
+- `ALWAYS_EXTERNAL` 에 react/react-dom 이미 설정 — 추가 조치 0
+- GitHub Releases workflow + `install.sh`/`install.ps1`
+- npm 병행 유지 (dev = npm install -g, end-user = binary)
+- unsigned 1차 릴리스 → signed (Windows/Apple) 2차
+- 근거: `docs/bun/phase-9-diagnostics/compile-binary.md`
 
-### 위치
-- 9.1 은 별도 phase 로 우선순위 낮지만 **"Bun 으로 풀스택 + 데스크톱" 이라는 포지셔닝** 에 결정적. 1.0.0 이후 시도 추천
-- 9.2 는 Phase 7 (HMR/compile) 과 같이 묶어 CLI 전반 DX 정리 가능
+### Phase 9c — 데스크톱 (`webview-bun` FFI) — 판정 대기 (R0 진행 중)
+
+- 서드파티 `webview-bun` (실제 WKWebView/WebView2/WebKitGTK)
+- `@mandujs/core/desktop` 서브패스 + `mandu build --target=desktop`
+- 원 Tauri/Electron 대체 가치는 유지하되 Bun 네이티브가 아닌 FFI 기반
+- 진단 완료 시 이 섹션 업데이트 (`docs/bun/phase-9-diagnostics/webview-bun-ffi.md`)
+
+### 실행 전략
+
+- **9a + 9b 병렬** (독립 영역)
+- **9c** R0 진단 GREEN 시 병렬 추가, YELLOW 는 문서 경고 + 진행, RED 는 별도 RFC 로 defer
+- 통합 팀 플랜: `docs/bun/phase-9-team-plan.md`
 
 ---
 

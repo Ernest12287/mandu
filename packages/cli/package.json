@@ -9,8 +9,15 @@
   },
   "files": [
     "src/**/*",
-    "templates/**/*"
+    "templates/**/*",
+    "generated/**/*",
+    "scripts/generate-template-manifest.ts",
+    "scripts/build-binary.ts"
   ],
+  "scripts": {
+    "build:templates": "bun run scripts/generate-template-manifest.ts",
+    "build:binary": "bun run scripts/build-binary.ts"
+  },
   "keywords": [
     "ai",
     "agent",

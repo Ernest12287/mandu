@@ -12,14 +12,14 @@ import { getCommand, getAllCommandRegistrations, type CommandContext } from "./c
 import { CLI_ERROR_CODES, handleCLIError, printCLIError } from "./errors";
 import { shouldShowBanner, renderHeroBanner, renderHelp, MANDU_HELP } from "./terminal";
 
-// package.json에서 버전 동적 로딩
-const VERSION = (() => {
-  try {
-    return require("../package.json").version as string;
-  } catch {
-    return "0.0.0";
-  }
-})();
+// Phase 9b B — static JSON import so the CLI version survives `bun --compile`.
+// The previous `require("../package.json")` form used CommonJS path resolution
+// that does not exist inside a compiled binary's `$bunfs` virtual root, and
+// always fell through to "0.0.0". Static imports are inlined by Bun at bundle
+// time and work identically in dev and compiled modes.
+import pkg from "../package.json" with { type: "json" };
+
+const VERSION = (pkg as { version?: string }).version ?? "0.0.0";
 
 function getHelpText(): string {
   const subcommands = getAllCommandRegistrations().map((command) => ({

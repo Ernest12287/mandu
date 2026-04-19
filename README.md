@@ -30,19 +30,39 @@
 
 ## Quick Start
 
-### Prerequisites
+### Install Mandu
 
-- **Bun** v1.0.0 or higher ([install Bun](https://bun.sh/docs/installation))
+Two install paths — pick whichever matches how you plan to use it. Full details in [docs/install.md](./docs/install.md).
+
+**Standalone binary** — no prerequisites, one file:
 
 ```bash
-# Check Bun version
-bun --version
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/konamgil/mandu/main/install.sh | sh
+
+# Windows (PowerShell)
+iwr https://raw.githubusercontent.com/konamgil/mandu/main/install.ps1 -useb | iex
+```
+
+**npm / Bun package** — smaller download, requires Bun 1.3.12+:
+
+```bash
+bun install -g @mandujs/cli
+```
+
+Trade-offs: the binary bundles the Bun runtime (~132 MB, zero prerequisites), the npm package is ~5 MB but needs Bun pre-installed. Both expose the same `mandu` command.
+
+```bash
+# Verify either install
+mandu --version
 ```
 
 ### 1. Create a New Project
 
 ```bash
-bunx @mandujs/cli init my-app
+mandu init my-app        # if you installed the binary or `bun install -g @mandujs/cli`
+# or
+bunx @mandujs/cli init my-app    # zero-install alternative
 cd my-app
 bun install
 ```

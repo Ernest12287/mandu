@@ -12,18 +12,30 @@ import { MANDU_PALETTE } from "./palette.js";
 
 /**
  * Check if rich output (colors) is supported
+ *
+ * Evaluates: NO_COLOR / FORCE_COLOR / TTY / TERM=dumb / CI.
+ * The initial value is cached for the legacy `theme.*` singleton, but
+ * the exported {@link isRich} accessor re-evaluates at call time so
+ * tests and long-lived processes can respond to env changes.
  */
 function checkRichSupport(): boolean {
-  // NO_COLOR takes precedence (accessibility standard)
+  const forceColor = process.env.FORCE_COLOR?.trim();
+  const forceColorOn = forceColor === "1" || forceColor === "true";
+
+  // NO_COLOR takes precedence (accessibility standard), unless FORCE_COLOR=1
   if (process.env.NO_COLOR) {
-    const forceColor = process.env.FORCE_COLOR?.trim();
-    if (forceColor !== "1" && forceColor !== "true") {
+    if (!forceColorOn) {
       return false;
     }
   }
 
-  // Check TTY
-  if (!process.stdout.isTTY) {
+  // CI environments typically pipe to logs — stay plain unless FORCE_COLOR=1
+  if (process.env.CI && !forceColorOn) {
+    return false;
+  }
+
+  // Check TTY (FORCE_COLOR=1 overrides non-TTY)
+  if (!process.stdout.isTTY && !forceColorOn) {
     return false;
   }
 
@@ -116,10 +128,14 @@ export const theme = {
 } as const;
 
 /**
- * Check if rich output is available
+ * Check if rich output is available.
+ *
+ * Re-evaluates on each call so NO_COLOR / FORCE_COLOR / CI can be
+ * toggled at runtime (e.g. by tests). The module-cached `theme.*`
+ * color functions still use the initial value captured at import.
  */
 export function isRich(): boolean {
-  return richSupported;
+  return checkRichSupport();
 }
 
 /**

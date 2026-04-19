@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun-types", "@types/react"]
+  },
+  "include": ["app", "src", "mandu.config.ts"]
+}
