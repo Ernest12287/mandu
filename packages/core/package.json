@@ -1,6 +1,6 @@
 {
   "name": "@mandujs/core",
-  "version": "0.22.0",
+  "version": "0.22.1",
   "description": "Mandu Framework Core - Spec, Generator, Guard, Runtime",
   "type": "module",
   "main": "./src/index.ts",
@@ -28,9 +28,16 @@
     "./id": "./src/id/index.ts",
     "./observability": "./src/observability/index.ts",
     "./perf": "./src/perf/index.ts",
+    "./perf/hmr-markers": "./src/perf/hmr-markers.ts",
     "./scheduler": "./src/scheduler/index.ts",
     "./storage/s3": "./src/storage/s3/index.ts",
     "./bundler/prerender": "./src/bundler/prerender.ts",
+    "./bundler/safe-build": "./src/bundler/safe-build.ts",
+    "./bundler/hmr-types": "./src/bundler/hmr-types.ts",
+    "./bundler/scenario-matrix": "./src/bundler/scenario-matrix.ts",
+    "./bundler/vendor-cache-types": "./src/bundler/vendor-cache-types.ts",
+    "./bundler/manifest-schema": "./src/bundler/manifest-schema.ts",
+    "./runtime/fast-refresh-types": "./src/runtime/fast-refresh-types.ts",
     "./*": "./src/*"
   },
   "files": [
