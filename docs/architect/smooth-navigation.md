@@ -1,7 +1,7 @@
 ---
 title: Smooth Navigation
-summary: CSS View Transitions auto-inject and hover-based link prefetch in Mandu.
-issue: 192
+summary: CSS View Transitions auto-inject, hover prefetch, and opt-out SPA navigation in Mandu.
+issue: 192, 193
 status: shipped
 ---
 
@@ -127,30 +127,104 @@ The helper is injected inline (not as an external bundle) because:
 3. No module graph change — zero impact on the bundler's caching
    invariants.
 
+## Opt-out SPA navigation (issue #193)
+
+**Breaking change (v0.22+)**: Mandu now intercepts plain `<a href>`
+clicks by default and routes them through the built-in client-side
+router. Prior to v0.22, SPA navigation was opt-in — only
+`<a data-mandu-link href="/about">` was intercepted; everything else
+did a full document reload. **This has been reversed.**
+
+The new default pairs naturally with CSS View Transitions: a plain
+`<a href="/docs">` click now yields a zero-flash crossfade on
+supported browsers, persists scroll / focus state, and does not
+re-evaluate JavaScript bundles. You write HTML, Mandu makes it feel
+like an SPA.
+
+### What intercepts by default
+
+Every internal same-origin `<a>` click goes through the client-side
+router **unless** one of the escape hatches below fires:
+
+| Scenario                              | Fallthrough?                       |
+|---------------------------------------|------------------------------------|
+| `<a href="/about">`                   | NO — intercepted (new default)     |
+| `<a data-mandu-link href="/...">`     | NO — intercepted (legacy attr still works) |
+| `<a data-no-spa href="/...">`         | YES — per-link opt-out             |
+| `<a href="#section">` (fragment only) | YES — browser handles scroll       |
+| `<a href="/about#team">` (cross-page) | NO — routed, hash preserved        |
+| `<a href="mailto:...">`               | YES — mail client opens            |
+| `<a href="tel:...">` / `javascript:`  | YES — browser / UA handler         |
+| `<a href="https://external">`         | YES — cross-origin full nav        |
+| `<a target="_blank">`                 | YES — new tab                      |
+| `<a target="_top">` / `_parent`       | YES — framed nav                   |
+| `<a target="_self">` (explicit)       | NO — intercepted (same frame)      |
+| `<a download href="/file.pdf">`       | YES — file download                |
+| Ctrl / Cmd / Shift / Alt + click      | YES — browser shortcut             |
+| Middle-click / right-click            | YES — new tab / context menu       |
+| `event.defaultPrevented` already set  | YES — another listener handled it  |
+
+### Per-link opt-out (`data-no-spa`)
+
+When a specific link must trigger a full document reload (e.g. to
+force a fresh session cookie, or to navigate to a legacy non-Mandu
+route), add `data-no-spa`:
+
+```tsx
+<a href="/admin/legacy-dashboard" data-no-spa>
+  Legacy admin (full reload)
+</a>
+```
+
+This attribute always wins — it takes precedence over the global
+config setting, over `data-mandu-link`, and over everything else.
+
+### Global opt-out (`mandu.config.ts`)
+
+If your app was built against the pre-v0.22 opt-in behavior and you
+need time to migrate, set `spa: false` to restore the legacy default:
+
+```ts
+// mandu.config.ts
+import type { ManduConfig } from "@mandujs/core";
+
+export default {
+  // Revert to opt-in behavior: only `<a data-mandu-link>` is
+  // intercepted, all other internal links perform a full browser
+  // navigation. New code should avoid this flag — it is provided as
+  // a migration escape hatch, not a long-term setting.
+  spa: false,
+} satisfies ManduConfig;
+```
+
+Under `spa: false` the router only intercepts anchors that explicitly
+carry `data-mandu-link`, matching the pre-v0.22 contract.
+
+### Why it's still safe
+
+The router performs seven independent fallthrough checks before it
+touches `preventDefault`. All seven would have to pass — meaning the
+link has to be a same-origin http(s) URL, with no modifier keys, no
+`target` other than `_self`, no `download` attribute, no
+`data-no-spa`, and clicked with the primary mouse button. Anything
+else hits the browser path, identical to pre-v0.22 behavior.
+
+### Migration note
+
+If you relied on the old default (only explicit `data-mandu-link`
+gets SPA behavior), the migration is one line in `mandu.config.ts`:
+
+```diff
+  export default {
++   spa: false,
+  } satisfies ManduConfig;
+```
+
+For new code, leave `spa` unset (or `true`) and remove your
+`data-mandu-link` attributes — plain `<a href>` now does the right
+thing.
+
 ## Known limits
-
-### Link prefetch ≠ SPA navigation
-
-Prefetch makes the **follow-up GET instant**, but clicking still
-triggers a full document reload. You'll still see a brief white flash
-in browsers that don't implement View Transitions, and your scroll
-position / focus ring will reset on navigate.
-
-If you need true SPA-style navigation (persistent scroll, component
-state across routes, zero flash even on Firefox), you have two
-options today:
-
-1. **Wrap navigable links in `<Link>`** — Mandu's
-   `@mandujs/core/client` `Link` component performs an explicit
-   client-side fetch and uses the built-in router to swap the route
-   tree without a full reload. This is currently **opt-in** per link.
-2. **Mark routes as islands** — hydrated routes participate in
-   client-side router transitions automatically.
-
-**A future release will reverse this default** (opt-in → opt-out),
-making SPA navigation the baseline. That change is tracked as a
-follow-up to issue #192 — it's a breaking change that will land in a
-dedicated release note when scheduled.
 
 ### Prefetch doesn't compose with CSP `script-src`
 
@@ -204,10 +278,8 @@ ships multiple KB of meta tags.
 
 ## Related
 
-- **Issue #192** — origin thread for this feature
-- **Follow-up: opt-in → opt-out SPA nav reversal** — breaking change
-  to make `<a>` clicks perform client-side navigation by default
-  (tracked separately; requires a major release note)
+- **Issue #192** — CSS View Transitions + hover prefetch (origin thread)
+- **Issue #193** — opt-in → opt-out SPA nav reversal (shipped in v0.22)
 - **`@mandujs/core/client` prefetch API** — programmatic prefetch
   for route IDs (lower-level; wires through the router)
 - **`Bun.CookieMap`** — unrelated but same area — Bun-native cookie

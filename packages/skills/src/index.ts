@@ -94,7 +94,15 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
  * Install Mandu skills into a project.
  *
  * Copies skill SKILL.md files from `skills/<id>/SKILL.md` to
- * `<targetDir>/.claude/skills/<id>.md`.
+ * `<targetDir>/.claude/skills/<id>/SKILL.md`.
+ *
+ * Directory layout follows the Claude Code skills spec — each skill lives
+ * in its own subdirectory with a `SKILL.md` manifest inside, so that
+ * auxiliary assets (scripts, examples, resources) can sit alongside it.
+ * See: https://docs.claude.com/en/docs/claude-code/skills
+ *
+ * (Closes #197 — prior releases wrote flat `<id>.md` files, which Claude
+ * Code silently skipped because the directory layout did not match.)
  */
 export async function installSkills(options: InstallOptions = {}): Promise<InstallResult> {
   const targetDir = options.targetDir || process.cwd();
@@ -108,7 +116,7 @@ export async function installSkills(options: InstallOptions = {}): Promise<Insta
     errors: [],
   };
 
-  // 1. Install skill files to .claude/skills/
+  // 1. Install skill files to .claude/skills/<id>/SKILL.md
   const skillsDir = join(targetDir, ".claude", "skills");
   if (!dryRun) {
     await mkdir(skillsDir, { recursive: true });
@@ -116,23 +124,29 @@ export async function installSkills(options: InstallOptions = {}): Promise<Insta
 
   for (const skillId of skillIds) {
     const srcPath = join(PACKAGE_ROOT, "skills", skillId, "SKILL.md");
-    const destPath = join(skillsDir, `${skillId}.md`);
+    const skillSubdir = join(skillsDir, skillId);
+    const destPath = join(skillSubdir, "SKILL.md");
+    const relLabel = `skills/${skillId}/SKILL.md`;
 
     try {
       if (!force && (await fileExists(destPath))) {
-        result.skipped.push(`skills/${skillId}.md (exists)`);
+        result.skipped.push(`${relLabel} (exists)`);
         continue;
       }
 
       if (dryRun) {
-        result.installed.push(`skills/${skillId}.md (dry-run)`);
+        result.installed.push(`${relLabel} (dry-run)`);
         continue;
       }
 
+      // Ensure the skill's subdirectory exists before copying. `mkdir`
+      // with `recursive: true` is idempotent — safe to re-run across
+      // skills even when the parent already exists.
+      await mkdir(skillSubdir, { recursive: true });
       await copyFile(srcPath, destPath);
-      result.installed.push(`skills/${skillId}.md`);
+      result.installed.push(relLabel);
     } catch (err) {
-      result.errors.push(`skills/${skillId}.md: ${err instanceof Error ? err.message : String(err)}`);
+      result.errors.push(`${relLabel}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

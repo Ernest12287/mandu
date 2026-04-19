@@ -22,6 +22,8 @@ import {
 } from "./reverse-import-graph";
 import path from "path";
 import fs from "fs";
+import { LRUCache } from "../utils/lru-cache";
+import { registerCacheSize, unregisterCacheSize } from "../observability/metrics";
 
 /**
  * #184: 공통 디렉토리 변경 시 사용하는 sentinel.
@@ -685,8 +687,19 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
    * Lifecycle: timers are created by `scheduleFileChange`, cleared on flush or
    * on `close()`. We call `.delete(key)` on flush to keep the Map bounded —
    * no leak from editing a single file repeatedly.
+   *
+   * Phase 17 — upgraded to `LRUCache` with an `onEvict` hook so
+   *   (a) a pathological watcher (millions of distinct files) cannot leak
+   *   (b) evicted entries still get `clearTimeout` called (no dangling refs)
+   *   (c) the size is registered with `/_mandu/metrics`
+   * Max 2000 entries is generous for even large monorepos (each entry is a
+   * single in-flight debounce token; flush cycle is 100 ms).
    */
-  const perFileTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const perFileTimers = new LRUCache<string, ReturnType<typeof setTimeout>>({
+    maxSize: 2000,
+    onEvict: (_key, timer) => clearTimeout(timer),
+  });
+  registerCacheSize("perFileTimers", () => perFileTimers.size);
 
   /**
    * B2 fix — multi-file pending build queue (Phase 7.0 R1 Agent A).
@@ -1515,10 +1528,11 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     initialBuild,
     close: () => {
       // B6: clear all per-file timers to release event-loop refs.
-      for (const timer of perFileTimers.values()) {
-        clearTimeout(timer);
-      }
+      // Phase 17 — `LRUCache.clear()` fires the registered `onEvict`
+      // (`clearTimeout(timer)`) for every entry before dropping them,
+      // so we no longer need an explicit loop.
       perFileTimers.clear();
+      unregisterCacheSize("perFileTimers");
       for (const watcher of watchers) {
         watcher.close();
       }

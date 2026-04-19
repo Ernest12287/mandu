@@ -119,9 +119,12 @@ export async function checkInvalidGeneratedImport(
         violations.push({
           ruleId: GUARD_RULES.INVALID_GENERATED_IMPORT.id,
           file: relativePath,
-          message: `generated 파일 직접 import 금지: ${match[1]}`,
+          message:
+            `Direct __generated__/ imports are forbidden: ${match[1]}. ` +
+            `Use the runtime registry: see https://mandujs.com/docs/architect/generated-access`,
           suggestion:
-            "generated 파일을 직접 import하지 말고, 런타임 레지스트리를 통해 접근하세요",
+            "Import getGenerated() from @mandujs/core/runtime and read the generated artifact through the manifest. " +
+            "See https://mandujs.com/docs/architect/generated-access for the decision tree.",
         });
       }
     }

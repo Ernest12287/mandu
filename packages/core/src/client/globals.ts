@@ -38,6 +38,23 @@ declare global {
 
     /** React 인스턴스 공유 */
     __MANDU_REACT__?: typeof import("react");
+
+    /**
+     * Issue #193 — global SPA navigation toggle.
+     *
+     *   - `undefined` (not set) → default. Plain `<a href="/about">`
+     *     is intercepted and routed through the client-side router.
+     *   - `false`               → legacy opt-in behavior. Only `<a>`
+     *     tags with `data-mandu-link` are intercepted; all other
+     *     internal links perform a full browser navigation.
+     *   - `true`                → same as undefined; present only for
+     *     symmetry and forward compat.
+     *
+     * SSR injects this global only when `mandu.config.ts` sets
+     * `spa: false` — the default case emits nothing to keep the
+     * typical response payload unchanged.
+     */
+    __MANDU_SPA__?: boolean;
   }
 }
 

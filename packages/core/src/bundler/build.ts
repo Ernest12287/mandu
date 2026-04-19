@@ -859,11 +859,34 @@ function getListeners() {
   return window.__MANDU_ROUTER_LISTENERS__;
 }
 
-// 패턴 매칭 캐시
+// 패턴 매칭 캐시 (Phase 17 — bounded LRU, inlined to keep the runtime
+// bundle self-contained. Same semantics as packages/core/src/utils/lru-cache.ts
+// but hand-written here so the client-side shim has no server imports.)
+var PATTERN_CACHE_MAX = 200;
 var patternCache = new Map();
 
+function patternCacheGet(key) {
+  if (!patternCache.has(key)) return undefined;
+  var value = patternCache.get(key);
+  // Promote to MRU.
+  patternCache.delete(key);
+  patternCache.set(key, value);
+  return value;
+}
+
+function patternCacheSet(key, value) {
+  if (patternCache.has(key)) {
+    patternCache.delete(key);
+  } else if (patternCache.size >= PATTERN_CACHE_MAX) {
+    var oldest = patternCache.keys().next().value;
+    if (oldest !== undefined) patternCache.delete(oldest);
+  }
+  patternCache.set(key, value);
+}
+
 function compilePattern(pattern) {
-  if (patternCache.has(pattern)) return patternCache.get(pattern);
+  var cached = patternCacheGet(pattern);
+  if (cached) return cached;
 
   const paramNames = [];
   let paramIndex = 0;
@@ -881,7 +904,7 @@ function compilePattern(pattern) {
   });
 
   const compiled = { regex: new RegExp('^' + regexStr + '$'), paramNames };
-  patternCache.set(pattern, compiled);
+  patternCacheSet(pattern, compiled);
   return compiled;
 }
 

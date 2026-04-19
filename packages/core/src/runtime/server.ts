@@ -4,7 +4,7 @@ import type { BundleManifest } from "../bundler/types";
 import type { ManduFilling, RenderMode } from "../filling/filling";
 import { ManduContext, CookieManager } from "../filling/context";
 import { Router } from "./router";
-import { renderSSR, renderStreamingResponse } from "./ssr";
+import { renderSSR, renderStreamingResponse, resolveAsyncElement } from "./ssr";
 import {
   resolveMetadata,
   renderMetadata,
@@ -49,6 +49,14 @@ import {
 import { validateImportPath } from "./security";
 import { KITCHEN_PREFIX, KitchenHandler, recordRequest } from "../kitchen/kitchen-handler";
 import { eventBus } from "../observability/event-bus";
+import {
+  HEAP_ENDPOINT,
+  METRICS_ENDPOINT,
+  buildHeapResponse,
+  buildMetricsResponse,
+  isObservabilityExposed,
+  recordHttpRequest,
+} from "../observability/metrics";
 import {
   type MiddlewareFn,
   type MiddlewareConfig,
@@ -376,6 +384,21 @@ export interface ServerOptions {
    *                   one island. Pure-SSR pages download zero devtools.
    */
   devtools?: boolean;
+  /**
+   * Phase 17 — observability endpoints.
+   *   - `heapEndpoint`    → `/_mandu/heap` JSON dump of process.memoryUsage()
+   *                         + registered cache sizes. In dev this is on by
+   *                         default; in prod it requires `MANDU_DEBUG_HEAP=1`
+   *                         OR this flag set to `true`.
+   *   - `metricsEndpoint` → `/_mandu/metrics` Prometheus text exposition.
+   *                         Same gating as `heapEndpoint`.
+   * Passing `false` for either in dev force-disables it (useful for
+   * isolating test environments that count listeners).
+   */
+  observability?: {
+    heapEndpoint?: boolean;
+    metricsEndpoint?: boolean;
+  };
 }
 
 export interface ManduServer {
@@ -500,6 +523,16 @@ export interface ServerRegistrySettings {
    * dev-mode `_devtools.js` `<script>` injection on / off. No-op in prod.
    */
   devtools?: boolean;
+  /**
+   * Phase 17 — `/_mandu/heap` JSON exposure. `undefined` uses the
+   * default for the current mode (dev → on, prod → MANDU_DEBUG_HEAP).
+   */
+  heapEndpoint?: boolean;
+  /**
+   * Phase 17 — `/_mandu/metrics` Prometheus exposure. Same defaulting
+   * as `heapEndpoint`.
+   */
+  metricsEndpoint?: boolean;
 }
 
 export class ServerRegistry {
@@ -1920,6 +1953,16 @@ async function renderPageSSR(
       ? route.streaming
       : settings.streaming;
 
+    // Issue #198 — Pre-resolve async server components before handing off
+    // to React's SSR engines. `renderToString` (non-streaming path) does
+    // not support async components; `renderToReadableStream` does, but
+    // the shell-gen step in streaming-ssr also falls through
+    // `collectStreamingHeadTags` → `renderToString`. Resolving up-front
+    // gives consistent, synchronous trees to both paths and keeps the
+    // user-visible contract (`export default async function Page() {...}`
+    // and `export default async function Layout() {...}`) working end to end.
+    app = (await resolveAsyncElement(app)) as React.ReactElement;
+
     if (useStreaming) {
       const streamingResponse = await renderStreamingResponse(app, {
         title: builtMeta.title,
@@ -2004,6 +2047,10 @@ async function renderPageSSR(
           if (route.layoutChain && route.layoutChain.length > 0) {
             errorApp = await wrapWithLayouts(errorApp, route.layoutChain, registry, params, layoutData);
           }
+
+          // Issue #198 — resolve async layouts wrapping the error component
+          // so `async function Layout()` still renders on the 500 surface.
+          errorApp = (await resolveAsyncElement(errorApp)) as React.ReactElement;
 
           const errorHtml = renderSSR(errorApp, {
             // 에러 상태에서는 resolveMetadata 결과를 신뢰할 수 없을 수 있으므로 리터럴 사용
@@ -2106,6 +2153,11 @@ async function renderNotFoundPage(
     if (route.layoutChain && route.layoutChain.length > 0) {
       app = await wrapWithLayouts(app, route.layoutChain, registry, params, layoutData);
     }
+
+    // Issue #198 — users may author `not-found.tsx` as an async server
+    // component (e.g. to fetch copy from a CMS). Resolve the async tree
+    // before the sync renderSSR path.
+    app = (await resolveAsyncElement(app)) as React.ReactElement;
 
     const html = renderSSR(app, {
       title: "Not Found",
@@ -2505,6 +2557,28 @@ async function handleRequestInternal(
     return ok(handleEventsRecentRequest(req));
   }
 
+  // Phase 17 — heap snapshot + Prometheus metrics endpoints.
+  //
+  // Gating: dev mode exposes by default so the DX is zero-friction. Prod
+  // requires either `MANDU_DEBUG_HEAP=1` or explicit `observability.heapEndpoint:
+  // true` in `ServerOptions`. Operators can opt-out of even the dev exposure by
+  // passing `observability.heapEndpoint: false` (useful in tests that count
+  // listeners / assert route shape).
+  //
+  // Missing endpoints return 404 via the normal route-not-found path —
+  // scrapers can't distinguish "disabled" from "never existed". See
+  // `docs/ops/metrics.md` for the operator-facing guide.
+  if (pathname === HEAP_ENDPOINT) {
+    if (isObservabilityExposed(settings.isDev, settings.heapEndpoint)) {
+      return ok(buildHeapResponse());
+    }
+  }
+  if (pathname === METRICS_ENDPOINT) {
+    if (isObservabilityExposed(settings.isDev, settings.metricsEndpoint)) {
+      return ok(buildMetricsResponse());
+    }
+  }
+
   // 2. Kitchen dev dashboard (dev mode only)
   if (settings.isDev && pathname.startsWith(KITCHEN_PREFIX) && registry.kitchen) {
     const kitchenResponse = await registry.kitchen.handle(req, pathname);
@@ -2533,10 +2607,12 @@ async function handleRequestInternal(
             console.warn(`[Mandu] not-found.tsx loader threw (unmatched URL):`, loaderError);
           }
         }
-        const app = React.createElement(registration.component, {
+        const rawApp = React.createElement(registration.component, {
           params: {},
           loaderData,
         });
+        // Issue #198 — pre-resolve in case the not-found component is async.
+        const app = (await resolveAsyncElement(rawApp)) as React.ReactElement;
         const html = renderSSR(app, {
           title: "Not Found",
           isDev: settings.isDev,
@@ -2698,6 +2774,7 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     transitions,
     prefetch,
     devtools,
+    observability: observabilityOption,
   } = options;
 
   // cssPath 처리:
@@ -2736,6 +2813,8 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     transitions,
     prefetch,
     devtools,
+    heapEndpoint: observabilityOption?.heapEndpoint,
+    metricsEndpoint: observabilityOption?.metricsEndpoint,
   };
 
   registry.rateLimiter = rateLimitOptions ? new MemoryRateLimiter() : null;
@@ -2802,6 +2881,21 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     },
   } : undefined;
 
+  // Phase 17 — bump the Prometheus request counter once per Response we
+  // actually produce. WebSocket upgrades (return `undefined`) are
+  // deliberately skipped so the counter only reflects plain HTTP traffic.
+  // Errors from `recordHttpRequest` are impossible to surface here — the
+  // Map update is synchronous and self-contained — but we still try/catch
+  // as defence-in-depth.
+  const bumpCounter = (req: Request, res: Response | undefined): void => {
+    if (!res) return;
+    try {
+      recordHttpRequest(req.method, res.status);
+    } catch {
+      // Never let an observability hiccup break a request.
+    }
+  };
+
   // fetch handler: WS upgrade 감지 추가
   const wrappedFetch = hasWsRoutes
     ? async (req: Request, bunServer: Server<undefined>): Promise<Response | undefined> => {
@@ -2816,9 +2910,15 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
             return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
           }
         }
-        return fetchHandler(req);
+        const res = await fetchHandler(req);
+        bumpCounter(req, res);
+        return res;
       }
-    : async (req: Request): Promise<Response> => fetchHandler(req);
+    : async (req: Request): Promise<Response> => {
+        const res = await fetchHandler(req);
+        bumpCounter(req, res);
+        return res;
+      };
 
   const { server, port: actualPort, attempts } = startBunServerWithFallback({
     port,

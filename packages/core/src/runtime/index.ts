@@ -29,3 +29,14 @@ export { type MiddlewareContext, type MiddlewareNext, type MiddlewareFn, type Mi
 export { type ManduAdapter, type AdapterOptions, type AdapterServer } from "./adapter";
 export { adapterBun } from "./adapter-bun";
 export { createFetchHandler, type FetchHandlerOptions } from "./handler";
+export {
+  getGenerated,
+  tryGetGenerated,
+  getManifest,
+  getRouteById,
+  registerManifest,
+  clearGeneratedRegistry,
+  type GeneratedRegistry,
+  type GeneratedKey,
+  type GeneratedShape,
+} from "./registry";

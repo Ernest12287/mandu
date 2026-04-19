@@ -3,10 +3,14 @@
  *
  *   generateSkillsForProject({ repoRoot, dryRun, regenerate })
  *
- * Produces per-project `.claude/skills/<project>-*.md` files that
- * reflect the project's manifest, guard preset, and installed stack.
+ * Produces per-project `.claude/skills/<project>-<kind>/SKILL.md` files
+ * that reflect the project's manifest, guard preset, and installed stack.
  * Static skills from `@mandujs/skills` continue to be the fallback;
  * generated skills are an additive overlay.
+ *
+ * Layout: each emitted skill lives in its own subdirectory with a
+ * `SKILL.md` inside, matching the Claude Code spec. Prior releases wrote
+ * flat `<id>.md` files and Claude Code silently ignored them (#197).
  */
 
 import {
@@ -119,10 +123,10 @@ function fileAlreadyExists(path: string): boolean {
 }
 
 /**
- * Generate `.claude/skills/<project>-*.md` files for the host project.
- *
- * In dry-run mode, returns the planned files WITHOUT writing them —
- * callers can inspect `.content` before committing.
+ * Generate `.claude/skills/<project>-<kind>/SKILL.md` files for the host
+ * project. Each skill is emitted to its own subdirectory (Claude Code
+ * skills spec — see #197). In dry-run mode, returns the planned files
+ * WITHOUT writing them, so callers can inspect `.content` before committing.
  */
 export function generateSkillsForProject(
   options: GenerateSkillsOptions,
@@ -167,7 +171,11 @@ export function generateSkillsForProject(
       }
     }
 
-    const targetPath = join(outDir, `${id}.md`);
+    // Claude Code spec: one directory per skill with a `SKILL.md` inside.
+    // `<outDir>/<id>/SKILL.md` instead of the legacy flat `<outDir>/<id>.md`
+    // so the emitted files are actually recognised by Claude Code (#197).
+    const targetDir = join(outDir, id);
+    const targetPath = join(targetDir, "SKILL.md");
     const exists = fileAlreadyExists(targetPath);
     let written = false;
     let skipped = false;
@@ -177,6 +185,10 @@ export function generateSkillsForProject(
     } else if (exists && !regenerate) {
       skipped = true;
     } else {
+      // Skill subdirectory might not exist yet (or might — mkdir recursive
+      // is a no-op in that case). Keep the mkdir inside the generator so
+      // callers who pass a custom `outDir` still get the expected layout.
+      mkdirSync(targetDir, { recursive: true });
       writeFileSync(targetPath, content, "utf8");
       written = true;
     }
@@ -189,14 +201,31 @@ export function generateSkillsForProject(
 
 /**
  * List generated skill files for a project (fast lookup for the CLI).
+ *
+ * Walks the skills directory and returns the path of every discovered
+ * `SKILL.md` (one per skill subdirectory, per the Claude Code spec).
+ * Legacy flat `<id>.md` files left behind from older versions are still
+ * returned as a transitional courtesy — they are not functional for
+ * Claude Code but callers that surface "stray" files (e.g. cleanup tools)
+ * still want to see them. Directories without a SKILL.md are skipped.
  */
 export function listGeneratedSkills(repoRoot: string, outDir?: string): string[] {
   const dir = outDir ?? join(repoRoot, ".claude", "skills");
   if (!existsSync(dir)) return [];
+  const out: string[] = [];
   try {
-    return readdirSync(dir)
-      .filter((f) => f.endsWith(".md"))
-      .map((f) => join(dir, f));
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Skill spec layout: <dir>/<id>/SKILL.md.
+        const candidate = join(dir, entry.name, "SKILL.md");
+        if (existsSync(candidate)) out.push(candidate);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        // Legacy flat layout — surface so callers can observe/clean up.
+        out.push(join(dir, entry.name));
+      }
+    }
+    return out;
   } catch {
     return [];
   }

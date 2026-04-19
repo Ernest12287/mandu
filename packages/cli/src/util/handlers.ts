@@ -5,6 +5,7 @@ import {
   registerLayoutLoader,
   registerNotFoundHandler,
   registerWSHandler,
+  registerManifest,
   needsHydration,
   type RoutesManifest,
   type PageRegistration,
@@ -89,6 +90,11 @@ export async function registerManifestHandlers(
   if (isReload) {
     registeredLayouts.clear();
   }
+
+  // Expose the live manifest through the runtime registry so user code can
+  // read generated artifacts via `getGenerated("routes")` / `getManifest()`
+  // — the only official path. See `packages/core/src/runtime/registry.ts`.
+  registerManifest("routes", manifest);
 
   for (const route of manifest.routes) {
     if (route.kind === "api") {

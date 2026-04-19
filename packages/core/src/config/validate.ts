@@ -110,6 +110,18 @@ const DevConfigSchema = z
      * force on / off. Only applies in dev mode.
      */
     devtools: z.boolean().optional(),
+    /**
+     * Issue #196 — auto-run `scripts/prebuild-*.ts` before `mandu dev`.
+     * `undefined` = default (auto-enabled when content/ OR prebuild
+     * scripts exist); explicit `true` / `false` forces on / off.
+     */
+    autoPrebuild: z.boolean().optional(),
+    /**
+     * Issue #196 — directory whose changes trigger a watch-mode
+     * prebuild re-run. Non-empty to keep chokidar from trying to watch
+     * an empty pattern. Default `"content"`.
+     */
+    contentDir: z.string().min(1).default("content"),
   })
   .strict();
 
@@ -189,6 +201,20 @@ const TestConfigSchema = z
   })
   .strict();
 
+/**
+ * Phase 17 — observability endpoint config (strict).
+ *
+ * Shape mirrors `ServerOptions.observability`; both fields omit a
+ * default so the runtime can distinguish "not set" (use mode default)
+ * from "explicit false" (force off even in dev).
+ */
+const ObservabilityConfigSchema = z
+  .object({
+    heapEndpoint: z.boolean().optional(),
+    metricsEndpoint: z.boolean().optional(),
+  })
+  .strict();
+
 const AdapterConfigSchema = z.custom<ManduAdapter | undefined>(
   (value) =>
     value === undefined ||
@@ -237,6 +263,14 @@ export const ManduConfigSchema = z
      * Set `false` to suppress the ~500-byte prefetch IIFE.
      */
     prefetch: z.boolean().default(true),
+    /**
+     * Issue #193 — Opt-out SPA navigation. Default `true`.
+     * When `true`, plain `<a href="/...">` clicks are intercepted by
+     * the client-side router (per-link escape hatch: `data-no-spa`).
+     * Set `false` to revert to the legacy opt-in behavior, where only
+     * `<a data-mandu-link>` is intercepted.
+     */
+    spa: z.boolean().default(true),
     server: ServerConfigSchema.default({}),
     guard: GuardConfigSchema.default({}),
     build: BuildConfigSchema.default({}),
@@ -244,6 +278,7 @@ export const ManduConfigSchema = z
     fsRoutes: FsRoutesConfigSchema.default({}),
     seo: SeoConfigSchema.default({}),
     test: TestConfigSchema.default({}),
+    observability: ObservabilityConfigSchema.default({}),
     plugins: z.array(ManduPluginSchema).optional(),
     hooks: ManduHooksSchema.optional(),
   })

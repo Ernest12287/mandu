@@ -52,6 +52,10 @@ import {
  *
  * Output shape is identical to `setupClaudeSkills` so downstream
  * summary logic (`skillsResult.skillsInstalled` etc.) does not change.
+ *
+ * Layout: each skill is written to `.claude/skills/<id>/SKILL.md`
+ * (Claude Code spec — one subdirectory per skill). Prior releases wrote
+ * flat `<id>.md` files and Claude Code silently ignored them (#197).
  */
 async function installEmbeddedClaudeSkills(
   targetDir: string
@@ -83,8 +87,12 @@ async function installEmbeddedClaudeSkills(
       );
       continue;
     }
-    const destPath = path.join(skillsDir, `${skillId}.md`);
+    const skillSubdir = path.join(skillsDir, skillId);
+    const destPath = path.join(skillSubdir, "SKILL.md");
     try {
+      // mkdir recursive is idempotent — cheap to call once per skill even
+      // when the parent `.claude/skills/` already exists.
+      await fs.mkdir(skillSubdir, { recursive: true });
       await fs.writeFile(destPath, payload, "utf-8");
       result.skillsInstalled++;
     } catch (err) {

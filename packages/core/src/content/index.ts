@@ -130,7 +130,12 @@ export type {
 
   // Helper types
   InferEntryData,
-  CollectionEntry,
+  // Legacy ContentLayer CollectionEntry — the MVP Collection API
+  // (Issue #199) exports a different `CollectionEntry` shape further
+  // below ({ slug, data, content, filePath }). The MVP wins the
+  // unqualified name since it is the first-class public surface; the
+  // legacy ContentLayer alias is preserved here for back-compat.
+  CollectionEntry as LegacyCollectionEntry,
 } from "./types";
 
 // Errors
@@ -157,12 +162,45 @@ export {
  * });
  * ```
  */
-import type { CollectionConfig, ContentConfig as ContentConfigType } from "./types";
+import type { ContentConfig as ContentConfigType } from "./types";
 
 export function defineContentConfig<T extends ContentConfigType>(config: T): T {
   return config;
 }
 
-export function defineCollection<T extends CollectionConfig>(config: T): T {
-  return config;
-}
+// ============================================================================
+// MVP Collection API (Issue #199)
+// ============================================================================
+//
+// `defineCollection` now supports BOTH the legacy `{ loader, schema }` shape
+// (for backwards compat with ContentLayer projects) and the new
+// `{ path, schema, ... }` shape that returns a Collection instance with
+// `.load()/.all()/.get()/.getCompiled()`. The overload dispatch lives in
+// `./collection.ts` — it detects the shape at runtime via the presence
+// of the `loader` property.
+
+export { defineCollection, Collection } from "./collection";
+export type {
+  CollectionEntry,
+  CompiledCollectionEntry,
+  CollectionSort,
+  DefineCollectionOptions,
+} from "./collection";
+
+export { z } from "./schema";
+export type { ZodSchema, ZodError, ZodType, ZodTypeAny, Infer } from "./schema";
+
+export { parseFrontmatter, parseSimpleYaml, parseScalar } from "./frontmatter";
+export type { ParsedFrontmatter } from "./frontmatter";
+
+export { slugFromPath } from "./slug";
+export type { SlugFromPathOptions } from "./slug";
+
+export { generateSidebar } from "./sidebar";
+export type { SidebarNode, GenerateSidebarOptions } from "./sidebar";
+
+export { generateLLMSTxt } from "./llms-txt";
+export type { LLMSTxtInput, GenerateLLMSTxtOptions } from "./llms-txt";
+
+export { generateContentTypes, renderContentTypes } from "./generate-types";
+export type { CollectionRegistry, GenerateTypesOptions } from "./generate-types";

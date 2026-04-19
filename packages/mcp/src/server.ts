@@ -59,6 +59,54 @@ import { type McpProfile, isValidProfile } from "./profiles.js";
 const MCP_VERSION = "0.12.0";
 
 /**
+ * Phase 17 — heap heartbeat interval (ms). Every tick we log
+ * `Bun.memoryUsage()` + RSS / heapUsed / external + uptime so operators
+ * tailing stderr can spot runaway growth without hooking a debugger.
+ *
+ * 5 minutes strikes a balance between "noisy enough to catch slow leaks"
+ * and "not spammy enough to drown the log" (288 lines/day). Override
+ * with `MANDU_MCP_HEAP_INTERVAL_MS` when running under stress tests.
+ */
+const DEFAULT_HEAP_LOG_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Emit a single heap-usage line to stderr. Called once on startup and
+ * again on every heartbeat tick.
+ *
+ * Format is plain KV — easy to grep / pipe through `awk`:
+ *
+ *   [MCP heap] rss=142MB heapUsed=56MB heapTotal=80MB external=3MB uptime=310s
+ *
+ * Uses `Bun.memoryUsage()` when available (returns RSS in bytes + JSC
+ * gauges); falls back to `process.memoryUsage()` on Node test runners.
+ * Errors are swallowed — a memory probe must never take down the server.
+ */
+export function logMcpHeapUsage(label: string = "heap"): void {
+  try {
+    const mem = process.memoryUsage();
+    const bunGlobal = (globalThis as { Bun?: { memoryUsage?: () => Record<string, number> } }).Bun;
+    let rss = mem.rss;
+    let external = mem.external;
+    if (bunGlobal?.memoryUsage) {
+      try {
+        const bunMem = bunGlobal.memoryUsage();
+        if (typeof bunMem.rss === "number") rss = bunMem.rss;
+        if (typeof bunMem.external === "number") external = bunMem.external;
+      } catch {
+        // fall back to process.memoryUsage values
+      }
+    }
+    const mb = (n: number) => `${Math.round(n / 1024 / 1024)}MB`;
+    const uptime = Math.round(process.uptime());
+    console.error(
+      `[MCP ${label}] rss=${mb(rss)} heapUsed=${mb(mem.heapUsed)} heapTotal=${mb(mem.heapTotal)} external=${mb(external)} uptime=${uptime}s`,
+    );
+  } catch {
+    // best-effort — never propagate
+  }
+}
+
+/**
  * ManduMcpServer v2
  *
  * DNA 기능들을 통합한 MCP 서버
@@ -71,6 +119,11 @@ export class ManduMcpServer {
   private configWatcher?: McpConfigWatcher;
   private toolExecutor: ToolExecutor;
   private profile: McpProfile;
+  /**
+   * Phase 17 — 5-minute heap-usage heartbeat. Lazily started in `run()`
+   * and cleared by `stop()`. Disabled with `MANDU_MCP_HEAP_INTERVAL_MS=0`.
+   */
+  private heapLogTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
@@ -344,6 +397,37 @@ export class ManduMcpServer {
     console.error(`  Project: ${this.projectRoot}`);
     console.error(`  Profile: ${this.profile}`);
     console.error(`  Tools: ${summary.total} (${summary.categories.join(", ")})`);
+
+    // Phase 17 — start the heap heartbeat. Startup line is tagged
+    // `startup` so operators can anchor before/after diffs to it.
+    logMcpHeapUsage("startup");
+    this.startHeapHeartbeat();
+  }
+
+  /**
+   * Phase 17 — configure the heap-usage heartbeat. Reads
+   * `MANDU_MCP_HEAP_INTERVAL_MS` for override (`0` = disabled).
+   * Idempotent: repeat calls replace the previous timer.
+   */
+  private startHeapHeartbeat(): void {
+    if (this.heapLogTimer) {
+      clearInterval(this.heapLogTimer);
+      this.heapLogTimer = null;
+    }
+    const raw = process.env.MANDU_MCP_HEAP_INTERVAL_MS;
+    let intervalMs = DEFAULT_HEAP_LOG_INTERVAL_MS;
+    if (raw !== undefined) {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed) && parsed >= 0) intervalMs = parsed;
+    }
+    if (intervalMs === 0) return; // explicitly disabled
+    this.heapLogTimer = setInterval(() => logMcpHeapUsage("heartbeat"), intervalMs);
+    // `unref()` so the heartbeat never keeps the event loop alive on its
+    // own — `stop()` must actively clear it, but a forgotten stop should
+    // not hang the process.
+    if (typeof this.heapLogTimer.unref === "function") {
+      this.heapLogTimer.unref();
+    }
   }
 
   /**
@@ -352,6 +436,12 @@ export class ManduMcpServer {
   async stop(): Promise<void> {
     // 설정 감시 중지
     this.configWatcher?.stop();
+
+    // Phase 17 — stop the heap heartbeat. Safe to call when never started.
+    if (this.heapLogTimer) {
+      clearInterval(this.heapLogTimer);
+      this.heapLogTimer = null;
+    }
 
     // 로깅 해제
     teardownMcpLogging();

@@ -1012,7 +1012,17 @@ export async function renderToStream(
   let shellSent = false;
   let timedOut = false;
 
-  // React renderToReadableStream 호출
+  // Issue #198 — `renderToReadableStream` natively supports async server
+  // components in React 19. If `export default async function Page()`
+  // lands here directly (without going through `server.ts`'s
+  // `resolveAsyncElement` pre-pass), React's streaming pipeline
+  // suspends on the awaiting component and flushes a fallback until
+  // the promise resolves. `collectStreamingHeadTags` above uses the
+  // sync `renderToString` and will throw on async trees — its
+  // try/catch safely returns an empty string in that case, and any
+  // `useHead`-pushed tags from async components are instead picked
+  // up by `buildHtmlTail` on the way out. No additional wiring is
+  // needed on this code path.
   // 실패 시 throw → renderStreamingResponse에서 500 처리
   const renderToReadableStream = getRenderToReadableStream();
   const reactStream = await renderToReadableStream(element, {

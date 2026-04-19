@@ -16,3 +16,22 @@ export {
   exportOtlp,
   type QueryOptions,
 } from "./sqlite-store";
+// Phase 17: heap endpoint + Prometheus metrics
+export {
+  registerCacheSize,
+  unregisterCacheSize,
+  clearCacheSizeReporters,
+  collectCacheSizes,
+  recordHttpRequest,
+  resetHttpRequestCounter,
+  getHttpRequestCounts,
+  collectHeapSnapshot,
+  renderPrometheus,
+  isObservabilityExposed,
+  buildHeapResponse,
+  buildMetricsResponse,
+  HEAP_ENDPOINT,
+  METRICS_ENDPOINT,
+  type HeapSnapshot,
+  type CacheName,
+} from "./metrics";

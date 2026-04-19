@@ -42,8 +42,13 @@ export interface SetupResult {
  *
  * This function:
  * 1. Creates .claude/skills/ directory
- * 2. Copies all 9 skill markdown files (from skills/<id>/SKILL.md -> .claude/skills/<id>.md)
+ * 2. Copies all 9 skill markdown files (skills/<id>/SKILL.md -> .claude/skills/<id>/SKILL.md)
  * 3. Creates .claude/settings.json with hooks and permissions
+ *
+ * The `<id>/SKILL.md` subdirectory layout follows the Claude Code skills
+ * spec — Claude Code only recognises skills whose manifest lives in a
+ * per-skill directory. Prior releases wrote flat `<id>.md` files, which
+ * Claude Code silently skipped (see #197).
  *
  * NOTE: .mcp.json is handled separately by init.ts's setupMcpConfig()
  * to support merge logic for Claude, Gemini, and other agent configs.
@@ -64,12 +69,17 @@ export async function setupClaudeSkills(targetDir: string): Promise<SetupResult>
     return result;
   }
 
-  // 2. Copy skill files (skills/<id>/SKILL.md -> .claude/skills/<id>.md)
+  // 2. Copy skill files (skills/<id>/SKILL.md -> .claude/skills/<id>/SKILL.md)
   for (const skillDir of SKILL_DIRS) {
     const srcPath = join(PACKAGE_ROOT, "skills", skillDir, "SKILL.md");
-    const destPath = join(skillsDir, `${skillDir}.md`);
+    const destSubdir = join(skillsDir, skillDir);
+    const destPath = join(destSubdir, "SKILL.md");
 
     try {
+      // Each skill needs its own subdirectory. `mkdir recursive` is a
+      // no-op when the dir exists, so repeated calls across skills are
+      // cheap and safe.
+      await mkdir(destSubdir, { recursive: true });
       await copyFile(srcPath, destPath);
       result.skillsInstalled++;
     } catch (err) {

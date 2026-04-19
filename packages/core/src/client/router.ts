@@ -15,6 +15,7 @@ import {
 } from "./window-state";
 import { LRUCache } from "../utils/lru-cache";
 import { LIMITS } from "../constants";
+import { registerCacheSize } from "../observability/metrics";
 
 // ========== Types ==========
 
@@ -157,6 +158,12 @@ interface CompiledPattern {
 }
 
 const patternCache = new LRUCache<string, CompiledPattern>(LIMITS.ROUTER_PATTERN_CACHE);
+
+// Phase 17 — expose the cache size to the /_mandu/heap + /_mandu/metrics
+// endpoints so long-running processes can detect runaway growth.
+// The registration happens at module init — safe to call once per process
+// because `registerCacheSize` replaces any prior reporter under the same key.
+registerCacheSize("patternCache", () => patternCache.size);
 
 /**
  * 패턴을 정규식으로 컴파일
@@ -435,40 +442,105 @@ export function getNavigationState(): NavigationState {
 // ========== Link Click Handler ==========
 
 /**
- * 링크 클릭 이벤트 핸들러 (이벤트 위임용)
+ * Issue #193 — Link click handler (event delegation).
+ *
+ * Mandu v0.22+ reversed the default from opt-in to opt-out SPA navigation.
+ * Every internal same-origin `<a href="/...">` click is intercepted and
+ * routed through the client-side router unless one of the explicit escape
+ * hatches fires:
+ *
+ *   - `data-no-spa`                 → per-link opt-out (always skip).
+ *   - `<a>` without `href`          → degenerate anchor, let the browser decide.
+ *   - `href="#fragment"`            → same-page anchor, browser handles scroll.
+ *   - `href="mailto:"` / `tel:` /   → non-http schemes the browser owns.
+ *     `javascript:` / `data:` / …
+ *   - `target="_blank" / "_top" /   → any target other than `_self` means the
+ *     "_parent" / "framename"         user wants a new browsing context.
+ *   - `download` attribute present  → file download, never a navigation.
+ *   - Modifier keys (Ctrl / Cmd /   → browser shortcut for new tab, bookmark,
+ *     Shift / Alt)                    save, or save-as.
+ *   - Non-left click                → middle-click opens a new tab, right-click
+ *                                     opens context menu.
+ *   - `event.defaultPrevented`      → another listener already handled it.
+ *   - Cross-origin href             → full document navigation required.
+ *
+ * The legacy opt-in attribute `data-mandu-link` still works for
+ * backward compatibility — it is simply a no-op under the new default
+ * because we already intercept by default. Teams that want the old
+ * opt-in behavior back can set `spa: false` in `mandu.config.ts`, which
+ * surfaces as `window.__MANDU_SPA__ === false` and re-introduces the
+ * requirement that `<a>` tags carry `data-mandu-link`.
  */
 function handleLinkClick(event: MouseEvent): void {
-  // 기본 동작 조건 체크
+  // Pre-filter: obvious browser-owned events.
   if (
     event.defaultPrevented ||
-    event.button !== 0 ||
-    event.metaKey ||
-    event.altKey ||
-    event.ctrlKey ||
-    event.shiftKey
+    event.button !== 0 ||  // middle-click / right-click — browser decides.
+    event.metaKey ||       // Cmd (macOS) — new tab.
+    event.altKey ||        // Alt — "save-as" in most browsers.
+    event.ctrlKey ||       // Ctrl (Windows/Linux) — new tab.
+    event.shiftKey         // Shift — new window / bookmark.
   ) {
     return;
   }
 
-  // 가장 가까운 앵커 태그 찾기
-  const anchor = (event.target as HTMLElement).closest("a");
+  // Find the closest anchor ancestor — users commonly nest `<span>` /
+  // `<img>` inside `<a>` and the event target is the inner element.
+  const anchor = (event.target as HTMLElement | null)?.closest("a");
   if (!anchor) return;
 
-  // data-mandu-link 속성이 있는 링크만 처리
-  if (!anchor.hasAttribute("data-mandu-link")) return;
+  // Escape hatch 1: explicit per-link opt-out always wins.
+  if (anchor.hasAttribute("data-no-spa")) return;
 
+  // Escape hatch 2: global config `spa: false` — reverts to the legacy
+  // opt-in behavior (only `data-mandu-link` intercepts). SSR injects
+  // `window.__MANDU_SPA__ = false` when the user sets `spa: false`.
+  const spaGlobal = (globalThis as { window?: { __MANDU_SPA__?: boolean } }).window?.__MANDU_SPA__;
+  if (spaGlobal === false && !anchor.hasAttribute("data-mandu-link")) return;
+
+  // `<a>` without `href` is a degenerate anchor — the browser will not
+  // navigate, but a listener somewhere might. Don't intercept.
   const href = anchor.getAttribute("href");
   if (!href) return;
 
-  // 외부 링크 체크
+  // Same-page fragment link — let the browser handle scroll / focus.
+  if (href.startsWith("#")) return;
+
+  // `target` other than `_self` (or absent) signals the user wants a
+  // new browsing context. `target="_blank"` is the common case but we
+  // also pass through `_top`, `_parent`, and framed targets.
+  const target = anchor.getAttribute("target");
+  if (target && target !== "_self") return;
+
+  // `download` attribute means the user wants to save the resource,
+  // never navigate to it.
+  if (anchor.hasAttribute("download")) return;
+
+  // URL parsing — catches both cross-origin and non-http schemes.
+  let url: URL;
   try {
-    const url = new URL(href, window.location.origin);
-    if (url.origin !== window.location.origin) return;
+    url = new URL(href, window.location.origin);
   } catch {
+    // Malformed href — let the browser produce its own error.
     return;
   }
 
-  // 기본 동작 방지 및 Client-side 네비게이션
+  // Only same-origin http(s) navigations are eligible for SPA handling.
+  // `mailto:`, `tel:`, `javascript:`, `data:`, `blob:`, chrome-extension,
+  // etc. all fail this check because `new URL("mailto:foo@bar").origin`
+  // is the string `"null"` (spec-defined), never equal to
+  // `window.location.origin`.
+  if (url.origin !== window.location.origin) return;
+
+  // Only intercept http / https schemes. Defense-in-depth against any
+  // exotic same-origin scheme we haven't considered (e.g. a custom
+  // protocol handler installed by a browser extension).
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
+
+  // All clear — prevent the default full-page navigation and hand off
+  // to the client-side router. `href` preserves the user's original
+  // string (relative paths, fragments, query strings) so the router
+  // can normalize as needed.
   event.preventDefault();
   navigate(href);
 }
@@ -828,3 +900,9 @@ if (typeof window !== "undefined") {
 // can exercise the schema-check path directly without round-tripping
 // through `window.__MANDU_ROUTER_REVALIDATE__`.
 export { applyHDRUpdate as _testOnly_applyHDRUpdate };
+
+// Issue #193: export the link-click handler for unit tests so we can
+// drive every exclusion case without installing a real DOM click
+// listener. Keeping this under a `_testOnly_` prefix to signal it is
+// not part of the public API.
+export { handleLinkClick as _testOnly_handleLinkClick };

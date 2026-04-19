@@ -1,7 +1,7 @@
 import { getRenderToString } from "./react-renderer";
 import { serializeProps } from "../client/serialize";
 import { createRequire } from "module";
-import type { ReactElement } from "react";
+import React, { type ReactElement, type ReactNode } from "react";
 import type { BundleManifest } from "../bundler/types";
 import { isSafeManduUrl } from "../bundler/manifest-schema";
 import type { HydrationConfig, HydrationPriority } from "../spec/schema";
@@ -104,6 +104,18 @@ export interface SSROptions {
    * `ManduConfig.prefetch`.
    */
   prefetch?: boolean;
+  /**
+   * Issue #193 — control opt-out SPA navigation. When `true` (default)
+   * the client-side router intercepts every internal same-origin `<a>`
+   * click; when `false` the router reverts to the legacy opt-in
+   * behavior (only `<a data-mandu-link>` is intercepted).
+   *
+   * Wired from `ManduConfig.spa`. Emitted to the client as
+   * `window.__MANDU_SPA__ = false` ONLY when explicitly `false` — the
+   * default case emits nothing so the typical response payload is
+   * unchanged.
+   */
+  spa?: boolean;
   /**
    * Issue #191 — control dev-mode injection of the `_devtools.js` bundle
    * (~1.15 MB React dev runtime + Mandu Kitchen panel).
@@ -432,6 +444,99 @@ export function _testOnly_getAttachedCspNonce(options: SSROptions): string | und
   return OPTIONS_TO_NONCE.get(options as object);
 }
 
+/**
+ * Issue #198 — Pre-resolve async server components before handing the
+ * element tree to React's synchronous `renderToString`.
+ *
+ * React 19 supports async components natively in `renderToReadableStream`
+ * but NOT in `renderToString`. When a user writes:
+ *
+ *   export default async function Page() {
+ *     const data = await fetch(...).then(r => r.json());
+ *     return <h1>{data.title}</h1>;
+ *   }
+ *
+ * `React.createElement(Page)` returns an element whose `type` is an async
+ * function. Passing it to `renderToString` yields the opaque error
+ * "async/await is not yet supported in Client Components, only Server
+ * Components" (or silently renders the Promise as `[object Promise]`
+ * on older React builds). This helper walks the element tree, invokes
+ * each async component, awaits the resolved React tree, and recursively
+ * resolves nested async components — producing a fully-synchronous tree
+ * that `renderToString` can handle.
+ *
+ * Design notes:
+ *   - Only `typeof type === "function"` elements whose constructor is
+ *     `AsyncFunction` are invoked. Regular sync function components pass
+ *     through unchanged so React's normal render lifecycle (hooks,
+ *     Suspense, etc.) stays intact during `renderToString`.
+ *   - We recurse into `children` AND invoke async components whose
+ *     returned tree itself contains more async components — common in
+ *     `async Layout → async Page` nesting.
+ *   - Arrays, fragments, portals, and forward-refs are handled by the
+ *     same recursion (fragments and arrays expose children via props;
+ *     forwardRef/memo wrappers surface the underlying component via
+ *     `type.render` / `type.type`, which we do NOT unwrap — those are
+ *     opaque to us and sync by construction).
+ *   - If an async component throws, the rejection propagates up — the
+ *     caller (renderSSR / renderStreamingResponse) wraps it with the
+ *     existing `createSSRErrorResponse` 500 path. No new error surface.
+ *
+ * The helper returns a `ReactNode` (not strictly `ReactElement`) because
+ * async components may legitimately return primitives, arrays, null, or
+ * fragments.
+ */
+export async function resolveAsyncElement(node: ReactNode): Promise<ReactNode> {
+  // null | undefined | boolean | string | number — pass through. React
+  // treats these as leaf content.
+  if (node == null || typeof node !== "object") return node;
+
+  // Arrays (iterables of children) — resolve each entry in parallel.
+  // `Promise.all` is safe because order is preserved and async components
+  // are independent within an array.
+  if (Array.isArray(node)) {
+    return Promise.all(node.map((child) => resolveAsyncElement(child))) as Promise<ReactNode>;
+  }
+
+  // Non-element objects (Promises, iterables, etc.). React will handle
+  // Promises itself in streaming SSR, but for the sync path we forbid
+  // them — return as-is and let React error loudly.
+  if (!React.isValidElement(node)) return node;
+
+  const element = node as ReactElement;
+  const type = element.type;
+  const props = element.props as Record<string, unknown> | null | undefined;
+
+  // Async function component: invoke with props, await, recurse.
+  // `type.constructor.name === "AsyncFunction"` is the standard detection
+  // used throughout Mandu (see filling/filling.ts, runtime/compose.ts).
+  // We intentionally do NOT attempt to resolve generators or
+  // AsyncGeneratorFunctions — React has no semantics for those as
+  // components.
+  if (typeof type === "function" && (type as { constructor?: { name?: string } }).constructor?.name === "AsyncFunction") {
+    const resolved = await (type as (p: unknown) => Promise<ReactNode>)(props ?? {});
+    // Recurse — the resolved tree may itself contain more async components
+    // (e.g. async layout returning async page content).
+    return resolveAsyncElement(resolved);
+  }
+
+  // Sync element — recurse into children only. React handles sync
+  // function/class components itself during renderToString, so we
+  // do NOT invoke them here (that would disable their hooks, Context,
+  // Suspense boundaries, etc.).
+  if (!props) return element;
+  const rawChildren = props.children as ReactNode | undefined;
+  if (rawChildren === undefined) return element;
+
+  const resolvedChildren = await resolveAsyncElement(rawChildren);
+  if (resolvedChildren === rawChildren) return element;
+
+  // Clone with the resolved children. React.cloneElement preserves the
+  // element's key, ref, and internal `$$typeof` markers — a plain spread
+  // does not.
+  return React.cloneElement(element, undefined, resolvedChildren);
+}
+
 export function renderToHTML(element: ReactElement, options: SSROptions = {}): string {
   const {
     title = "Mandu App",
@@ -450,6 +555,7 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
     islandPreWrapped,
     transitions = true,
     prefetch = true,
+    spa,
     devtools,
   } = options;
 
@@ -573,6 +679,16 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
     devtoolsScript = generateDevtoolsScript(bundleManifest);
   }
 
+  // Issue #193 — surface `spa: false` to the client.
+  // We emit the global ONLY when explicitly `false` because `true` is
+  // the router's default, and a missing global is indistinguishable
+  // from `true` in the router's `handleLinkClick` check. This keeps
+  // the typical response payload (where `spa` is unset or `true`)
+  // byte-identical to pre-#193 output.
+  const spaFlagScript = spa === false
+    ? `<script>window.__MANDU_SPA__=false;</script>`
+    : "";
+
   // #179: body 내 <link> 태그를 <head>로 호이스팅
   // React 컴포넌트(layout.tsx 등)에서 <link>를 렌더링하면 body 안에 위치하게 되는데,
   // 폰트/스타일시트는 <head>에 있어야 FOUT 없이 로드됨
@@ -604,6 +720,7 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
   ${routeScript}
   ${hydrationScripts}
   ${needsHydration ? REACT_INTERNALS_SHIM_SCRIPT : ""}
+  ${spaFlagScript}
   ${routerScript}
   ${hmrScript}
   ${devtoolsScript}

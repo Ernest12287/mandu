@@ -4,6 +4,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { LRUCache } from "../utils/lru-cache";
+import { registerCacheSize } from "../observability/metrics";
 
 // ========== Types ==========
 
@@ -33,11 +35,17 @@ export interface UseFetchReturn<T> {
 }
 
 // ========== Cache (LRU, 최대 200 엔트리) ==========
+//
+// Phase 17 — swapped hand-rolled Map for `LRUCache` so `get()` actually
+// promotes the entry to most-recently-used (was FIFO before). Size is
+// registered with the observability module for `/_mandu/heap` + the
+// Prometheus `mandu_cache_entries{cache="fetchCache"}` series.
 
 const MAX_CACHE_SIZE = 200;
 
 interface CacheEntry { data: unknown; timestamp: number; }
-const fetchCache = new Map<string, CacheEntry>();
+const fetchCache = new LRUCache<string, CacheEntry>({ maxSize: MAX_CACHE_SIZE });
+registerCacheSize("fetchCache", () => fetchCache.size);
 
 function getCached(key: string, maxAge: number): unknown | undefined {
   const entry = fetchCache.get(key);
@@ -50,11 +58,7 @@ function getCached(key: string, maxAge: number): unknown | undefined {
 }
 
 function setCache(key: string, data: unknown): void {
-  // LRU: 오래된 것부터 제거
-  if (fetchCache.size >= MAX_CACHE_SIZE) {
-    const oldest = fetchCache.keys().next().value;
-    if (oldest !== undefined) fetchCache.delete(oldest);
-  }
+  // LRUCache handles eviction — we just set.
   fetchCache.set(key, { data, timestamp: Date.now() });
 }
 

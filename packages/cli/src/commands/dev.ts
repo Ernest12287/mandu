@@ -92,6 +92,36 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   const devStartTime = performance.now();
   const rootDir = resolveFromCwd(".");
 
+  // Issue #195 — immediate stdout flush.
+  //
+  // The repro scenario reported by the user chained
+  //   bun scripts/prebuild-docs.ts && bun scripts/prebuild-seo.ts && mandu dev --watch
+  // where `mandu dev` appeared to hang with no output. Whether the root
+  // cause was shell-level stdio buffering, a stalled ESM import inside
+  // `validateAndReport`, or a slow lockfile check, the user has no
+  // feedback at all until the server binds.
+  //
+  // Emitting a single synchronous line FIRST guarantees that:
+  //   (a) the user sees proof the process started (no silent hang),
+  //   (b) Bun's stdout buffer is drained before we enter an await so
+  //       any inherited buffer from a preceding prebuild chain cannot
+  //       accidentally hold back the "Starting dev server..." line,
+  //   (c) when `MANDU_DEBUG_BOOT=1` is set, each phase transition is
+  //       timestamped so a future hang can be bisected to a specific
+  //       step without reproduction gymnastics.
+  //
+  // `process.stdout.write` returns a boolean indicating backpressure; we
+  // ignore it because the terminal / pipe always drains trivially-small
+  // writes. The trailing `\n` keeps log line discipline.
+  process.stdout.write("mandu dev booting...\n");
+  const bootTrace = process.env.MANDU_DEBUG_BOOT === "1";
+  const tracePhase = (phase: string) => {
+    if (!bootTrace) return;
+    const dt = Math.round(performance.now() - devStartTime);
+    process.stdout.write(`[boot +${dt}ms] ${phase}\n`);
+  };
+  tracePhase("entry");
+
   // Phase 7.1 R1 Agent C — B_gap marker #1: config validation.
   // `validateAndReport` is the boot seed — lockfile validation, env loading,
   // and SQLite observability all key off `config`. We must NOT parallelize
@@ -99,6 +129,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   const config = await withPerf(HMR_PERF.BOOT_VALIDATE_CONFIG, () =>
     validateAndReport(rootDir),
   );
+  tracePhase("config validated");
 
   if (!config) {
     printCLIError(CLI_ERROR_CODES.CONFIG_VALIDATION_FAILED);
@@ -111,6 +142,82 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   const plugins = config.plugins ?? [];
   const hooks = config.hooks;
   const HMR_OFFSET = 1;
+
+  // Issue #196 — Auto-run `scripts/prebuild-*.ts` before dev boot.
+  //
+  // Policy (see `@mandujs/core/content/prebuild.shouldAutoPrebuild`):
+  //   - `devConfig.autoPrebuild === false` → never run (user opt-out).
+  //   - `devConfig.autoPrebuild === true`  → always run discovered scripts.
+  //   - `undefined` (default)              → auto-enable when content/
+  //     OR scripts/prebuild-*.ts exist. Projects without either are
+  //     silent no-ops.
+  //
+  // Ordering: prebuild MUST run BEFORE `resolveManifest` / `startDevBundler`
+  // so that any generated file (e.g. `content/docs-data.ts`) is present
+  // when the bundled-importer walks the transitive graph. Running AFTER
+  // validateAndReport means config errors short-circuit before we pay the
+  // prebuild cost — the user gets the config error instead of a delayed
+  // config error wrapped in prebuild stderr.
+  //
+  // Failure handling: a script failure aborts the chain AND aborts
+  // `mandu dev`. This matches the pre-feature behaviour where the user's
+  // own `&&` chain would skip `mandu dev` on any prebuild failure. We
+  // print the broken script path + exit code so the user can debug
+  // without deciphering a wrapped error trace.
+  const autoPrebuildSetting = devConfig.autoPrebuild;
+  const shouldRunPrebuild =
+    autoPrebuildSetting === true
+      ? true
+      : autoPrebuildSetting === false
+        ? false
+        : await (async () => {
+            // Lazy import so projects opting out pay zero cost.
+            const mod = await import("@mandujs/core/content/prebuild");
+            return mod.shouldAutoPrebuild(rootDir);
+          })();
+  tracePhase(
+    `prebuild decision: ${shouldRunPrebuild ? "run" : "skip"} (setting=${String(autoPrebuildSetting)})`,
+  );
+  if (shouldRunPrebuild) {
+    const { runPrebuildScripts, PrebuildError } = await import(
+      "@mandujs/core/content/prebuild"
+    );
+    try {
+      const prebuildResult = await runPrebuildScripts({
+        rootDir,
+        onStart: (script, i, total) => {
+          process.stdout.write(
+            `Prebuild [${i + 1}/${total}]: ${path.relative(rootDir, script)}\n`,
+          );
+        },
+        onFinish: ({ scriptPath, exitCode, durationMs }) => {
+          if (exitCode === 0) {
+            process.stdout.write(
+              `  done in ${Math.round(durationMs)}ms\n`,
+            );
+          } else {
+            process.stdout.write(
+              `  FAILED (exit ${exitCode}) after ${Math.round(durationMs)}ms: ${path.relative(rootDir, scriptPath)}\n`,
+            );
+          }
+        },
+      });
+      if (prebuildResult.ran > 0) {
+        tracePhase(`prebuild completed ${prebuildResult.ran} script(s)`);
+      }
+    } catch (err) {
+      if (err instanceof PrebuildError) {
+        console.error(
+          `\n[Mandu] Prebuild failed: ${path.relative(rootDir, err.scriptPath)} (exit ${err.exitCode})`,
+        );
+        console.error(
+          "Dev server aborted. Fix the prebuild script or set `dev.autoPrebuild: false` in mandu.config.ts to skip.",
+        );
+        process.exit(1);
+      }
+      throw err;
+    }
+  }
 
   // Phase 7.3 A — JIT prewarm kick-off.
   //
@@ -1002,6 +1109,89 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     }),
   );
 
+  // Issue #196 — Content watcher: re-run prebuild scripts when files under
+  // the configured content directory change.
+  //
+  // Design:
+  //   - Only wired when the `shouldRunPrebuild` gate passed at boot.
+  //     Projects that opted out (`dev.autoPrebuild: false`) pay zero cost.
+  //   - Serialized via a Promise-chain mutex so rapid-fire changes to many
+  //     content files coalesce into a single rebuild + broadcast (matches
+  //     the `ssrChangeQueue` pattern introduced for #186).
+  //   - Broadcasts a full `reload` after the re-run so any SSR page that
+  //     imports generated data (e.g. `content/docs-data.ts`) gets fresh
+  //     content; HDR slot-refetch is intentionally NOT used here because
+  //     the generated files are consumed at the SSR boundary, not via the
+  //     slot loader, and the registry cache has to be flushed.
+  //   - Errors are logged but do NOT kill the dev server: a broken
+  //     prebuild mid-dev-session is recoverable by editing the source.
+  let contentWatcher: import("chokidar").FSWatcher | null = null;
+  if (shouldRunPrebuild) {
+    const contentDirName = devConfig.contentDir || "content";
+    const contentDirAbs = path.resolve(rootDir, contentDirName);
+    const fsExists = await import("node:fs/promises")
+      .then((m) => m.access(contentDirAbs).then(() => true).catch(() => false));
+    if (fsExists) {
+      const [{ default: chokidar }, { runPrebuildScripts, PrebuildError }] =
+        await Promise.all([
+          import("chokidar"),
+          import("@mandujs/core/content/prebuild"),
+        ]);
+
+      let pending: Promise<void> = Promise.resolve();
+      let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+      const runPrebuildRefresh = (trigger: string) => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          pending = pending.then(async () => {
+            logDevEvent("Content change detected", [
+              `Trigger: ${path.relative(rootDir, trigger)}`,
+              "Action: re-run prebuild scripts",
+            ]);
+            try {
+              const res = await runPrebuildScripts({ rootDir });
+              if (res.ran > 0) {
+                console.log(`  Prebuild: ${res.ran} script(s) refreshed`);
+                hmrServer?.broadcast({
+                  type: "reload",
+                  data: { timestamp: Date.now() },
+                });
+              }
+            } catch (err) {
+              if (err instanceof PrebuildError) {
+                console.warn(
+                  `[Mandu] Content prebuild failed: ${path.relative(rootDir, err.scriptPath)} (exit ${err.exitCode})`,
+                );
+                hmrServer?.broadcast({
+                  type: "error",
+                  data: {
+                    message: `Prebuild failed: ${path.basename(err.scriptPath)} (exit ${err.exitCode})`,
+                  },
+                });
+              } else {
+                console.warn(
+                  "[Mandu] Content prebuild failed (non-fatal):",
+                  err instanceof Error ? err.message : String(err),
+                );
+              }
+            }
+          });
+        }, 500);
+      };
+
+      contentWatcher = chokidar.watch(contentDirAbs, {
+        ignored: [/node_modules/, /\.git/, /\.mandu/],
+        ignoreInitial: true,
+        awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+      });
+      contentWatcher.on("add", (p: string) => runPrebuildRefresh(p));
+      contentWatcher.on("change", (p: string) => runPrebuildRefresh(p));
+      contentWatcher.on("unlink", (p: string) => runPrebuildRefresh(p));
+      tracePhase(`content watcher armed on ${contentDirName}/`);
+    }
+  }
+
   // Architecture Guard real-time watch (optional)
   let archGuardWatcher: ReturnType<typeof createGuardWatcher> | null = null;
   let guardFailed = false;
@@ -1016,6 +1206,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     hmrServer?.close();
     cssWatcher?.close();
     routesWatcher.close();
+    void contentWatcher?.close();
     archGuardWatcher?.close();
     shortcutCleanup?.();
     // Phase 6-1: SQLite store 정리

@@ -208,7 +208,14 @@ describe("generateSkillsForProject", () => {
 
   it("regenerate overwrites existing files", () => {
     generateSkillsForProject({ repoRoot: root, regenerate: true });
-    const target = join(root, ".claude", "skills", "my-proj-domain-glossary.md");
+    // Spec-compliant layout: `<outDir>/<id>/SKILL.md` (Closes #197).
+    const target = join(
+      root,
+      ".claude",
+      "skills",
+      "my-proj-domain-glossary",
+      "SKILL.md",
+    );
     writeFileSync(target, "USER_CHANGED");
     const res = generateSkillsForProject({ repoRoot: root, regenerate: true });
     const glossary = res.files.find((f) => f.id === "my-proj-domain-glossary")!;
@@ -231,7 +238,10 @@ describe("generateSkillsForProject", () => {
         outDir: custom,
         regenerate: true,
       });
-      expect(existsSync(join(custom, "cust-domain-glossary.md"))).toBe(true);
+      // Spec-compliant layout: `<outDir>/<id>/SKILL.md` (#197).
+      expect(
+        existsSync(join(custom, "cust-domain-glossary", "SKILL.md")),
+      ).toBe(true);
     } finally {
       rmSync(customRoot, { recursive: true, force: true });
     }
@@ -259,7 +269,9 @@ describe("generateSkillsForProject", () => {
     generateSkillsForProject({ repoRoot: root, regenerate: true });
     const paths = listGeneratedSkills(root);
     expect(paths.length).toBeGreaterThan(0);
-    expect(paths.some((p) => p.endsWith("my-proj-conventions.md"))).toBe(true);
+    // Spec-compliant path: `<outDir>/<id>/SKILL.md` (#197).
+    const suffix = join("my-proj-conventions", "SKILL.md");
+    expect(paths.some((p) => p.endsWith(suffix))).toBe(true);
   });
 
   it("strips scope from scoped project name", () => {

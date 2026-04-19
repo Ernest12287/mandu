@@ -110,3 +110,43 @@ describe("transitions / prefetch — strict-mode coexistence", () => {
     expect(cfg.seo.defaultTitle).toBe("My App");
   });
 });
+
+/**
+ * Issue #193 — `spa` config field.
+ *
+ * Mirrors the transitions/prefetch test shape: default `true`, accepts
+ * explicit `false`, type-safe, and coexists with the strict schema.
+ */
+describe("spa — defaults and explicit values", () => {
+  it("defaults to true when not set", () => {
+    const cfg = ManduConfigSchema.parse({});
+    expect(cfg.spa).toBe(true);
+  });
+
+  it("accepts `spa: false` to opt into the legacy opt-in behavior", () => {
+    const cfg = ManduConfigSchema.parse({ spa: false });
+    expect(cfg.spa).toBe(false);
+  });
+
+  it("accepts `spa: true` explicitly (no-op vs default)", () => {
+    const cfg = ManduConfigSchema.parse({ spa: true });
+    expect(cfg.spa).toBe(true);
+  });
+
+  it("rejects non-boolean values", () => {
+    expect(ManduConfigSchema.safeParse({ spa: "true" }).success).toBe(false);
+    expect(ManduConfigSchema.safeParse({ spa: 1 }).success).toBe(false);
+    expect(ManduConfigSchema.safeParse({ spa: null }).success).toBe(false);
+  });
+
+  it("coexists with transitions + prefetch in the same config", () => {
+    const cfg = ManduConfigSchema.parse({
+      transitions: true,
+      prefetch: false,
+      spa: false,
+    });
+    expect(cfg.transitions).toBe(true);
+    expect(cfg.prefetch).toBe(false);
+    expect(cfg.spa).toBe(false);
+  });
+});
