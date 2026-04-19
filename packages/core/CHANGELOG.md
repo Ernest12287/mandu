@@ -1,5 +1,14 @@
 # @mandujs/core
 
+## 0.25.1
+
+### Patch Changes
+
+- fix(runtime): DX-1 — loud 5xx for malformed page default exports.
+  `export default function Page()` now works (bare function auto-wrapped).
+  Missing / primitive / non-function default surfaces a clear error with
+  route id + pattern instead of a silent 404.
+
 ## 0.25.0
 
 ### Minor Changes
