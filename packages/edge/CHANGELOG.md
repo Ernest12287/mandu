@@ -1,5 +1,30 @@
 # @mandujs/edge
 
+## 0.4.0
+
+### Minor Changes
+
+- Phase 15.2 — Edge adapter expansion:
+
+  - **`@mandujs/edge/deno`** — `createDenoHandler()` + `deno.json`
+    generator for Deno Deploy.
+  - **`@mandujs/edge/vercel`** — `createVercelEdgeHandler()` +
+    `vercel.json` generator with `runtime: "edge"` and catch-all
+    rewrite to `/api/_mandu`.
+  - **`@mandujs/edge/netlify`** — `createNetlifyEdgeHandler()` +
+    `netlify.toml` generator with `edge_functions` block.
+  - **CLI** — `mandu build --target=<deno|vercel-edge|netlify-edge>`
+    produces platform entry + config artifact.
+
+  All three adapters inherit Phase 15.1 R0 contract: per-request
+  AsyncLocalStorage isolation, production error-body scrubbing,
+  throwing Bun-only API shim with platform-specific signals.
+
+  77 new tests (fetch + config + emitter smoke). Edge suite total
+  107/0 pass. Zero new runtime deps; Phase 15.1 Workers bundle
+  unchanged (1609.3 KB). Hono territory non-infringement preserved —
+  adapters are polyfill + config only, never routing.
+
 ## 0.3.1
 
 ### Patch Changes
