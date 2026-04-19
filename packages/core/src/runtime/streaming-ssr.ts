@@ -13,6 +13,7 @@ import { getRenderToReadableStream } from "./react-renderer";
 import type { ReactElement, ReactNode } from "react";
 import React, { Suspense } from "react";
 import type { BundleManifest } from "../bundler/types";
+import { isSafeManduUrl } from "../bundler/manifest-schema";
 import type { HydrationConfig, HydrationPriority } from "../spec/schema";
 import { serializeProps } from "../client/serialize";
 import type { Metadata, MetadataItem } from "../seo/types";
@@ -523,7 +524,11 @@ function generateHTMLShell(options: StreamingSSROptions): string {
   let fastRefreshPreamble = "";
   if (isDev && needsHydration) {
     const fr = bundleManifest.shared?.fastRefresh;
-    if (fr && fr.glue && fr.runtime) {
+    // Phase 7.2.R3 M-01 — manifest wire-up. Reject tampered entries
+    // (protocol, traversal, non-/.mandu paths, >2KB) — fail closed so
+    // an attacker-controlled <script src> cannot slip in via a
+    // manipulated .mandu/manifest.json.
+    if (fr && fr.glue && fr.runtime && isSafeManduUrl(fr.glue) && isSafeManduUrl(fr.runtime)) {
       fastRefreshPreamble = generateFastRefreshPreamble(fr.glue, fr.runtime);
       const resolvedNonce = resolveStreamingCspNonce(options.cspNonce);
       if (resolvedNonce) {

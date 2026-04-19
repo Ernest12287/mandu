@@ -349,6 +349,16 @@ export async function restoreVendorCache(
     const dst = path.join(outDir, path.basename(entry.path));
     try {
       const buf = await fs.readFile(src);
+      // Phase 7.2.R3 M-02 — TOCTOU hardening. `readVendorCache` already
+      // verified SHA-256/size, but an attacker with filesystem write
+      // access could swap `_vendor-*.js` between the read and this
+      // copy. Re-hash the buffer we are about to copy — if it diverges
+      // from the manifest entry, bail out and force rebuild instead of
+      // shipping attacker-controlled JS into `.mandu/client/`.
+      const actualSize = buf.byteLength;
+      if (actualSize !== entry.size) return null;
+      const actualHash = createHash("sha256").update(buf).digest("hex");
+      if (actualHash !== entry.hash) return null;
       await fs.writeFile(dst, buf);
       result.set(logicalId, dst);
     } catch {

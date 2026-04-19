@@ -3,6 +3,7 @@ import { serializeProps } from "../client/serialize";
 import { createRequire } from "module";
 import type { ReactElement } from "react";
 import type { BundleManifest } from "../bundler/types";
+import { isSafeManduUrl } from "../bundler/manifest-schema";
 import type { HydrationConfig, HydrationPriority } from "../spec/schema";
 import { PORTS, TIMEOUTS } from "../constants";
 import { escapeHtmlAttr, escapeHtmlText, escapeJsonForInlineScript } from "./escape";
@@ -243,6 +244,12 @@ function generateFastRefreshPreambleTag(
   const fr = manifest?.shared?.fastRefresh;
   if (!fr) return "";
   if (!fr.glue || !fr.runtime) return "";
+  // Phase 7.2.R3 M-01 — manifest wire-up. `isSafeManduUrl` rejects
+  // tampered entries (protocol, traversal, non-/.mandu paths, >2KB).
+  // Fail closed: if either URL is suspect, skip the preamble entirely
+  // — dev refresh breaks loudly instead of injecting an attacker-
+  // controlled <script src> via a tampered manifest.
+  if (!isSafeManduUrl(fr.glue) || !isSafeManduUrl(fr.runtime)) return "";
   const raw = generateFastRefreshPreamble(fr.glue, fr.runtime);
   if (!nonce) return raw;
   // Inject nonce attribute onto the first <script> tag ONLY. Matches
