@@ -1,5 +1,14 @@
 # @mandujs/mcp
 
+## 0.20.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.24.0
+  - @mandujs/ate@0.19.1
+  - @mandujs/skills@4.0.0
+
 ## 0.14.0
 
 ### Minor Changes
