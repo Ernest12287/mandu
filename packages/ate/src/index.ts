@@ -187,3 +187,44 @@ export type { PrecommitInput, PrecommitResult } from "./precommit";
 // Watch mode
 export { createAteWatcher } from "./watcher";
 export type { AteWatchOptions, WatchTestResult, AteWatcher } from "./watcher";
+
+// Phase 12.2 — E2E codegen + runner (Agent E)
+export {
+  buildE2EPlan,
+  generateE2EPrompts,
+  describeE2EPlan as describeE2ECodegenPlan,
+} from "./e2e-codegen";
+export type {
+  E2ECodegenOptions,
+  E2ECodegenPlan,
+  E2ECodegenPlanItem,
+} from "./e2e-codegen";
+export {
+  planE2ERun,
+  runE2E,
+  buildPlaywrightArgs,
+  findMissingPlaywright,
+  describeE2EPlan as describeE2ERunPlan,
+  E2E_COVERAGE_RELATIVE,
+} from "./e2e-runner";
+export type {
+  RunE2EInput,
+  E2ERunResult,
+  E2EPlan,
+} from "./e2e-runner";
+
+// Phase 12.3 — LCOV coverage merger (Agent E)
+export {
+  parseLcov,
+  mergeRecords,
+  serializeLcov,
+  mergeLcovFiles,
+  writeMergedLcov,
+  mergeAndWriteLcov,
+} from "./coverage-merger";
+export type {
+  LcovFileRecord,
+  MergeInput,
+  MergeResult,
+} from "./coverage-merger";
+

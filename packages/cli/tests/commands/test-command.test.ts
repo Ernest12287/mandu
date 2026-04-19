@@ -94,7 +94,10 @@ describe("buildBunTestArgs", () => {
       { watch: true, coverage: true, bail: true, updateSnapshots: true },
       1,
     );
-    expect(args).toContain("--watch");
+    // Phase 12.3: --watch is owned by mandu's watcher, NOT forwarded to bun test.
+    // The watch loop (runWatchMode) re-invokes bun test on changes — we must not
+    // pass --watch to the child or it short-circuits affected-file mapping.
+    expect(args).not.toContain("--watch");
     expect(args).toContain("--coverage");
     expect(args).toContain("--bail");
     expect(args).toContain("--update-snapshots");

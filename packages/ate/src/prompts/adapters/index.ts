@@ -2,9 +2,9 @@ import type { PromptAdapter, PromptProvider } from "../types";
 import { claudeAdapter } from "./claude";
 import { openaiAdapter } from "./openai";
 import { geminiAdapter } from "./gemini";
-import { localAdapter } from "./local";
+import { localAdapter, renderLocalDummy } from "./local";
 
-export { claudeAdapter, openaiAdapter, geminiAdapter, localAdapter };
+export { claudeAdapter, openaiAdapter, geminiAdapter, localAdapter, renderLocalDummy };
 
 const adapters: Record<PromptProvider, PromptAdapter> = {
   claude: claudeAdapter,

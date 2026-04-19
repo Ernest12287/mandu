@@ -28,11 +28,20 @@ export type {
   PromptSpec,
   PromptTemplate,
   PromptAdapter,
+  PromptStreamOptions,
+  PromptStreamTerminal,
 } from "./types";
 
 export { listKinds };
 export { loadProjectContext, renderContextAsXml } from "./context";
-export { getAdapter, claudeAdapter, openaiAdapter, geminiAdapter, localAdapter } from "./adapters";
+export {
+  getAdapter,
+  claudeAdapter,
+  openaiAdapter,
+  geminiAdapter,
+  localAdapter,
+  renderLocalDummy,
+} from "./adapters";
 export {
   unitTestTemplate,
   integrationTestTemplate,

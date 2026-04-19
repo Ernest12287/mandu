@@ -516,13 +516,29 @@ registerCommand({
 
 registerCommand({
   id: "test",
-  description: "Run unit + integration tests (Phase 12.1). Subcommands: unit, integration, all.",
+  description: "Run tests (Phase 12.1+12.2+12.3). Subcommands: unit, integration, all. Flags: --e2e, --heal, --coverage, --watch, --dry-run, --filter, --bail, --update-snapshots.",
   subcommands: ["unit", "integration", "all"],
   defaultSubcommand: "all",
   async run(ctx) {
     const sub = ctx.args[1];
     const target: "all" | "unit" | "integration" =
       sub === "unit" || sub === "integration" || sub === "all" ? sub : "all";
+
+    // Phase 12.2 — optional subset of routes passed as repeated --only-route flags.
+    const rawOnlyRoute = ctx.options["only-route"];
+    const onlyRoutes = Array.isArray(rawOnlyRoute)
+      ? rawOnlyRoute.filter((s): s is string => typeof s === "string" && s !== "true")
+      : typeof rawOnlyRoute === "string" && rawOnlyRoute !== "true"
+        ? [rawOnlyRoute]
+        : undefined;
+
+    const baseURL =
+      typeof ctx.options["base-url"] === "string" && ctx.options["base-url"] !== "true"
+        ? ctx.options["base-url"]
+        : typeof ctx.options.baseURL === "string" && ctx.options.baseURL !== "true"
+          ? ctx.options.baseURL
+          : undefined;
+
     const { testCommand } = await import("./test");
     return testCommand(target, {
       filter:
@@ -535,6 +551,13 @@ registerCommand({
       updateSnapshots:
         ctx.options["update-snapshots"] === "true" ||
         ctx.options.u === "true",
+      // Phase 12.2 / 12.3 additions
+      e2e: ctx.options.e2e === "true",
+      heal: ctx.options.heal === "true",
+      dryRun: ctx.options["dry-run"] === "true" || ctx.options.dryRun === "true",
+      ci: ctx.options.ci === "true",
+      baseURL,
+      onlyRoutes,
     });
   },
 });
@@ -927,5 +950,19 @@ registerCommand({
       outDir: typeof ctx.options["out-dir"] === "string" && ctx.options["out-dir"] !== "true" ? ctx.options["out-dir"] : undefined,
       json: ctx.options.json === "true",
     });
+  },
+});
+
+// ============================================================================
+// Phase 14.2 — `mandu ai` AI playground (chat + eval)
+// ============================================================================
+
+registerCommand({
+  id: "ai",
+  description: "Terminal AI playground: interactive chat or non-interactive eval",
+  subcommands: ["chat", "eval"],
+  async run(ctx) {
+    const { aiDispatch } = await import("./ai");
+    return aiDispatch(ctx);
   },
 });

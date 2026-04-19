@@ -32,6 +32,11 @@ export { resourceTools, resourceToolDefinitions } from "./resource.js";
 export { componentTools, componentToolDefinitions } from "./component.js";
 export { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
 export { compositeTools, compositeToolDefinitions } from "./composite.js";
+// Phase 14.3 — AI/agent loop-closure tool suite
+export { runTestsTools, runTestsToolDefinitions } from "./run-tests.js";
+export { deployPreviewTools, deployPreviewToolDefinitions } from "./deploy-preview.js";
+export { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
+export { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 
 // 도구 모듈 import (등록용)
 import { specTools, specToolDefinitions } from "./spec.js";
@@ -54,6 +59,10 @@ import { resourceTools, resourceToolDefinitions } from "./resource.js";
 import { componentTools, componentToolDefinitions } from "./component.js";
 import { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
 import { compositeTools, compositeToolDefinitions } from "./composite.js";
+import { runTestsTools, runTestsToolDefinitions } from "./run-tests.js";
+import { deployPreviewTools, deployPreviewToolDefinitions } from "./deploy-preview.js";
+import { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
+import { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 
 /**
  * 도구 모듈 정보
@@ -94,6 +103,11 @@ const TOOL_MODULES: ToolModule[] = [
   { category: "component", definitions: componentToolDefinitions, handlers: componentTools },
   { category: "kitchen", definitions: kitchenToolDefinitions, handlers: kitchenTools },
   { category: "composite", definitions: compositeToolDefinitions, handlers: compositeTools },
+  // Phase 14.3 — AI/agent loop-closure suite
+  { category: "run-tests", definitions: runTestsToolDefinitions, handlers: runTestsTools },
+  { category: "deploy-preview", definitions: deployPreviewToolDefinitions, handlers: deployPreviewTools },
+  { category: "ai-brief", definitions: aiBriefToolDefinitions, handlers: aiBriefTools },
+  { category: "loop-close", definitions: loopCloseToolDefinitions, handlers: loopCloseTools },
 ];
 
 /**

@@ -22,7 +22,10 @@
     "./smart-select": "./src/smart-select.ts",
     "./coverage-gap": "./src/coverage-gap.ts",
     "./precommit": "./src/precommit.ts",
-    "./prompts": "./src/prompts/index.ts"
+    "./prompts": "./src/prompts/index.ts",
+    "./e2e-codegen": "./src/e2e-codegen.ts",
+    "./e2e-runner": "./src/e2e-runner.ts",
+    "./coverage-merger": "./src/coverage-merger.ts"
   },
   "files": [
     "src/**/*"

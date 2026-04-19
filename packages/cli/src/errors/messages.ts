@@ -181,6 +181,84 @@ export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
     message: "Adapter {target} does not yet support this operation.",
     suggestion: "Check docs/deploy/README.md for the adapter capability matrix.",
   },
+
+  // AI chat / eval errors (CLI_E300-CLI_E309) — Phase 14.2
+  [CLI_ERROR_CODES.AI_API_KEY_MISSING]: {
+    message: "{envVar} is not set for provider '{provider}'.",
+    suggestion:
+      "Export the environment variable or use `--provider=local` for an offline echo responder.",
+  },
+  [CLI_ERROR_CODES.AI_STREAM_FAILED]: {
+    message: "Streaming from '{provider}' failed: {detail}",
+    suggestion:
+      "Check network connectivity and API key. Re-run with MANDU_DEBUG=1 for verbose output.",
+  },
+  [CLI_ERROR_CODES.AI_HISTORY_MALFORMED]: {
+    message: "History file is malformed: {path}",
+    suggestion:
+      "The file must be JSON matching { version, messages: [{ role, content }] }. Regenerate via /save.",
+  },
+  [CLI_ERROR_CODES.AI_PRESET_NOT_FOUND]: {
+    message: "Preset '{preset}' not found under docs/prompts/{preset}.md.",
+    suggestion:
+      "Available presets: system, mandu-conventions, phase-testing, phase-auth. Pass --system <path> for a custom file.",
+  },
+  [CLI_ERROR_CODES.AI_PROMPT_REQUIRED]: {
+    message: "No prompt provided for `mandu ai eval`.",
+    suggestion:
+      "Pass --prompt \"your prompt\" or --prompt-file <path> with the text to evaluate.",
+  },
+  [CLI_ERROR_CODES.AI_UNKNOWN_PROVIDER]: {
+    message: "Unknown provider: {provider}",
+    suggestion: "Use one of: claude, openai, gemini, local.",
+  },
+  [CLI_ERROR_CODES.AI_UNKNOWN_SLASH]: {
+    message: "Unknown slash command: {command}",
+    suggestion:
+      "Available: /help, /reset, /save <path>, /load <path>, /preset <name>, /provider <name>, /model <name>, /quit.",
+  },
+  [CLI_ERROR_CODES.AI_TIMEOUT]: {
+    message: "Streaming from '{provider}' exceeded the {seconds}s timeout.",
+    suggestion:
+      "Set MANDU_AI_TIMEOUT_MS to a higher value or retry. Local echo never times out.",
+  },
+  [CLI_ERROR_CODES.AI_INVALID_INPUT]: {
+    message: "Input rejected: {reason}",
+    suggestion:
+      "Chat input must be valid UTF-8. Paste printable text (reserved bytes are filtered).",
+  },
+  [CLI_ERROR_CODES.AI_SYSTEM_FILE_NOT_FOUND]: {
+    message: "System prompt file not found: {path}",
+    suggestion:
+      "Verify the --system path is correct. Paths are resolved relative to the current working directory.",
+  },
+
+  // Phase 12.2/12.3 — E2E/coverage/watch/heal extensions (CLI_E063-CLI_E067).
+  [CLI_ERROR_CODES.TEST_E2E_PLAYWRIGHT_MISSING]: {
+    message: "@playwright/test peer dependency is not installed.",
+    suggestion:
+      "Run 'bun add -d @playwright/test' then re-run 'mandu test --e2e'.",
+  },
+  [CLI_ERROR_CODES.TEST_E2E_CONFIG_MISSING]: {
+    message: "Playwright config not found at {configPath}.",
+    suggestion:
+      "Create tests/e2e/playwright.config.ts or pass --config. See docs/testing/e2e.md.",
+  },
+  [CLI_ERROR_CODES.TEST_COVERAGE_THRESHOLD]: {
+    message: "Coverage below threshold: {actual}% lines < {expected}%.",
+    suggestion:
+      "Add tests for uncovered code paths or lower test.coverage.lines in mandu.config.ts.",
+  },
+  [CLI_ERROR_CODES.TEST_WATCH_NO_WATCH_DIRS]: {
+    message: "No directories available to watch (app/, src/, packages/ all missing).",
+    suggestion:
+      "Create app/ or src/ before running 'mandu test --watch'. See docs/testing/watch.md.",
+  },
+  [CLI_ERROR_CODES.TEST_HEAL_NO_RESULTS]: {
+    message: "Heal invoked without any prior E2E failures to heal.",
+    suggestion:
+      "Run 'mandu test --e2e' first. --heal only operates on the latest Playwright run.",
+  },
 };
 
 function interpolate(text: string, context?: Record<string, string | number>): string {

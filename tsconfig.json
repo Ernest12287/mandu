@@ -22,6 +22,8 @@
       "@mandujs/edge/netlify": ["packages/edge/src/netlify/index.ts"],
       "@mandujs/skills": ["packages/skills/src/index.ts"],
       "@mandujs/skills/generator": ["packages/skills/src/generator/index.ts"],
+      "@mandujs/skills/loop-closure": ["packages/skills/src/loop-closure/index.ts"],
+      "@mandujs/skills/loop-closure/detectors": ["packages/skills/src/loop-closure/detectors.ts"],
       "@mandujs/skills/*": ["packages/skills/src/*.ts", "packages/skills/*"]
     },
     "strict": true,

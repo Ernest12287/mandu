@@ -121,6 +121,32 @@ export interface PromptTemplate {
   buildUser(input: PromptSpecInput): string;
 }
 
+/** Options for streaming generation. */
+export interface PromptStreamOptions {
+  /** Canonical conversation messages (system + user/assistant turns). */
+  messages: PromptMessage[];
+  /** Optional model override (provider-specific default otherwise). */
+  model?: string;
+  /** API key override. If absent, adapter reads from env. */
+  apiKey?: string;
+  /** Abort signal for Ctrl+C / timeout cancellation. */
+  signal?: AbortSignal;
+  /** Optional base URL override (useful for local runtimes). */
+  baseUrl?: string;
+  /** Cap on output tokens (provider may truncate). */
+  maxTokens?: number;
+}
+
+/** Terminal chunk payload emitted at stream end (token / cost telemetry). */
+export interface PromptStreamTerminal {
+  /** Best-effort token estimate when the provider does not expose one. */
+  tokensEstimated: number;
+  /** Provider-reported output token count when available. */
+  tokensOut?: number;
+  /** Provider-reported input token count when available. */
+  tokensIn?: number;
+}
+
 /** Provider-specific message rendering. */
 export interface PromptAdapter {
   name: PromptProvider;
@@ -134,4 +160,16 @@ export interface PromptAdapter {
    *   user turn.
    */
   render(messages: PromptMessage[]): PromptMessage[];
+  /**
+   * Stream a model response chunk-by-chunk. Yields text deltas (`string`)
+   * until the underlying request completes, then yields one terminal
+   * {@link PromptStreamTerminal} record with token accounting.
+   *
+   * Implementations MUST:
+   *   - Respect `options.signal` (abort early when tripped).
+   *   - Never log `apiKey` or any token.
+   *   - Convert network / auth failures into typed `Error` with a safe
+   *     (non-secret-bearing) `message`.
+   */
+  stream(options: PromptStreamOptions): AsyncIterable<string | PromptStreamTerminal>;
 }
