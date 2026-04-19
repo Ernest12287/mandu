@@ -1,0 +1,179 @@
+name: Heap Smoke (nightly)
+
+# Long-run dev-server heap smoke test.
+#
+# Spawns `mandu dev` on `demo/auth-starter`, issues 1000 requests over ~60s,
+# samples `/_mandu/heap` at a fixed cadence, and asserts the final RSS stays
+# within `initial + MANDU_SMOKE_MAX_GROWTH_MB` (default 100 MB). The smoke
+# harness lives at `scripts/smoke/dev-server-heap.ts` — see
+# `docs/ops/heap-smoke.md` for the tuning knobs.
+#
+# Triggers:
+#   - Nightly at 17:00 UTC (= 02:00 KST). Early-morning runs so any
+#     regression is surfaced before the next working day's first push.
+#   - `workflow_dispatch` for manual reruns / ad-hoc validation when
+#     investigating a suspected leak.
+#
+# Why a dedicated nightly workflow instead of folding into `ci.yml`:
+#   - The smoke takes ~60–90 s end-to-end (startup + request burst +
+#     settle window) and is too flaky on shared PR-time runners to gate
+#     every push on. It guards a *trend* — heap growth over a sustained
+#     workload — not a boolean unit invariant.
+#   - Failures should not block feature PRs; they should open an issue
+#     and be triaged against recent bundler / server changes.
+#
+# Third-party actions are pinned to immutable commit SHAs to match the
+# Phase 11.A SLSA precedent set by `release-binaries.yml` — a compromised
+# upstream tag cannot silently substitute a different action.
+
+on:
+  schedule:
+    # 17:00 UTC daily == 02:00 KST. Cron syntax: min hour dom mon dow.
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+    inputs:
+      max_growth_mb:
+        description: "Override MANDU_SMOKE_MAX_GROWTH_MB budget (MB)"
+        required: false
+        default: "100"
+      requests:
+        description: "Override MANDU_SMOKE_REQUESTS burst size"
+        required: false
+        default: "1000"
+
+# Minimal permission surface — the job writes artifacts but does not push,
+# tag, release, or sign anything.
+permissions:
+  contents: read
+
+# Don't stack nightly runs on top of a still-running manual dispatch.
+concurrency:
+  group: heap-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  heap-smoke:
+    name: Dev server heap smoke (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # `bun run typecheck` is covered by the main CI workflow. We only
+      # need the workspace wired so the demo's `mandu dev` can resolve
+      # `@mandujs/core` / `@mandujs/cli` via workspace links.
+
+      - name: Run heap smoke
+        id: smoke
+        shell: bash
+        env:
+          # Stream heap debug endpoint; see scripts/smoke/dev-server-heap.ts.
+          MANDU_DEBUG_HEAP: "1"
+          MANDU_SMOKE_MAX_GROWTH_MB: >-
+            ${{ github.event.inputs.max_growth_mb || '100' }}
+          MANDU_SMOKE_REQUESTS: >-
+            ${{ github.event.inputs.requests || '1000' }}
+        run: |
+          set -o pipefail
+          mkdir -p .smoke-artifacts
+          # Tee both stdout and stderr so the job log stays readable AND
+          # we capture the full trace for the artifact upload. The smoke
+          # harness exits non-zero on RSS overflow (see the `fail()` helper
+          # in scripts/smoke/dev-server-heap.ts); pipefail propagates that
+          # exit status through the `tee` pipeline so this step — and the
+          # job — naturally fails the workflow run.
+          bun scripts/smoke/dev-server-heap.ts \
+            2> >(tee .smoke-artifacts/stderr.log >&2) \
+            | tee .smoke-artifacts/stdout.log
+
+      - name: Extract heap samples into JSON artifact
+        # The smoke's stdout includes `t=Xs rss=...MB` lines we can parse
+        # back into a JSON timeseries without requiring the harness to
+        # write a separate file. Keeps the script dependency-free and the
+        # artifact machine-readable.
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .smoke-artifacts/stdout.log ]]; then
+            echo "No stdout.log captured — smoke likely crashed before sampling"
+            exit 0
+          fi
+          python3 - <<'PY' > .smoke-artifacts/heap-samples.json
+          import json, re, sys
+          pattern = re.compile(
+              r"t=(\d+)s rss=(\d+)MB heap=(\d+)MB external=(\d+)MB \(delta=([+-]?\d+)MB\)"
+          )
+          samples = []
+          try:
+              with open(".smoke-artifacts/stdout.log", "r", encoding="utf-8", errors="replace") as f:
+                  for line in f:
+                      m = pattern.search(line)
+                      if not m:
+                          continue
+                      samples.append({
+                          "t_s": int(m.group(1)),
+                          "rss_mb": int(m.group(2)),
+                          "heap_used_mb": int(m.group(3)),
+                          "external_mb": int(m.group(4)),
+                          "delta_mb": int(m.group(5)),
+                      })
+          except FileNotFoundError:
+              pass
+          json.dump({"samples": samples, "count": len(samples)}, sys.stdout, indent=2)
+          PY
+          echo "Extracted $(python3 -c "import json;print(len(json.load(open('.smoke-artifacts/heap-samples.json'))['samples']))") samples"
+
+      - name: Upload heap smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: heap-smoke-${{ github.run_id }}
+          path: |
+            .smoke-artifacts/stdout.log
+            .smoke-artifacts/stderr.log
+            .smoke-artifacts/heap-samples.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Surface smoke failure
+        # The smoke harness exits non-zero on RSS overflow or startup
+        # failure; `set -o pipefail` above propagates that exit code so
+        # the job naturally fails. This step captures the stderr tail
+        # into the job summary for quick triage without digging into
+        # artifacts.
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Heap smoke FAILED"
+            echo ""
+            echo "### stderr (last 40 lines)"
+            echo ""
+            echo '```'
+            if [[ -f .smoke-artifacts/stderr.log ]]; then
+              tail -40 .smoke-artifacts/stderr.log || true
+            else
+              echo "(no stderr.log captured)"
+            fi
+            echo '```'
+            echo ""
+            echo "### stdout (last 40 lines)"
+            echo ""
+            echo '```'
+            if [[ -f .smoke-artifacts/stdout.log ]]; then
+              tail -40 .smoke-artifacts/stdout.log || true
+            else
+              echo "(no stdout.log captured)"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

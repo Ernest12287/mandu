@@ -62,14 +62,24 @@ afterAll(async () => {
   }
 });
 
-// Bun.build has observed cross-worker races under bun:test's parallel file
-// execution — when tests shuffle under --randomize, this file sometimes
-// collides with another bundler test in a sibling worker and fails with
-// "AggregateError: Bundle failed" + missing shim outputs. Gate on an env
-// var so CI can run randomize-mode across everything else, then run this
-// suite in a dedicated serial pass. Local `bun run test:core` (no env set)
-// still runs these tests fully. Tracked as Phase 0.6.
-describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")("buildClientBundles vendor shims", () => {
+// Historical note — `MANDU_SKIP_BUNDLER_TESTS` gate REMOVED.
+//
+// A previous revision gated this describe block behind
+// `describe.skipIf(MANDU_SKIP_BUNDLER_TESTS === "1")` because running
+// `bun test src/bundler/` without the gate hung indefinitely on Windows
+// (see Phase 0.6 and `docs/qa/wave-R2-integration-report.md`). Root cause
+// was NOT actually in THIS file — it was a deadlock in `safe-build.test.ts`'s
+// "slot handoff" regression test, which drove Bun's microtask queue with a
+// `while (!stop) { await Promise.resolve() }` sampler. That starved libuv
+// I/O callbacks, so the 7 parallel `safeBuild()` calls never completed, the
+// whole test process hung, and downstream test files (including this one
+// when run in the same invocation) looked flaky when they were simply
+// never reached. The handoff sampler now yields via `setImmediate`, which
+// unblocks Bun.build completion and makes `bun test src/bundler/` finish
+// deterministically in ~35s on Windows. Confirmed green 3/3 runs without
+// the gate on 2026-04-20. If you are tempted to re-introduce the skip here,
+// first check whether a sibling test is starving the event loop.
+describe("buildClientBundles vendor shims", () => {
   test("build succeeds", () => {
     if (!result.success) {
       console.error("[build.test] errors:", result.errors);

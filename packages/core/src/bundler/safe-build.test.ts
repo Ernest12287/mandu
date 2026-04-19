@@ -141,16 +141,34 @@ describe("safeBuild", () => {
 
     let peak = 0;
     let samples = 0;
-    // Sample at microtask granularity — more aggressive than the setInterval
-    // sampler in the earlier test — so the cap+1 window has a realistic
-    // chance of being observed if the bug returned.
+    // Sample active-slot count while the build burst is in flight. An earlier
+    // revision of this test used a `while (!stop) { await Promise.resolve() }`
+    // microtask busy-loop to push sampling granularity below setInterval's
+    // Windows 4ms-ish clamp. That deadlocks under Bun 1.3.x on Windows:
+    // `await Promise.resolve()` stays on the microtask queue, which runs
+    // to exhaustion before Bun's libuv I/O phase — so Bun.build completion
+    // callbacks never fire, `releaseSlot()` never runs, and the promises
+    // returned by the 7 parallel `safeBuild()` calls hang indefinitely.
+    // Reproduction: `bun test src/bundler/safe-build.test.ts` times out with
+    // only the banner printed (confirmed with a standalone repro of the
+    // sampler + 7 safeBuild calls — hung at "start" past 60s).
+    //
+    // Fix: yield to the macrotask queue via `setImmediate`. This lets
+    // libuv I/O callbacks run between samples, so Bun.build completes and
+    // `releaseSlot()` advances the queue. Per-tick granularity on Node/Bun
+    // is still sub-millisecond and fires ~hundreds of times during a 7-
+    // build burst — more than enough to statistically catch the cap+1
+    // regression window if it ever returned (the window is microtask-sized,
+    // but any cross-tick sampling with high fan-out has a realistic chance
+    // of landing inside it). The strict assertion is still `peak <= max`.
     let stop = false;
     const sample = async () => {
       while (!stop) {
         const { active } = _getConcurrencyState();
         if (active > peak) peak = active;
         samples++;
-        await Promise.resolve(); // yield to microtask queue
+        // Yield to libuv I/O phase so Bun.build callbacks can fire.
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     };
     const sampler = sample();
