@@ -1,6 +1,6 @@
 {
   "name": "@mandujs/playground-runner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Phase 16.2 live Bun runtime on Cloudflare Sandboxes. Worker + Durable Object + adapter for running user-submitted Mandu code in isolated sandboxes with SSE streaming.",
   "type": "module",
@@ -48,6 +48,7 @@
     "wrangler": ">=3.0.0"
   },
   "scripts": {
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "dev": "bun run src/local-server.ts"
   }
 }

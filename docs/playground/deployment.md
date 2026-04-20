@@ -11,18 +11,106 @@ related:
 
 # Playground Runner — Operator Deployment Guide
 
-This guide walks through deploying `@mandujs/playground-runner` to a real
-Cloudflare account. Until these steps are complete, the scaffold's
-`CloudflareSandboxAdapter` throws a visible error on every request —
-intentional, to prevent silent partial deploys.
+`@mandujs/playground-runner` ships in **two modes**. Pick based on audience:
 
-Estimated total time: **~45 minutes** (first time) / ~5 min on re-deploys.
+| Mode | File | Audience | Cost | Isolation |
+|---|---|---|---|---|
+| **Option 1: Cloudflare production** | `src/worker.ts` | Public mandujs.com visitors | ~$8/mo at 30k runs | CF Sandboxes container |
+| **Option 2: Local dev server** | `src/local-server.ts` | Your laptop / a teammate's | Free | `Bun.spawn` + loopback bind |
 
-Expected cost at 30k runs/month: **~$8/month** (Workers Paid $5 +
+- **Option 1** — §§1–11 below. The full Cloudflare deploy. Until all steps
+  are complete, the scaffold's `CloudflareSandboxAdapter` throws a visible
+  error on every request — intentional, to prevent silent partial deploys.
+- **Option 2** — [§0 Local dev](#0-option-2--local-dev-server) just below.
+  Two commands, no CF account, no Wrangler.
+
+Estimated total time: Option 1 **~45 minutes** (first time) / ~5 min on
+re-deploys. Option 2 **~30 seconds**.
+
+Expected cost: Option 1 at 30k runs/month: **~$8/month** (Workers Paid $5 +
 CF Containers ~$3). See [`playground-runtime.md` §2.1][econ] for the
-R0 economic model. Hard spend cap: **$25/month**.
+R0 economic model. Hard spend cap: **$25/month**. Option 2 is free.
 
 [econ]: ../bun/phase-16-diagnostics/playground-runtime.md
+
+## 0. Option 2 — Local dev server
+
+For developers who want a working playground backend on their own machine
+without touching Cloudflare. Useful for:
+- Developing the front-end playground UI against a real SSE stream
+- Reproducing a bug someone reported against the hosted playground
+- Onboarding new contributors (no CF account required)
+
+**Quick start**:
+
+```bash
+cd packages/playground-runner
+bun install
+bun run dev
+# → 🎮 Playground dev server at http://127.0.0.1:8788 (local-only, MockAdapter)
+```
+
+**What's the same as Option 1**:
+- Routes: `GET /api/playground/health`, `POST /api/playground/run`
+- SSE event shape + ordering (`sandbox-url` → `stdout`/`stderr` → `exit`/`error`)
+- Security limits from `src/security.ts` — 30s wall clock, 64 KiB output,
+  50 KiB input cap. `while(true){}` still times out.
+- CORS headers (configurable via `MANDU_PLAYGROUND_CORS_ORIGIN`)
+
+**What's different from Option 1**:
+
+| Concern | Option 1 (CF) | Option 2 (local) |
+|---|---|---|
+| Bind | CF edge | `127.0.0.1` only — never `0.0.0.0` |
+| Adapter | `CloudflareSandboxAdapter` | `MockAdapter` (runs a canned script, not user code) |
+| Rate limit | KV counter | **None** (trust boundary = localhost) |
+| Turnstile | Required after 5/15min | **None** (trust boundary = localhost) |
+| Durable Object | `PlaygroundRunner` | `LocalRunner` in-memory orchestrator |
+| Cost | ~$8/month | $0 |
+
+**Security boundary**: the MockAdapter runs code on the developer's own
+machine. The bind is pinned to `127.0.0.1` so nothing off-box can reach it.
+Do NOT port-forward, do NOT run behind ngrok, do NOT set
+`hostname: "0.0.0.0"` — those choices break the trust boundary.
+
+**Configuration** (env vars, optional):
+
+```bash
+MANDU_PLAYGROUND_PORT=9999 \
+MANDU_PLAYGROUND_CORS_ORIGIN=http://localhost:3000 \
+  bun run dev
+```
+
+**Pointing mandujs.com's playground UI at the local runner**:
+
+The public site stays in static mode. For a local mandujs.com dev build
+that talks to this runner, set `PUBLIC_PLAYGROUND_ENDPOINT=http://127.0.0.1:8788`
+on the front-end and guard the fetch behind a dev-only check (e.g.
+`if (import.meta.env.DEV && PUBLIC_PLAYGROUND_ENDPOINT)`). Do NOT ship
+that guard to production.
+
+**Smoke check**:
+
+```bash
+# Health
+curl -s http://127.0.0.1:8788/api/playground/health | jq .
+# → {"ok":true,"mode":"local","adapter":"mock",...}
+
+# Run (SSE stream)
+curl -sN -X POST http://127.0.0.1:8788/api/playground/run \
+  -H "Content-Type: application/json" \
+  -d '{"code":"console.log(1+1)","example":"hello-mandu"}'
+# → event: sandbox-url / event: stdout / event: exit
+```
+
+**When you outgrow Option 2**: switch to Option 1 for anything public-
+facing. The MockAdapter runs a canned script — it does not execute the
+user's code. For real code execution with container isolation, Option 1 is
+the only safe path.
+
+---
+
+The remainder of this document covers **Option 1 (CF production)**.
 
 ## 1. Prerequisites
 
