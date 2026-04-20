@@ -1,5 +1,12 @@
 # mandu-desktop-starter
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.26.0
+
 ## 0.1.6
 
 ### Patch Changes

@@ -1,5 +1,36 @@
 # @mandujs/cli
 
+## 0.27.2
+
+### Patch Changes
+
+- content + routes follow-ups (Closes #204, #205, #206):
+
+  - **#204** — `Collection.all()/get()/getCompiled()` guaranteed
+    watcher-free. Script chains exit cleanly. Watching via
+    `collection.watch(cb)` opt-in. `dispose()` + `Symbol.asyncDispose`.
+  - **#205** — `generateSidebar` reads `_meta.json` (title/icon/order/
+    pages[]). New `generateCategoryTree`. `generateLLMSTxt` baseUrl +
+    groupByCategory. `getCompiled` accepts `CompileOptions` (remark/
+    rehype plugins + silent).
+  - **#206** — Metadata Routes auto-discovery: `app/sitemap.ts`,
+    `app/robots.ts`, `app/llms.txt.ts`, `app/manifest.ts` →
+    `/sitemap.xml`, `/robots.txt`, `/llms.txt`, `/manifest.webmanifest`.
+    New `@mandujs/core/routes` export with typed contracts + dispatcher.
+    Default `Cache-Control: public, max-age=3600`.
+
+  No new runtime deps. Existing `renderSitemap`/`renderRobots` helpers
+  and `public/*.xml` workflow remain untouched (auto-discovery is
+  additive). `app/` > `public/` precedence with warning.
+
+  +74 regression tests. 7 packages typecheck clean.
+
+- Updated dependencies []:
+  - @mandujs/core@0.26.0
+  - @mandujs/edge@0.4.4
+  - @mandujs/mcp@0.20.3
+  - @mandujs/skills@6.0.0
+
 ## 0.27.1
 
 ### Patch Changes
