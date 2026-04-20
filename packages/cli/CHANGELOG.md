@@ -1,5 +1,13 @@
 # @mandujs/cli
 
+## 0.28.7
+
+### Patch Changes
+
+- Updated dependencies [[`81b4ff7`](https://github.com/konamgil/mandu/commit/81b4ff7adfbba4daeb070fdc6ff41a2e851c53fd)]:
+  - @mandujs/ate@0.20.0
+  - @mandujs/mcp@0.23.0
+
 ## 0.28.6
 
 ### Patch Changes
