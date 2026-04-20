@@ -1,5 +1,30 @@
 # @mandujs/core
 
+## 0.28.0
+
+### Minor Changes
+
+- feat(core,cli): hard-fail `__generated__/` imports at bundler level.
+
+  `mandu dev` / `mandu build` / `mandu start` 는 이제 bundler plugin
+  레이어에서 직접 `__generated__/` import를 감지하면 번들링 자체를
+  실패시킵니다. Guard rule만으로 부족했던 agent bypass 패턴의 원천 차단.
+
+  에러 메시지는 importer 파일 경로 + `getGenerated()` 사용 예시 +
+  docs URL을 포함합니다. `@mandujs/core/runtime` 내부 `__generated__`
+  접근은 기본 allowlist로 제외됩니다.
+
+  - `packages/core/src/bundler/plugins/block-generated-imports.ts` 신규
+  - `defaultBundlerPlugins(config)` 헬퍼 — 단일 설치 포인트
+  - `safeBuild` 6개 callsite + CLI SSR bundler 경로 자동 장착
+  - `ManduConfig.guard.blockGeneratedImport` (Zod, default `true`) opt-out
+  - `MANDU_DISABLE_BUNDLER_PLUGINS=1` 비상 탈출구
+  - `mandu init` 3개 템플릿 `tsconfig.json` paths 봉쇄 (IDE defense)
+  - 마이그레이션 가이드 `docs/migration/0.28-generated-block.md`
+  - `docs/architect/generated-access.md` Enforcement 섹션 추가
+
+  18 regression tests (15 unit + 3 integration). No new runtime deps.
+
 ## 0.27.0
 
 ### Minor Changes
