@@ -282,11 +282,46 @@ registerCommand({
 
 registerCommand({
   id: "info",
-  description: "Print project and environment information",
+  description:
+    "Print environment + config + health summary (agent-friendly debug dump)",
   exitOnSuccess: true,
-  async run() {
+  help: [
+    "",
+    "  mandu info — environment + config + health snapshot",
+    "",
+    "  Flags:",
+    "    --json                 Emit the payload as JSON to stdout",
+    "    --include <sections>   Comma-separated filter over:",
+    "                           mandu,runtime,project,config,routes,",
+    "                           middleware,plugins,diagnose",
+    "",
+    "  Sections:",
+    "    mandu        Installed @mandujs/* package versions",
+    "    runtime      Bun/Node/OS/CPU/memory/NODE_ENV",
+    "    project      package.json name + version + packageManager",
+    "    config       mandu.config.* distilled summary",
+    "    routes       Total + per-kind route counts from scanRoutes()",
+    "    middleware   Declared middleware chain",
+    "    plugins      Registered plugins + hook surface",
+    "    diagnose     Extended health report (Issue #215)",
+    "",
+    "  Examples:",
+    "    mandu info",
+    "    mandu info --json > info.json",
+    "    mandu info --include=mandu,runtime,diagnose",
+    "",
+    "  Issue reports: paste `mandu info --json` output for full context.",
+    "",
+  ].join("\n"),
+  async run(ctx) {
     const { info } = await import("./info");
-    return info();
+    const includeRaw = ctx.options.include;
+    const include =
+      typeof includeRaw === "string" && includeRaw !== "true" ? includeRaw : undefined;
+    return info({
+      json: ctx.options.json === "true",
+      include,
+    });
   },
 });
 
