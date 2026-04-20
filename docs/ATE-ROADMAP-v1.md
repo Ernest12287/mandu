@@ -1,5 +1,9 @@
 # Mandu ATE (Automated Test Engine) Roadmap v1.0
 
+> **Status (2026-04-21): SUPERSEDED BY [docs/ate/roadmap-v2-agent-native.md](ate/roadmap-v2-agent-native.md)**
+>
+> v2 는 auto-extract-우선 모델에서 context-provider 중심 agent-native 프로토콜로 전환. 본 문서는 역사적 참고용.
+>
 > 4명 전문가 (자동화, QA/QE, 테스트 케이스, AI 에이전트) 분석 기반
 >
 > 날짜: 2026-04-12

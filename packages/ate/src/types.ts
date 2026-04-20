@@ -32,13 +32,86 @@ export interface InteractionGraph {
     navigations: number;
     modals: number;
     actions: number;
+    /**
+     * Phase A.1 additions (optional — older consumers that only read
+     * `{ routes, navigations, modals, actions }` keep working). These
+     * counts reflect the expanded extractor scope: filling handlers,
+     * slot loader files, client island files, and page-level form
+     * occurrences.
+     */
+    fillings?: number;
+    slots?: number;
+    islands?: number;
+    forms?: number;
   };
 }
 
+/**
+ * Resolved `generateStaticParams` sample set for a dynamic route. Each
+ * entry is one concrete param combination — catch-all params are
+ * stored as string[]. Extracted statically from array-literal exports
+ * when the exported function has no free variables; otherwise omitted.
+ */
+export interface StaticParamSample {
+  params: Record<string, string | string[]>;
+}
+
 export type InteractionNode =
-  | { kind: "route"; id: string; file: string; path: string; methods?: string[]; hasIsland?: boolean; hasContract?: boolean; hasSse?: boolean; hasAction?: boolean; isRedirect?: boolean }
-  | { kind: "modal"; id: string; file: string; name: string }
-  | { kind: "action"; id: string; file: string; name: string };
+  // route — existing shape, extended with optional `staticParams` sample
+  // set + `routeId` (derived from file path with `/` → `-`, normalized
+  // for cross-node references).
+  | {
+      kind: "route";
+      id: string;
+      file: string;
+      path: string;
+      methods?: string[];
+      hasIsland?: boolean;
+      hasContract?: boolean;
+      hasSse?: boolean;
+      hasAction?: boolean;
+      isRedirect?: boolean;
+      /** Dynamic route only — up to N concrete param sets extracted from generateStaticParams. */
+      staticParams?: StaticParamSample[];
+      /** Normalized id derived from `path` (e.g. "/api/signup" → "api-signup"). */
+      routeId?: string;
+    }
+  // modal — existing shape, extended to optionally point at the route
+  // it belongs to.
+  | { kind: "modal"; id: string; file: string; name: string; routeId?: string }
+  // action — existing shape (Filling `.action(name, handler)` or top-level
+  // action registration). Extended with routeId.
+  | { kind: "action"; id: string; file: string; name: string; routeId?: string }
+  // filling — server-side handler module (`.post()`/`.get()`/...). The
+  // route-kind node can coexist with a filling node for the same file
+  // (route represents the URL, filling represents the handler's
+  // middleware/method surface).
+  | {
+      kind: "filling";
+      id: string;
+      file: string;
+      routeId: string;
+      methods: string[];
+      /**
+       * Middleware chain detected from `.use(xxx())` calls. Each entry is
+       * the identifier/callee text (e.g. "withSession", "csrf").
+       */
+      middlewareNames: string[];
+      /**
+       * Named actions registered via `.action("name", handler)`.
+       */
+      actions: string[];
+    }
+  // slot — `*.slot.ts(x)` file registering a server-side data loader
+  // for a page route. Surface in context so agent knows the typed
+  // output contract exists.
+  | { kind: "slot"; id: string; file: string; name: string; routeId?: string }
+  // island — `*.client.ts(x)` or `*.island.ts(x)` file.
+  | { kind: "island"; id: string; file: string; name: string; routeId?: string }
+  // form — page-level `<form action="...">` or `<Form>` occurrence,
+  // captured so agents know the page's interactive surface without
+  // re-parsing the source.
+  | { kind: "form"; id: string; file: string; action?: string; method?: string; routeId?: string };
 
 export type InteractionEdge =
   | { kind: "navigate"; from?: string; to: string; file: string; source: string }

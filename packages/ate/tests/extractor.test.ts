@@ -509,4 +509,274 @@ describe("extractor", () => {
       expect(route.isRedirect).toBeUndefined();
     }
   });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Phase A.1 — 5-kind extractor expansion (roadmap-v2-agent-native.md §7)
+  //
+  // These tests lock in detection of `filling`, `slot`, `island`, `action`,
+  // and `form` nodes. They run in isolated tmpdir subtrees so they cannot
+  // interfere with the route-only legacy tests above.
+  // ───────────────────────────────────────────────────────────────────────
+
+  test("A.1: detects filling node with middleware + actions", async () => {
+    const base = join(testDir, "a1-filling");
+    const apiDir = join(base, "app", "api", "signup");
+    mkdirSync(apiDir, { recursive: true });
+
+    // Mimic demo/auth-starter/app/api/signup/route.ts shape — Mandu.filling()
+    // chain with `.use()` middleware + `.post()` handler + a named action.
+    writeFileSync(
+      join(apiDir, "route.ts"),
+      `
+        import { Mandu } from "@mandujs/core";
+        export default Mandu.filling()
+          .use(withSession())
+          .use(withCsrf())
+          .post(async (ctx) => { return new Response(); })
+          .action("resend_confirmation", async (ctx) => { return new Response(); });
+      `
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/route.ts"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const filling = graph.nodes.find((n) => n.kind === "filling");
+    expect(filling).toBeDefined();
+    if (filling?.kind === "filling") {
+      expect(filling.routeId).toBe("api-signup");
+      expect(filling.methods).toContain("POST");
+      expect(filling.middlewareNames).toEqual(
+        expect.arrayContaining(["withSession", "withCsrf"])
+      );
+      expect(filling.actions).toContain("resend_confirmation");
+    }
+
+    // Named `.action()` also surfaces as an action node.
+    const actionNode = graph.nodes.find(
+      (n) => n.kind === "action" && n.name === "resend_confirmation"
+    );
+    expect(actionNode).toBeDefined();
+  });
+
+  test("A.1: detects slot companion file", async () => {
+    const base = join(testDir, "a1-slot");
+    const pageDir = join(base, "app");
+    mkdirSync(pageDir, { recursive: true });
+
+    writeFileSync(
+      join(pageDir, "page.tsx"),
+      `export default function Page() { return <div /> }`
+    );
+    writeFileSync(
+      join(pageDir, "layout.slot.ts"),
+      `export default { loader: async () => ({ greeting: "hello" }) };`
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const slot = graph.nodes.find((n) => n.kind === "slot");
+    expect(slot).toBeDefined();
+    if (slot?.kind === "slot") {
+      expect(slot.name).toBe("layout");
+      expect(slot.routeId).toBe("root");
+    }
+  });
+
+  test("A.1: detects island companion (.client.tsx)", async () => {
+    const base = join(testDir, "a1-island");
+    const pageDir = join(base, "app", "dashboard");
+    mkdirSync(pageDir, { recursive: true });
+
+    writeFileSync(
+      join(pageDir, "page.tsx"),
+      `export default function Dash() { return <div /> }`
+    );
+    writeFileSync(
+      join(pageDir, "counter.client.tsx"),
+      `"use client";\nexport default function Counter() { return <button /> }`
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const island = graph.nodes.find((n) => n.kind === "island");
+    expect(island).toBeDefined();
+    if (island?.kind === "island") {
+      expect(island.name).toBe("counter");
+      expect(island.routeId).toBe("dashboard");
+    }
+  });
+
+  test("A.1: detects action companion (.action.ts)", async () => {
+    const base = join(testDir, "a1-action-companion");
+    const pageDir = join(base, "app", "settings");
+    mkdirSync(pageDir, { recursive: true });
+
+    writeFileSync(
+      join(pageDir, "page.tsx"),
+      `export default function Settings() { return <div /> }`
+    );
+    writeFileSync(
+      join(pageDir, "update-profile.action.ts"),
+      `export default async function updateProfile() { }`
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const actionNode = graph.nodes.find(
+      (n) => n.kind === "action" && n.name === "update-profile"
+    );
+    expect(actionNode).toBeDefined();
+    if (actionNode?.kind === "action") {
+      expect(actionNode.routeId).toBe("settings");
+    }
+  });
+
+  test("A.1: detects <form action> on page as form node", async () => {
+    const base = join(testDir, "a1-form");
+    const pageDir = join(base, "app", "signup");
+    mkdirSync(pageDir, { recursive: true });
+
+    writeFileSync(
+      join(pageDir, "page.tsx"),
+      `
+        export default function SignupPage() {
+          return (
+            <form method="POST" action="/api/signup">
+              <input name="email" />
+            </form>
+          );
+        }
+      `
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const form = graph.nodes.find((n) => n.kind === "form");
+    expect(form).toBeDefined();
+    if (form?.kind === "form") {
+      expect(form.action).toBe("/api/signup");
+      expect(form.method).toBe("POST");
+      expect(form.routeId).toBe("signup");
+    }
+  });
+
+  test("A.1: modal convention — slot name containing 'modal' emits modal node", async () => {
+    const base = join(testDir, "a1-modal-convention");
+    const pageDir = join(base, "app", "posts");
+    mkdirSync(pageDir, { recursive: true });
+
+    writeFileSync(
+      join(pageDir, "page.tsx"),
+      `export default function Posts() { return <div /> }`
+    );
+    writeFileSync(
+      join(pageDir, "delete-modal.slot.ts"),
+      `export default {}`
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const modal = graph.nodes.find((n) => n.kind === "modal");
+    expect(modal).toBeDefined();
+    if (modal?.kind === "modal") {
+      expect(modal.name).toBe("delete-modal");
+    }
+  });
+
+  test("A.1: collects generateStaticParams array literal", async () => {
+    const base = join(testDir, "a1-static-params");
+    const pageDir = join(base, "app", "docs", "[slug]");
+    mkdirSync(pageDir, { recursive: true });
+
+    writeFileSync(
+      join(pageDir, "page.tsx"),
+      `
+        export function generateStaticParams() {
+          return [
+            { slug: "intro" },
+            { slug: "quickstart" },
+            { slug: "advanced" }
+          ];
+        }
+        export default function Page() { return <div /> }
+      `
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const route = graph.nodes.find((n) => n.kind === "route");
+    expect(route).toBeDefined();
+    if (route?.kind === "route") {
+      expect(route.staticParams).toBeDefined();
+      expect(route.staticParams).toHaveLength(3);
+      expect(route.staticParams?.[0]?.params.slug).toBe("intro");
+      expect(route.staticParams?.[2]?.params.slug).toBe("advanced");
+    }
+  });
+
+  test("A.1: router.push literal emits navigate edge", async () => {
+    const base = join(testDir, "a1-router-push");
+    const pageDir = join(base, "app");
+    mkdirSync(pageDir, { recursive: true });
+
+    writeFileSync(
+      join(pageDir, "page.tsx"),
+      `
+        import { useRouter } from "@mandujs/core/client";
+        export default function Page() {
+          const router = useRouter();
+          return <button onClick={() => router.push("/dashboard")} />;
+        }
+      `
+    );
+
+    const result = await extract({
+      repoRoot: base,
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    });
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const edge = graph.edges.find(
+      (e) => e.kind === "navigate" && e.source === "router.push"
+    );
+    expect(edge).toBeDefined();
+    if (edge?.kind === "navigate") {
+      expect(edge.to).toBe("/dashboard");
+    }
+  });
 });

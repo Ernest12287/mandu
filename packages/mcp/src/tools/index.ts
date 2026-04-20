@@ -28,6 +28,7 @@ export { runtimeTools, runtimeToolDefinitions } from "./runtime.js";
 export { seoTools, seoToolDefinitions } from "./seo.js";
 export { projectTools, projectToolDefinitions, getDevServerState } from "./project.js";
 export { ateTools, ateToolDefinitions, atePhase5ToolDefinitions, createAtePhase5Handlers } from "./ate.js";
+export { ateContextTools, ateContextToolDefinitions } from "./ate-context.js";
 export { resourceTools, resourceToolDefinitions } from "./resource.js";
 export { componentTools, componentToolDefinitions } from "./component.js";
 export { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -68,6 +69,7 @@ import { runtimeTools, runtimeToolDefinitions } from "./runtime.js";
 import { seoTools, seoToolDefinitions } from "./seo.js";
 import { projectTools, projectToolDefinitions } from "./project.js";
 import { ateTools, ateToolDefinitions, atePhase5ToolDefinitions, createAtePhase5Handlers } from "./ate.js";
+import { ateContextTools, ateContextToolDefinitions } from "./ate-context.js";
 import { resourceTools, resourceToolDefinitions } from "./resource.js";
 import { componentTools, componentToolDefinitions } from "./component.js";
 import { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -125,6 +127,7 @@ const TOOL_MODULES: ToolModule[] = [
   { category: "project", definitions: projectToolDefinitions, handlers: projectTools as ToolModule["handlers"], requiresServer: true },
   { category: "ate", definitions: ateToolDefinitions, handlers: ateTools as ToolModule["handlers"] },
   { category: "ate-phase5", definitions: atePhase5ToolDefinitions, handlers: createAtePhase5Handlers as unknown as ToolModule["handlers"] },
+  { category: "ate-context", definitions: ateContextToolDefinitions, handlers: ateContextTools },
   { category: "resource", definitions: resourceToolDefinitions, handlers: resourceTools },
   { category: "component", definitions: componentToolDefinitions, handlers: componentTools },
   { category: "kitchen", definitions: kitchenToolDefinitions, handlers: kitchenTools },

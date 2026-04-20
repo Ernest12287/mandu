@@ -2,7 +2,39 @@ export * from "./types";
 export * as ATEFS from "./fs";
 export { ATEFileError, ensureDir, readJson, writeJson, fileExists, getAtePaths } from "./fs";
 
-export { extract } from "./extractor";
+export { extract, readContractExamples, scanRepoWideCompanions } from "./extractor";
+export {
+  routeIdFromPath,
+  extractStaticParamsFromSource,
+  scanMiddlewareIdentifiers,
+  scanFillingActionNames,
+  scanFillingMethods,
+  isFillingSource,
+  isLikelyModalName,
+} from "./extractor-utils";
+
+// Phase A.1 — agent context + existing-spec indexer
+export { indexSpecs, specsForRouteId } from "./spec-indexer";
+export type { IndexedSpec, SpecIndex, SpecKind, SpecCoverage } from "./spec-indexer";
+export { buildContext } from "./context-builder";
+export type {
+  ContextScope,
+  ContextRequest,
+  ContextBlob,
+  RouteContextBlob,
+  FillingContextBlob,
+  ContractContextBlob,
+  ProjectContextBlob,
+  NotFoundBlob,
+  MiddlewareInfo,
+  ContractView,
+  ContractMethodView,
+  ContractMethodExample,
+  FixtureRecommendations,
+  ExistingSpecView,
+  RelatedRouteView,
+  BuildContextOptions,
+} from "./context-builder";
 export { generateAndWriteScenarios } from "./scenario";
 export type { ScenarioKind, GeneratedScenario, ScenarioBundle } from "./scenario";
 export { generatePlaywrightSpecs } from "./codegen";
@@ -171,6 +203,26 @@ export async function ateImpact(input: ImpactInput) {
 export async function ateHeal(input: HealInput) {
   const { heal } = await import("./heal");
   return { ok: true, ...heal(input) };
+}
+
+/**
+ * Phase A.1 — context for agents. Returns the JSON blob consumed by
+ * the `mandu_ate_context` MCP tool. Re-exports `buildContext` under
+ * the `ateXxx(...)` naming convention the rest of the package uses
+ * for MCP-adjacent helpers.
+ */
+export async function ateContext(input: {
+  repoRoot: string;
+  scope: "project" | "route" | "filling" | "contract";
+  id?: string;
+  route?: string;
+}) {
+  const { buildContext } = await import("./context-builder");
+  return buildContext(input.repoRoot, {
+    scope: input.scope,
+    id: input.id,
+    route: input.route,
+  });
 }
 
 export { runFullPipeline } from "./pipeline";
