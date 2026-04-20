@@ -10,6 +10,7 @@ import { escapeHtmlAttr, escapeHtmlText, escapeJsonForInlineScript } from "./esc
 import { REACT_INTERNALS_SHIM_SCRIPT } from "./shims";
 import { generateFastRefreshPreamble } from "../bundler/dev";
 import { PREFETCH_HELPER_SCRIPT } from "../client/prefetch-helper";
+import { SPA_NAV_HELPER_SCRIPT } from "../client/spa-nav-helper";
 
 /**
  * Issue #192 — `@view-transition` at-rule block.
@@ -579,6 +580,16 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
   //   or cancel with a later inline style. False disables each independently.
   const viewTransitionTag = transitions !== false ? VIEW_TRANSITION_STYLE_TAG : "";
   const prefetchScriptTag = prefetch !== false ? PREFETCH_HELPER_SCRIPT : "";
+  // Issue #208 — Inline SPA-nav IIFE. Pre-#208 Issue #193 wired the SPA
+  // click handler into the client bundle (`router.ts::handleLinkClick`),
+  // which never ships to `hydration: "none"` projects (docs / marketing
+  // sites). The inline helper closes that gap: ~1.6 KB of JS that runs
+  // parse-time on every SSR response and intercepts internal anchor
+  // clicks using the same 10 exclusion cases as the full router.
+  // Coexists safely with the full router via a `__MANDU_ROUTER_STATE__`
+  // early-exit. Emit when `spa !== false`; skip entirely when the user
+  // opts out via `ssr.spa: false` (same flag the big-router reads).
+  const spaNavHelperTag = spa !== false ? SPA_NAV_HELPER_SCRIPT : "";
 
   // useHead/useSeoMeta SSR 수집
   let collectedHeadTags = "";
@@ -709,6 +720,7 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
   ${cssLinkTag}
   ${viewTransitionTag}
   ${prefetchScriptTag}
+  ${spaNavHelperTag}
   ${hoistedLinkTags}
   ${headTags}
   ${collectedHeadTags}

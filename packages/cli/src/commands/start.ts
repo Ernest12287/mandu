@@ -173,6 +173,10 @@ export async function start(options: StartOptions = {}): Promise<void> {
     // Issue #192 — smooth navigation primitives honored in prod
     transitions: config.transitions,
     prefetch: config.prefetch,
+    // Issue #208 — inline SPA-nav helper honored in prod. Default `true`
+    // via `ssr.spa` Zod schema; `false` suppresses the IIFE + reverts
+    // the client router to opt-in (`data-mandu-link`).
+    spa: config.spa,
   };
 
   let actualPort: number;

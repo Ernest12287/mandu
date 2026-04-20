@@ -317,17 +317,29 @@ describe("renderToHTML — DevTools script", () => {
 // ---------------------------------------------------------------------------
 
 describe("renderToHTML — Zero-JS mode", () => {
-  it("produces no <script> tags when no hydration/dev options are set", () => {
+  it("produces no <script> tags (ignoring the spa=false legacy flag) when no hydration/dev options are set", () => {
     // Issue #192 — the hover-prefetch helper is injected by default in all
-    // SSR output. A "truly Zero-JS" page requires `prefetch: false`. Dev is
-    // false too (default), so no HMR / DevTools scripts either.
+    //   SSR output. A "truly Zero-JS" page requires `prefetch: false`.
+    // Issue #208 — the inline SPA-nav helper is also injected by default
+    //   (so `hydration: "none"` projects still feel like a SPA). Opt out
+    //   with `spa: false` — which ALSO causes Issue #193's legacy
+    //   `<script>window.__MANDU_SPA__=false;</script>` flag to emit so
+    //   the full client router (when present) reverts to opt-in via
+    //   `data-mandu-link`. That single 33-byte `<script>` is intentional
+    //   and byte-minimal; the page still has no loader, vendor, runtime,
+    //   prefetch, or SPA-nav scripts.
+    // Dev is false by default, so no HMR / DevTools scripts either.
     const html = renderToHTML(React.createElement("p", null, "static"), {
       prefetch: false,
+      spa: false,
     });
 
-    // Count all <script tags in the output
-    const scriptCount = (html.match(/<script/g) || []).length;
-    expect(scriptCount).toBe(0);
+    // Only the __MANDU_SPA__ flag script should appear, and nothing
+    // else. We assert both the count and that the one present script
+    // is the tiny flag (not a full bundle).
+    const scripts = html.match(/<script[^>]*>[\s\S]*?<\/script>/g) || [];
+    expect(scripts.length).toBe(1);
+    expect(scripts[0]).toBe("<script>window.__MANDU_SPA__=false;</script>");
   });
 
   it("produces no module scripts when hydration strategy is 'none'", () => {

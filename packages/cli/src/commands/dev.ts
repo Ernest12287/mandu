@@ -1034,6 +1034,10 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     // from config so explicit opt-out (`transitions: false`) is honored.
     transitions: config.transitions,
     prefetch: config.prefetch,
+    // Issue #208 — inline SPA-nav helper (~1.6 KB). Honors `ssr.spa`
+    // config so dev mirrors prod. Always injected on hydration: "none"
+    // projects where the full router bundle never ships.
+    spa: config.spa,
     // Issue #191 — dev-only `_devtools.js` (~1.15 MB) injection override.
     // `undefined` keeps the default auto-detect (inject iff hasIslands).
     // Explicit `true` / `false` force on / off.

@@ -377,6 +377,17 @@ export interface ServerOptions {
    */
   prefetch?: boolean;
   /**
+   * Issue #193 / #208 — enable opt-out SPA navigation (default `true`).
+   * When `true`, every SSR response gets (a) the `window.__MANDU_SPA__`
+   * global elided (the router's default) and (b) the inline SPA-nav
+   * IIFE (~1.6 KB) that intercepts internal `<a>` clicks with pushState
+   * + fetch + View-Transitions DOM-swap, so `hydration: "none"` projects
+   * still feel like a SPA. `false` reverts to legacy full-reload (and
+   * the full router's opt-in `data-mandu-link` requirement). Wired from
+   * `ManduConfig.spa`; per-link opt-out lives on `data-no-spa`.
+   */
+  spa?: boolean;
+  /**
    * Issue #191 — override dev-mode `_devtools.js` injection.
    * Wired from `ManduConfig.dev.devtools`.
    *   - `true`      → force inject on every page (SSR-only + Kitchen).
@@ -527,6 +538,14 @@ export interface ServerRegistrySettings {
    * default); `false` suppresses the hover prefetch `<script>` injection.
    */
   prefetch?: boolean;
+  /**
+   * Issue #193 / #208 — threaded from `ServerOptions.spa`.
+   * `undefined` is treated as `true` at the SSR call-site (default SPA
+   * nav on, helper injected). `false` both disables the full client
+   * router (opt-in via `data-mandu-link` only) AND omits the inline
+   * SPA-nav IIFE from `<head>`.
+   */
+  spa?: boolean;
   /**
    * Issue #191 — threaded from `ServerOptions.devtools`. `undefined`
    * means "use default (islands → inject)"; `true` / `false` force the
@@ -2081,6 +2100,7 @@ async function renderPageSSR(
         cssPath: settings.cssPath,
         transitions: settings.transitions,
         prefetch: settings.prefetch,
+        spa: settings.spa,
         devtools: settings.devtools,
         onShellReady: () => {
           if (settings.isDev) {
@@ -2119,6 +2139,7 @@ async function renderPageSSR(
       islandPreWrapped: !!needsIslandWrap,
       transitions: settings.transitions,
       prefetch: settings.prefetch,
+      spa: settings.spa,
       devtools: settings.devtools,
     });
     return ok(cookies ? cookies.applyToResponse(ssrResponse) : ssrResponse);
@@ -2162,6 +2183,7 @@ async function renderPageSSR(
             cssPath: settings.cssPath,
             transitions: settings.transitions,
             prefetch: settings.prefetch,
+            spa: settings.spa,
             devtools: settings.devtools,
           });
           return ok(cookies ? cookies.applyToResponse(errorHtml) : errorHtml);
@@ -2268,6 +2290,7 @@ async function renderNotFoundPage(
       cssPath: settings.cssPath,
       transitions: settings.transitions,
       prefetch: settings.prefetch,
+      spa: settings.spa,
       devtools: settings.devtools,
     });
 
@@ -2749,6 +2772,7 @@ async function handleRequestInternal(
           cssPath: settings.cssPath,
           transitions: settings.transitions,
           prefetch: settings.prefetch,
+          spa: settings.spa,
           devtools: settings.devtools,
         });
         const headers = new Headers(html.headers);
@@ -2907,6 +2931,7 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     managementToken,
     transitions,
     prefetch,
+    spa,
     devtools,
     observability: observabilityOption,
   } = options;
@@ -2946,6 +2971,7 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     managementToken,
     transitions,
     prefetch,
+    spa,
     devtools,
     heapEndpoint: observabilityOption?.heapEndpoint,
     metricsEndpoint: observabilityOption?.metricsEndpoint,

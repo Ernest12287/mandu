@@ -25,6 +25,7 @@ import { getRenderToString } from "./react-renderer";
 import { mark, measure } from "../perf";
 import { generateFastRefreshPreamble } from "../bundler/dev";
 import { PREFETCH_HELPER_SCRIPT } from "../client/prefetch-helper";
+import { SPA_NAV_HELPER_SCRIPT } from "../client/spa-nav-helper";
 
 /**
  * Issue #192 — `@view-transition` at-rule, mirror of the constant in
@@ -176,6 +177,14 @@ export interface StreamingSSROptions {
    * Default: `true`.
    */
   prefetch?: boolean;
+  /**
+   * Issue #208 — emit the inline SPA-nav helper `<script>` (~1.6 KB)
+   * into the streaming shell `<head>`. Mirrors `SSROptions.spa`:
+   * `true` (default) injects so zero-JS / `hydration: "none"` projects
+   * still get pushState navigations + View Transitions API; `false`
+   * omits the block entirely, matching the legacy full-reload default.
+   */
+  spa?: boolean;
   /**
    * Issue #191 — control dev-mode injection of the `_devtools.js`
    * bundle. Mirrors `SSROptions.devtools`:
@@ -533,6 +542,7 @@ function generateHTMLShell(options: StreamingSSROptions): string {
     isDev = false,
     transitions = true,
     prefetch = true,
+    spa = true,
   } = options;
 
   // CSS 링크 태그 생성
@@ -549,6 +559,11 @@ function generateHTMLShell(options: StreamingSSROptions): string {
   // an inline style later in the document order.
   const viewTransitionTag = transitions !== false ? VIEW_TRANSITION_STYLE_TAG : "";
   const prefetchScriptTag = prefetch !== false ? PREFETCH_HELPER_SCRIPT : "";
+  // Issue #208 — Inline SPA-nav IIFE, mirror of `ssr.ts::renderToHTML`.
+  // See that call-site for the full rationale. Streaming SSR follows
+  // the same opt-out contract: `spa !== false` injects, `spa: false`
+  // omits the `<script>` block entirely.
+  const spaNavHelperTag = spa !== false ? SPA_NAV_HELPER_SCRIPT : "";
 
   // Island wrapper (hydration이 필요한 경우)
   const needsHydration = hydration && hydration.strategy !== "none" && routeId && bundleManifest;
@@ -630,6 +645,7 @@ function generateHTMLShell(options: StreamingSSROptions): string {
   ${cssLinkTag}
   ${viewTransitionTag}
   ${prefetchScriptTag}
+  ${spaNavHelperTag}
   ${loadingStyles}
   ${importMapScript}
   ${headTags}
