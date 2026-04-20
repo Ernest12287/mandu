@@ -1,5 +1,25 @@
 # @mandujs/cli
 
+## 0.27.1
+
+### Patch Changes
+
+- fix: resolve #203 — configurable prebuild timeout + preserve inner errors.
+
+  - `mandu.config.ts` `dev.prebuildTimeoutMs` (default 120_000 ms) +
+    `MANDU_PREBUILD_TIMEOUT_MS` env override.
+  - New `PrebuildTimeoutError` (subclass of `PrebuildError`) names the
+    failing script + limit + both override paths.
+  - Inner error message + stack preserved via `.cause`. No more opaque
+    "non-Error thrown" surface.
+  - stdout/stderr tail (last 10 lines each) appended to
+    `PrebuildError.message` on non-zero exit.
+  - CLI `mandu dev` prints `err.message` + `cause.stack` on abort.
+
+- Updated dependencies []:
+  - @mandujs/core@0.25.3
+  - @mandujs/edge@0.4.3
+
 ## 0.27.0
 
 ### Minor Changes
