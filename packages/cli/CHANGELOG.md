@@ -1,5 +1,34 @@
 # @mandujs/cli
 
+## 0.27.3
+
+### Patch Changes
+
+- fix: #207 view-transition injection hardening + #208 inline SPA-nav
+  helper for `hydration: "none"` projects.
+
+  - **#207**: No code defect; `@view-transition` CSS was already injected
+    across all SSR paths. Locked it down with 12-case regression suite
+    covering streaming SSR / prerender / 404 / error / opt-out.
+  - **#208**: Genuine defect. `ssr.spa: true` was documented default but
+    intercept lived in client bundle that `hydration: "none"` projects
+    never ship. New `client/spa-nav-helper.ts` inline IIFE (~2.7 KB)
+    injected into `<head>` alongside the prefetch helper. Full 10-case
+    exclusion parity with `handleLinkClick`. pushState + fetch +
+    View-Transitions DOM-swap. Early-exits when full router present so
+    hydrated pages unaffected.
+
+  Wired through `ServerOptions.spa` to all 5 renderSSR/
+  renderStreamingResponse call-sites. CLI dev + start pass `config.spa`.
+
+  +66 regression tests (12 #207 + 54 #208). No new runtime deps.
+
+- Updated dependencies []:
+  - @mandujs/core@0.27.0
+  - @mandujs/edge@0.4.5
+  - @mandujs/mcp@0.20.4
+  - @mandujs/skills@7.0.0
+
 ## 0.27.2
 
 ### Patch Changes
