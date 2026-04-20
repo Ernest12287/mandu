@@ -1,5 +1,26 @@
 # @mandujs/cli
 
+## 0.27.6
+
+### Patch Changes
+
+- Phase 18 Wave E2 — runtime depth (ISR + bundle analyzer + OTel tracing).
+
+  **ζ ISR + cache tags** — filling loader가 `{ _cache: { tags, maxAge, staleWhileRevalidate } }` 반환 or `ctx.cache.tag('x').maxAge(10).swr(3600)` fluent API. `revalidate(tag)` tag-based invalidation. `Cache-Control` + `X-Mandu-Cache` 헤더 자동. Next.js ISR parity.
+
+  **η Bundle analyzer** — `mandu build --analyze` → `.mandu/analyze/report.html` (self-contained SVG treemap, dark theme, click-to-drill) + `report.json`. Per-island raw+gz, shared chunk dedupe detection, top-20 heaviest modules. 외부 dep 없음.
+
+  **θ Request tracing** — W3C Trace Context + AsyncLocalStorage propagation, Console + OTLP HTTP exporters. `ctx.span` + `ctx.startSpan(name, fn)` filling integration. Hand-rolled OTLP JSON encoding (opentelemetry-js dep 없음). Honeycomb / Jaeger / Tempo 호환.
+
+  Quality: 7 packages typecheck clean, +84 regression tests, zero new
+  runtime deps.
+
+- Updated dependencies []:
+  - @mandujs/core@0.30.0
+  - @mandujs/edge@0.4.9
+  - @mandujs/mcp@0.20.7
+  - @mandujs/skills@9.0.0
+
 ## 0.27.5
 
 ### Patch Changes
