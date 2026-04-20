@@ -227,7 +227,7 @@ describe("codegen", () => {
     });
   });
 
-  test("should use baseURL from environment", () => {
+  test("should use baseURL from environment with IPv4 fallback", () => {
     // Setup
     const repoRoot = setupProject([{ id: "/", path: "/", file: "app/page.tsx" }]);
     generateAndWriteScenarios(repoRoot, "L1");
@@ -235,9 +235,13 @@ describe("codegen", () => {
     // Execute
     const result = generatePlaywrightSpecs(repoRoot);
 
-    // Assert
-    const specContent = readFileSync(result.files[0], "utf8");
-    expect(specContent).toContain('const url = (baseURL ?? "http://localhost:3333")');
+    // Assert — 127.0.0.1 (not localhost) sidesteps IPv6/IPv4 DNS mismatch on
+    // Windows Node fetch (#223). Every emitted spec should use the same fallback.
+    for (const file of result.files) {
+      const specContent = readFileSync(file, "utf8");
+      expect(specContent).toContain('const url = (baseURL ?? "http://127.0.0.1:3333")');
+      expect(specContent).not.toContain('localhost:3333');
+    }
   });
 
   test("should handle root route correctly", () => {
@@ -254,7 +258,60 @@ describe("codegen", () => {
     expect(specContent).not.toContain('+ ""');
   });
 
-  test("should include await page.goto", () => {
+  test("should include await page.goto with waitUntil networkidle", () => {
+    // Setup
+    const repoRoot = setupProject([{ id: "/", path: "/", file: "app/page.tsx" }]);
+    generateAndWriteScenarios(repoRoot, "L1");
+
+    // Execute
+    const result = generatePlaywrightSpecs(repoRoot);
+
+    // Assert — every page-oriented spec waits for network idle before
+    // inspecting the page. This prevents page.content() failures on routes
+    // that redirect on load (#224).
+    for (const file of result.files) {
+      const specContent = readFileSync(file, "utf8");
+      // Either the goto carries waitUntil or the spec is API-only (no page).
+      if (specContent.includes("page.goto(")) {
+        expect(specContent).toContain('waitUntil: "networkidle"');
+      }
+    }
+  });
+
+  test("redirect route: ssr-verify spec skips page.content() and asserts navigation", () => {
+    // Setup — manually craft a graph with isRedirect=true on the root route.
+    const repoRoot = join(testDir, `project-redirect-${Date.now()}`);
+    mkdirSync(repoRoot, { recursive: true });
+    const graph = createEmptyGraph("test");
+    addNode(graph, {
+      kind: "route",
+      id: "/",
+      path: "/",
+      file: "app/page.tsx",
+      isRedirect: true,
+    });
+    const manduDir = join(repoRoot, ".mandu");
+    mkdirSync(manduDir, { recursive: true });
+    writeJson(join(manduDir, "interaction-graph.json"), graph);
+    generateAndWriteScenarios(repoRoot, "L1");
+
+    // Execute
+    const result = generatePlaywrightSpecs(repoRoot);
+
+    // Assert — ssr-verify spec for a redirect route must not call
+    // page.content() immediately after goto (it will throw while the page is
+    // still navigating). It should assert navigation settled instead.
+    const ssrFile = result.files.find((f) => f.includes("ssr-verify"));
+    expect(ssrFile).toBeDefined();
+    const ssrContent = readFileSync(ssrFile!, "utf8");
+    expect(ssrContent).not.toContain("page.content()");
+    expect(ssrContent).not.toContain('expect(html).toContain("<!DOCTYPE html>")');
+    expect(ssrContent).toContain('waitUntil: "networkidle"');
+    expect(ssrContent).toContain("expect(page.url()");
+    expect(ssrContent).toContain("waitForLoadState");
+  });
+
+  test("non-redirect route: ssr-verify spec still asserts DOCTYPE + html shape", () => {
     // Setup
     const repoRoot = setupProject([{ id: "/", path: "/", file: "app/page.tsx" }]);
     generateAndWriteScenarios(repoRoot, "L1");
@@ -263,8 +320,12 @@ describe("codegen", () => {
     const result = generatePlaywrightSpecs(repoRoot);
 
     // Assert
-    const specContent = readFileSync(result.files[0], "utf8");
-    expect(specContent).toContain("await page.goto(url)");
+    const ssrFile = result.files.find((f) => f.includes("ssr-verify"));
+    expect(ssrFile).toBeDefined();
+    const ssrContent = readFileSync(ssrFile!, "utf8");
+    expect(ssrContent).toContain("const html = await page.content();");
+    expect(ssrContent).toContain('expect(html).toContain("<!DOCTYPE html>")');
+    expect(ssrContent).toContain('waitUntil: "networkidle"');
   });
 
   test("should create auto/ directory for generated specs", () => {

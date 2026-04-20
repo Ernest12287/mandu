@@ -107,6 +107,22 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
         hasAction = methods.includes("POST") && /_action/.test(sourceText);
       }
 
+      // Page route: detect meta-refresh redirect or server redirect() return.
+      // A route that emits <meta http-equiv="refresh" ...> or returns a Response
+      // produced by redirect() performs a page-level navigation on load, which
+      // breaks downstream Playwright assertions that call page.content() before
+      // the navigation settles (issue #224).
+      let isRedirect = false;
+      if (!isApiRoute) {
+        const sourceText = sourceFile.getFullText();
+        // JSX: <meta httpEquiv="refresh" ...> or <meta http-equiv="refresh" ...>
+        const metaRefresh = /<meta\s+[^>]*http-?[Ee]quiv\s*=\s*["'{][^"'}]*refresh/i.test(sourceText)
+          || /httpEquiv\s*=\s*["'{]\s*refresh/i.test(sourceText);
+        // Server-side: `return redirect(...)` (mandu runtime helper) at top level
+        const serverRedirect = /\breturn\s+redirect\s*\(/.test(sourceText);
+        isRedirect = metaRefresh || serverRedirect;
+      }
+
       // Detect companion island and contract files
       const routeDir = dirname(filePath);
       const hasIsland = [".island.tsx", ".island.ts", ".client.tsx", ".client.ts"]
@@ -124,6 +140,7 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
         ...(hasContract ? { hasContract: true } : {}),
         ...(hasSse ? { hasSse: true } : {}),
         ...(hasAction ? { hasAction: true } : {}),
+        ...(isRedirect ? { isRedirect: true } : {}),
       });
 
       // API route에는 JSX/navigation이 없으므로 건너뜀

@@ -219,6 +219,50 @@ describe("scenario", () => {
     expect(bundle.scenarios[0].route).toBe("/products/[id]");
   });
 
+  test("redirect route: ssr-verify scenario carries isRedirect and island-hydration is skipped", () => {
+    // Setup — redirect route with an island (e.g. locale picker island on the
+    // root that redirects to /<defaultLocale>). No island-hydration scenario
+    // should be produced: the origin page navigates away before hydration.
+    const graph = createEmptyGraph("test");
+    addNode(graph, {
+      kind: "route",
+      id: "/",
+      file: "app/page.tsx",
+      path: "/",
+      hasIsland: true,
+      isRedirect: true,
+    });
+
+    // Execute
+    const bundle = generateScenariosFromGraph(graph, "L1");
+
+    // Assert
+    const ssr = bundle.scenarios.find((s) => s.kind === "ssr-verify");
+    expect(ssr).toBeDefined();
+    expect(ssr?.isRedirect).toBe(true);
+    const islandHydration = bundle.scenarios.find((s) => s.kind === "island-hydration");
+    expect(islandHydration).toBeUndefined();
+  });
+
+  test("non-redirect island route: ssr-verify has no isRedirect and island-hydration still emitted", () => {
+    const graph = createEmptyGraph("test");
+    addNode(graph, {
+      kind: "route",
+      id: "/dashboard",
+      file: "app/dashboard/page.tsx",
+      path: "/dashboard",
+      hasIsland: true,
+    });
+
+    const bundle = generateScenariosFromGraph(graph, "L1");
+
+    const ssr = bundle.scenarios.find((s) => s.kind === "ssr-verify");
+    expect(ssr).toBeDefined();
+    expect(ssr?.isRedirect).toBeUndefined();
+    const islandHydration = bundle.scenarios.find((s) => s.kind === "island-hydration");
+    expect(islandHydration).toBeDefined();
+  });
+
   test("should handle routes with special characters", () => {
     // Setup
     const graph = createEmptyGraph("test");

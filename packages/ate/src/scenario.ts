@@ -9,6 +9,12 @@ export interface GeneratedScenario {
   route: string;
   methods?: string[];
   hasIsland?: boolean;
+  /**
+   * Route performs a page-level redirect on load (meta-refresh or
+   * server-side redirect()). ssr-verify specs for redirect routes avoid
+   * calling page.content() immediately after goto (issue #224).
+   */
+  isRedirect?: boolean;
   oracleLevel: OracleLevel;
 }
 
@@ -32,7 +38,7 @@ export function generateScenariosFromGraph(graph: InteractionGraph, oracleLevel:
     throw new Error("빈 interaction graph입니다 (nodes가 없습니다)");
   }
 
-  const routes = graph.nodes.filter((n) => n.kind === "route") as Array<{ kind: "route"; id: string; path: string; methods?: string[]; hasIsland?: boolean; hasSse?: boolean; hasAction?: boolean }>;
+  const routes = graph.nodes.filter((n) => n.kind === "route") as Array<{ kind: "route"; id: string; path: string; methods?: string[]; hasIsland?: boolean; hasSse?: boolean; hasAction?: boolean; isRedirect?: boolean }>;
 
   if (routes.length === 0) {
     console.warn("[ATE] 경고: route가 없습니다. 빈 시나리오 번들을 생성합니다.");
@@ -59,11 +65,14 @@ export function generateScenariosFromGraph(graph: InteractionGraph, oracleLevel:
         kind: "ssr-verify",
         route: r.id,
         hasIsland: !!r.hasIsland,
+        ...(r.isRedirect ? { isRedirect: true } : {}),
         oracleLevel,
       });
 
-      // Island hydration for pages with islands
-      if (r.hasIsland) {
+      // Island hydration for pages with islands.
+      // Skip for redirect routes: the origin page navigates away before any
+      // island on it could hydrate (issue #224).
+      if (r.hasIsland && !r.isRedirect) {
         scenarios.push({
           id: `${r.id}--island-hydration`,
           kind: "island-hydration",

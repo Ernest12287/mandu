@@ -424,4 +424,89 @@ describe("extractor", () => {
       expect(navigateEdge.to).toBe("/profile");
     }
   });
+
+  test("should flag isRedirect on page that emits <meta httpEquiv=\"refresh\">", async () => {
+    // Setup — i18n root pattern: root page redirects to /<defaultLocale>.
+    const appDir = join(testDir, "meta-refresh-root", "app");
+    mkdirSync(appDir, { recursive: true });
+
+    const pageContent = `
+      export default function RootPage() {
+        return (
+          <meta httpEquiv="refresh" content="0;url=/en" />
+        );
+      }
+    `;
+    writeFileSync(join(appDir, "page.tsx"), pageContent);
+
+    // Execute
+    const input: ExtractInput = {
+      repoRoot: join(testDir, "meta-refresh-root"),
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    };
+    const result = await extract(input);
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    // Assert — downstream codegen inspects this flag to pick a
+    // redirect-shaped ssr-verify spec (issue #224).
+    const route = graph.nodes.find((n) => n.kind === "route" && n.path === "/");
+    expect(route).toBeDefined();
+    if (route?.kind === "route") {
+      expect(route.isRedirect).toBe(true);
+    }
+  });
+
+  test("should flag isRedirect on page that returns redirect() server-side", async () => {
+    const appDir = join(testDir, "server-redirect", "app");
+    mkdirSync(appDir, { recursive: true });
+
+    const pageContent = `
+      import { redirect } from "@mandujs/core";
+      export default function RootPage() {
+        return redirect("/en");
+      }
+    `;
+    writeFileSync(join(appDir, "page.tsx"), pageContent);
+
+    const input: ExtractInput = {
+      repoRoot: join(testDir, "server-redirect"),
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    };
+    const result = await extract(input);
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const route = graph.nodes.find((n) => n.kind === "route" && n.path === "/");
+    expect(route).toBeDefined();
+    if (route?.kind === "route") {
+      expect(route.isRedirect).toBe(true);
+    }
+  });
+
+  test("should NOT flag isRedirect on ordinary page", async () => {
+    const appDir = join(testDir, "plain-page", "app");
+    mkdirSync(appDir, { recursive: true });
+
+    const pageContent = `
+      export default function Page() {
+        return <div>Hello</div>;
+      }
+    `;
+    writeFileSync(join(appDir, "page.tsx"), pageContent);
+
+    const input: ExtractInput = {
+      repoRoot: join(testDir, "plain-page"),
+      routeGlobs: ["app/**/page.tsx"],
+      buildSalt: "test",
+    };
+    const result = await extract(input);
+    const graph: InteractionGraph = readJson(result.graphPath);
+
+    const route = graph.nodes.find((n) => n.kind === "route" && n.path === "/");
+    expect(route).toBeDefined();
+    if (route?.kind === "route") {
+      expect(route.isRedirect).toBeUndefined();
+    }
+  });
 });

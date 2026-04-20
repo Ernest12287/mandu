@@ -99,7 +99,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
         const testCases = methods.map((method) => {
           return [
             `  test(${JSON.stringify(`${method} ${s.route}`)}, async ({ request, baseURL }) => {`,
-            `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route)};`,
+            `    const url = (baseURL ?? "http://127.0.0.1:3333") + ${JSON.stringify(s.route)};`,
             `    const res = await fetch(url, { method: ${JSON.stringify(method)} });`,
             `    expect(res.status).toBeLessThan(500);`,
             `    expect(res.headers.get("content-type")).toBeTruthy();`,
@@ -141,20 +141,40 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           "",
         ].join("\n");
       } else if (s.kind === "ssr-verify") {
-        // SSR output verification
+        // SSR output verification.
+        // page.goto waits for network idle so downstream page.content() calls
+        // still work when the route performs a redirect (#224). Redirect routes
+        // skip content-shape assertions entirely and assert navigation instead:
+        // calling page.content() on a page that is still navigating raises
+        // "Unable to retrieve content because the page is navigating".
         const routeUrl = s.route === "/" ? "/" : s.route;
         const lines: string[] = [
           specHeader(),
           `test.describe(${JSON.stringify(s.id)}, () => {`,
           `  test(${JSON.stringify(`ssr-verify ${s.route}`)}, async ({ page, baseURL }) => {`,
-          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(routeUrl)};`,
-          `    await page.goto(url);`,
-          `    const html = await page.content();`,
-          `    expect(html).toContain("<!DOCTYPE html>");`,
-          `    expect(html).toContain("<html");`,
+          `    const url = (baseURL ?? "http://127.0.0.1:3333") + ${JSON.stringify(routeUrl)};`,
+          `    const res = await page.goto(url, { waitUntil: "networkidle" });`,
+          `    expect(res, "goto response").not.toBeNull();`,
+          `    expect(res!.status()).toBeLessThan(500);`,
         ];
-        if (!s.hasIsland) {
-          lines.push(`    expect(html).not.toContain("data-mandu-island");`);
+        if (s.isRedirect) {
+          // Redirect route: assert the browser navigated away from the
+          // origin URL. Do not call page.content() or inspect islands —
+          // the final page is a different route with its own shape.
+          lines.push(
+            `    // Route performs a page-level redirect; assert navigation settled.`,
+            `    await page.waitForLoadState("networkidle");`,
+            `    expect(page.url(), "final url should differ from origin").not.toBe(url);`,
+          );
+        } else {
+          lines.push(
+            `    const html = await page.content();`,
+            `    expect(html).toContain("<!DOCTYPE html>");`,
+            `    expect(html).toContain("<html");`,
+          );
+          if (!s.hasIsland) {
+            lines.push(`    expect(html).not.toContain("data-mandu-island");`);
+          }
         }
         lines.push(`  });`, `});`, "");
         code = lines.join("\n");
@@ -165,8 +185,8 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           specHeader(),
           `test.describe(${JSON.stringify(s.id)}, () => {`,
           `  test(${JSON.stringify(`island-hydration ${s.route}`)}, async ({ page, baseURL }) => {`,
-          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(routeUrl)};`,
-          `    await page.goto(url);`,
+          `    const url = (baseURL ?? "http://127.0.0.1:3333") + ${JSON.stringify(routeUrl)};`,
+          `    await page.goto(url, { waitUntil: "networkidle" });`,
           `    await page.waitForSelector("[data-mandu-island]", { timeout: 5000 });`,
           `    const count = await page.locator("[data-mandu-island]").count();`,
           `    expect(count).toBeGreaterThan(0);`,
@@ -180,7 +200,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           specHeader(),
           `test.describe(${JSON.stringify(s.id)}, () => {`,
           `  test(${JSON.stringify(`sse-stream ${s.route}`)}, async ({ baseURL }) => {`,
-          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route)};`,
+          `    const url = (baseURL ?? "http://127.0.0.1:3333") + ${JSON.stringify(s.route)};`,
           `    const res = await fetch(url, { headers: { Accept: "text/event-stream" } });`,
           `    expect(res.status).toBeLessThan(500);`,
           `    const ct = res.headers.get("content-type") ?? "";`,
@@ -197,7 +217,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           specHeader(),
           `test.describe(${JSON.stringify(s.id)}, () => {`,
           `  test(${JSON.stringify(`form-action ${s.route}`)}, async ({ baseURL }) => {`,
-          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route)};`,
+          `    const url = (baseURL ?? "http://127.0.0.1:3333") + ${JSON.stringify(s.route)};`,
           `    const res = await fetch(url, {`,
           `      method: "POST",`,
           `      headers: { "Content-Type": "application/x-www-form-urlencoded" },`,
@@ -226,9 +246,9 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
           specHeader(),
           `test.describe(${JSON.stringify(s.id)}, () => {`,
           `  test(${JSON.stringify(`smoke ${s.route}`)}, async ({ page, request, baseURL }) => {`,
-          `    const url = (baseURL ?? "http://localhost:3333") + ${JSON.stringify(s.route === "/" ? "/" : s.route)};`,
+          `    const url = (baseURL ?? "http://127.0.0.1:3333") + ${JSON.stringify(s.route === "/" ? "/" : s.route)};`,
           `    ${oracle.setup.split("\n").join("\n    ")}`,
-          `    await page.goto(url);`,
+          `    await page.goto(url, { waitUntil: "networkidle" });`,
           selectorExamples,
           `    ${oracle.assertions.split("\n").join("\n    ")}`,
           `  });`,
@@ -257,7 +277,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
   try {
     const configPath = join(repoRoot, "tests", "e2e", "playwright.config.ts");
     ensureDir(join(repoRoot, "tests", "e2e"));
-    const desiredConfig = `import { defineConfig } from "@playwright/test";\n\nexport default defineConfig({\n  // NOTE: resolved relative to this config file (tests/e2e).\n  testDir: ".",\n  timeout: 60_000,\n  use: {\n    baseURL: process.env.BASE_URL ?? "http://localhost:3333",\n    trace: process.env.CI ? "on-first-retry" : "retain-on-failure",\n    video: process.env.CI ? "retain-on-failure" : "off",\n    screenshot: "only-on-failure",\n  },\n  reporter: [\n    ["html", { outputFolder: "../../.mandu/reports/latest/playwright-html", open: "never" }],\n    ["json", { outputFile: "../../.mandu/reports/latest/playwright-report.json" }],\n    ["junit", { outputFile: "../../.mandu/reports/latest/junit.xml" }],\n  ],\n});\n`;
+    const desiredConfig = `import { defineConfig } from "@playwright/test";\n\nexport default defineConfig({\n  // NOTE: resolved relative to this config file (tests/e2e).\n  testDir: ".",\n  timeout: 60_000,\n  use: {\n    baseURL: process.env.BASE_URL ?? "http://127.0.0.1:3333",\n    trace: process.env.CI ? "on-first-retry" : "retain-on-failure",\n    video: process.env.CI ? "retain-on-failure" : "off",\n    screenshot: "only-on-failure",\n  },\n  reporter: [\n    ["html", { outputFolder: "../../.mandu/reports/latest/playwright-html", open: "never" }],\n    ["json", { outputFile: "../../.mandu/reports/latest/playwright-report.json" }],\n    ["junit", { outputFile: "../../.mandu/reports/latest/junit.xml" }],\n  ],\n});\n`;
 
     if (!existsSync(configPath)) {
       Bun.write(configPath, desiredConfig);
