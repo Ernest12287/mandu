@@ -597,6 +597,25 @@ export interface ServerOptions {
    * use `ctx.locale.code` and ignore `ctx.t`.
    */
   messages?: MessageRegistry;
+  /**
+   * Issue #217 — suppress the "🥟 Mandu server listening"/"🥟 Mandu Dev
+   * Server listening" banner printed at boot. The HTTP listener still
+   * binds and `ManduServer.server.port` still reports the chosen port;
+   * only the stdout banner (plus its auxiliary lines — HMR hint, CORS
+   * hint, static-file hint, streaming hint, Kitchen hint, "also
+   * reachable at" hint) is gated.
+   *
+   * Intended for internal callers such as the build-time prerender
+   * orchestrator that spin up a transient listener on an ephemeral
+   * port (`port: 0`) and tear it down seconds later — the banner's
+   * URL is always wrong by the time a human (or an LLM reading build
+   * logs) tries to curl it, so printing it causes confusion.
+   *
+   * User-facing commands (`mandu dev`, `mandu start`) leave this
+   * `undefined` / `false` to preserve the normal banner. Default:
+   * `false`.
+   */
+  silent?: boolean;
 }
 
 export interface ManduServer {
@@ -4141,6 +4160,11 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     messages: messagesOption,
     plugins: pluginsOption,
     configHooks: configHooksOption,
+    // #217 — internal flag: suppress the "listening" banner. Threaded
+    // through by `mandu build`'s transient prerender server so that
+    // ephemeral `port: 0` listeners don't confuse humans/LLMs with a
+    // URL that's already torn down by the time they curl it.
+    silent = false,
   } = options;
 
   // Phase 18.μ — validate i18n + messages shape. Both are branded via
@@ -4424,31 +4448,43 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
 
   const addresses = formatServerAddresses(hostname, actualPort);
 
-  if (isDev) {
-    console.log(`🥟 Mandu Dev Server listening at ${addresses.primary}`);
-    if (addresses.additional.length > 0) {
-      console.log(`   (also reachable at ${addresses.additional.join(", ")})`);
-    }
-    if (registry.settings.hmrPort) {
-      console.log(`🔥 HMR enabled on port ${registry.settings.hmrPort + PORTS.HMR_OFFSET}`);
-    }
-    console.log(`📂 Static files: /${publicDir}/, /.mandu/client/`);
-    if (corsOptions) {
-      console.log(`🌐 CORS enabled`);
-    }
-    if (streaming) {
-      console.log(`🌊 Streaming SSR enabled`);
-    }
-    if (registry.kitchen) {
-      console.log(`🍳 Kitchen dashboard at ${addresses.primary}/__kitchen`);
-    }
-  } else {
-    console.log(`🥟 Mandu server listening at ${addresses.primary}`);
-    if (addresses.additional.length > 0) {
-      console.log(`   (also reachable at ${addresses.additional.join(", ")})`);
-    }
-    if (streaming) {
-      console.log(`🌊 Streaming SSR enabled`);
+  // ─── #217 — gate the boot banner on `!silent` ─────────────────────────
+  // `silent: true` is passed by internal callers that spawn a transient
+  // listener on an ephemeral port (e.g. the build-time prerender
+  // orchestrator). The HTTP listener still binds; only the stdout banner
+  // — "🥟 Mandu server listening" / "🥟 Mandu Dev Server listening" plus
+  // its auxiliary lines (additional addresses, HMR, static-file hint,
+  // CORS, streaming, Kitchen) — is suppressed. User-facing commands
+  // (`mandu dev`, `mandu start`) leave `silent` undefined/false and
+  // therefore see the banner unchanged.
+  // ─── End #217 ─────────────────────────────────────────────────────────
+  if (!silent) {
+    if (isDev) {
+      console.log(`🥟 Mandu Dev Server listening at ${addresses.primary}`);
+      if (addresses.additional.length > 0) {
+        console.log(`   (also reachable at ${addresses.additional.join(", ")})`);
+      }
+      if (registry.settings.hmrPort) {
+        console.log(`🔥 HMR enabled on port ${registry.settings.hmrPort + PORTS.HMR_OFFSET}`);
+      }
+      console.log(`📂 Static files: /${publicDir}/, /.mandu/client/`);
+      if (corsOptions) {
+        console.log(`🌐 CORS enabled`);
+      }
+      if (streaming) {
+        console.log(`🌊 Streaming SSR enabled`);
+      }
+      if (registry.kitchen) {
+        console.log(`🍳 Kitchen dashboard at ${addresses.primary}/__kitchen`);
+      }
+    } else {
+      console.log(`🥟 Mandu server listening at ${addresses.primary}`);
+      if (addresses.additional.length > 0) {
+        console.log(`   (also reachable at ${addresses.additional.join(", ")})`);
+      }
+      if (streaming) {
+        console.log(`🌊 Streaming SSR enabled`);
+      }
     }
   }
 

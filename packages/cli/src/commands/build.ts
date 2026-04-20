@@ -236,6 +236,13 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
         // the thing generating the HTML, so serving previously-built
         // HTML back to ourselves would produce stale output.
         prerender: false,
+        // #217 — suppress the "🥟 Mandu server listening" banner for this
+        // transient prerender worker. The listener binds on port 0
+        // (ephemeral) and is torn down as soon as prerender finishes, so
+        // the URL the banner prints is unreachable by the time any human
+        // or LLM reading build output tries to curl it. `mandu dev` and
+        // `mandu start` never set `silent` and keep the normal banner.
+        silent: true,
       });
 
       // fetchHandler 추출 — 서버의 내부 핸들러로 프리렌더
@@ -255,10 +262,15 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
           writeIndex: true,
           crawl: true,
           // Issue #213 — pass user-configured crawl denylist into engine.
+          // Issue #219 — also pipe asset-extension overrides through so
+          // the crawler doesn't enqueue `.webp`/`.pdf`/etc. URLs.
           crawlOptions: buildConfig.crawl
             ? {
                 exclude: buildConfig.crawl.exclude,
                 replaceDefaultExclude: buildConfig.crawl.replaceDefaultExclude,
+                assetExtensions: buildConfig.crawl.assetExtensions,
+                replaceDefaultAssetExtensions:
+                  buildConfig.crawl.replaceDefaultAssetExtensions,
               }
             : undefined,
           // Issue #216 — surface aggregate errors unless the user opted

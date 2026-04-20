@@ -225,6 +225,31 @@ export interface ManduConfig {
        * Default `false`.
        */
       replaceDefaultExclude?: boolean;
+      /**
+       * Issue #219 — file extensions treated as non-HTML assets. When
+       * a discovered href's pathname ends with one of these, the
+       * crawler skips it instead of enqueuing it for prerender.
+       *
+       * Example: `<picture><source srcset="/hero.avif"><img
+       * src="/hero.webp"></picture>` used to make the engine render
+       * the asset URL as HTML and overwrite the real `.webp` on disk.
+       * The default set covers common image / font / document /
+       * media / text-asset extensions.
+       *
+       * Entries may be written with or without a leading dot
+       * (`"webp"` and `".webp"` are equivalent). Matching is
+       * case-insensitive; query strings and hash fragments are
+       * stripped before comparison.
+       *
+       * Merged with the built-in default set unless
+       * {@link replaceDefaultAssetExtensions} is `true`.
+       */
+      assetExtensions?: string[];
+      /**
+       * When `true`, `assetExtensions` replaces the built-in set
+       * entirely. Default `false`.
+       */
+      replaceDefaultAssetExtensions?: boolean;
     };
   };
   dev?: {

@@ -254,9 +254,31 @@ placeholders that appear in tutorials but never as real routes:
 | `/foo` / `/bar` / `/baz` | exact demo stubs        |
 | `/some-path` | exact demo stub         |
 
-External (`https://...`), protocol-relative (`//cdn.example.com/...`),
-and asset-like (`.js`, `.css`, `.png`, etc.) hrefs are ignored
-automatically.
+External (`https://...`) and protocol-relative (`//cdn.example.com/...`)
+hrefs are ignored automatically.
+
+### Asset-extension exclusion (Issue #219)
+
+Markup like `<picture><source srcset="/hero.avif"><img
+src="/hero.webp"></picture>` and `<a href="/whitepaper.pdf">` is
+common. Before Issue #219 the crawler would enqueue every such URL,
+invoke the SSR fetch handler on it, receive a non-HTML response (or
+an HTML error page), and write it to
+`.mandu/prerendered/hero.webp/index.html` — corrupting the real
+asset's dispatch on subsequent requests.
+
+The crawler now filters out URLs whose pathname ends with a known
+non-HTML extension. Matching is case-insensitive; query strings
+(`/hero.webp?v=2`) and hash fragments (`/hero.webp#alt`) are stripped
+before comparison. The default set covers:
+
+| Category   | Extensions                                        |
+| ---------- | ------------------------------------------------- |
+| Images     | `.webp`, `.avif`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico` |
+| Documents  | `.pdf`, `.zip`                                    |
+| Media      | `.mp4`, `.webm`, `.mp3`, `.wav`                   |
+| Fonts      | `.woff`, `.woff2`, `.ttf`, `.otf`, `.eot`         |
+| Text assets| `.css`, `.js`, `.map`, `.json`, `.xml`, `.txt`    |
 
 ### Overriding the denylist
 
@@ -274,6 +296,14 @@ export default defineManduConfig({
       // Or replace the defaults entirely for tighter control:
       // replaceDefaultExclude: true,
       // exclude: ["/api/internal/*"],
+
+      // Issue #219 — teach the crawler to skip additional asset types.
+      // Entries may be written with or without a leading dot.
+      assetExtensions: [".apk", ".dmg", "mobileprovision"],
+
+      // Or replace the default asset-extension set entirely (rare):
+      // replaceDefaultAssetExtensions: true,
+      // assetExtensions: [".webp", ".png", ".css"],
     },
   },
 });
@@ -323,6 +353,16 @@ code block. This is fixed as of Issue #213 — the crawler strips code
 regions and excludes known placeholders. If you rely on a literal
 `/path` route, name it something concrete or add its path to
 `build.crawl.exclude` so the crawler ignores it.
+
+**`/hero.webp/index.html` appeared and now the image 404s.**
+Fixed as of Issue #219 — the crawler previously enqueued `<a
+href="/hero.webp">` / `<picture>` / `<img src>` companion URLs as
+prerender targets, wrote an HTML payload under
+`.mandu/prerendered/hero.webp/index.html`, and the runtime served the
+HTML instead of the real asset on subsequent requests. The default
+asset-extension list now filters out `.webp`, `.avif`, `.png`,
+`.pdf`, `.css`, `.js`, and friends (see table above). For project-
+specific extensions use `build.crawl.assetExtensions`.
 
 **Build fails with `PrerenderError: Prerender failed for 1 route(s)`.**
 Issue #216 — one of your dynamic page modules either fails to load

@@ -129,11 +129,20 @@ const GuardConfigSchema = z
  * When `replaceDefaultExclude === true`, `exclude` replaces the built-in
  * default denylist entirely. Otherwise (default), user entries are
  * merged on top of the defaults.
+ *
+ * Issue #219 — `assetExtensions` filters out non-HTML asset URLs
+ * (`.webp`, `.pdf`, `.css`, …) from the crawl queue so the engine
+ * doesn't overwrite real assets with rendered HTML. Entries may be
+ * written with or without a leading dot; matching is case-insensitive.
+ * Merges with the built-in defaults unless
+ * `replaceDefaultAssetExtensions === true`.
  */
 const BuildCrawlConfigSchema = z
   .object({
     exclude: z.array(z.string().min(1)).default([]),
     replaceDefaultExclude: z.boolean().default(false),
+    assetExtensions: z.array(z.string().min(1)).default([]),
+    replaceDefaultAssetExtensions: z.boolean().default(false),
   })
   .strict();
 

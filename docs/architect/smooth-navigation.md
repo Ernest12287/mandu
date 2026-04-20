@@ -1,7 +1,7 @@
 ---
 title: Smooth Navigation
 summary: CSS View Transitions auto-inject, hover prefetch, and opt-out SPA navigation in Mandu.
-issue: 192, 193
+issue: 192, 193, 208, 220
 status: shipped
 ---
 
@@ -223,6 +223,89 @@ gets SPA behavior), the migration is one line in `mandu.config.ts`:
 For new code, leave `spa` unset (or `true`) and remove your
 `data-mandu-link` attributes — plain `<a href>` now does the right
 thing.
+
+## Troubleshooting the inline SPA helper (issue #220)
+
+`hydration: "none"` projects (docs, blogs, marketing sites) use a tiny
+inline IIFE — `SPA_NAV_HELPER_BODY` — injected into every SSR
+`<head>` to upgrade `<a href>` clicks into `pushState` + `fetch` +
+body-swap navigations. Since there is no bundle loaded, there is also
+no developer console for this code to write to by default.
+
+As of **v0.28+** (issue #220) the helper instruments every branch of
+the swap pipeline:
+
+**Success path (`console.debug`):**
+
+```
+[mandu-spa-nav] swap target container: main
+[mandu-spa-nav] swapped to /about in 18ms (container=main)
+```
+
+**Failure path (`console.warn`) — every one of these triggers a full
+browser navigation via `location.href = url` so the user is never
+stuck on stale content:**
+
+```
+[mandu-spa-nav] falling back to full navigation: fetch responded 500 /about
+[mandu-spa-nav] falling back to full navigation: non-HTML response (application/json) /api/data
+[mandu-spa-nav] falling back to full navigation: DOMParser threw: ... /about
+[mandu-spa-nav] falling back to full navigation: DOMParser returned parsererror /about
+[mandu-spa-nav] falling back to full navigation: no swap container matched (<main>/#root/<body>) /about
+[mandu-spa-nav] falling back to full navigation: innerHTML assignment threw: ... /about
+[mandu-spa-nav] falling back to full navigation: fetch rejected: ... /about
+[mandu-spa-nav] falling back to full navigation: pushState threw: ... /about
+```
+
+### "My URL changes but the page content stays the same"
+
+Open DevTools → Console. If you see a `[mandu-spa-nav]` warning you
+now have the root cause. Common reasons:
+
+1. **No `<main>`, no `#root`, no `<body>`**: the helper picks the
+   first match in that order. Custom layouts must provide at least
+   one of them. Adding `<main>` to your page layout is the
+   recommended fix — it also matches the ARIA landmark.
+2. **Scripts don't execute after swap**: the helper extracts all
+   `<script>` elements from the new container and re-creates them
+   via `document.createElement("script")` so they fire. If your
+   scripts rely on `DOMContentLoaded` (already fired) you will need
+   to also listen for the new `__MANDU_SPA_NAV__` custom event.
+3. **Non-HTML response**: the server returned JSON or a redirect
+   without an HTML `Content-Type`. Hard-nav fallback kicks in.
+
+### Re-hydration hook: `__MANDU_SPA_NAV__`
+
+After every successful swap the helper dispatches a custom event on
+`window`:
+
+```ts
+window.addEventListener("__MANDU_SPA_NAV__", (event) => {
+  const { url, durationMs, container } = (event as CustomEvent).detail;
+  // re-init your third-party widgets here
+  console.log(`navigated to ${url} (${durationMs}ms, swapped ${container})`);
+});
+```
+
+The detail payload:
+
+| Field         | Type     | Value                                 |
+|---------------|----------|---------------------------------------|
+| `url`         | string   | the new path (pathname + search + hash) |
+| `durationMs`  | number   | wall-clock time fetch→swap in ms      |
+| `container`   | string   | `"main"` \| `"#root"` \| `"body"`     |
+
+This event is **not** dispatched on the fallback path — if the user
+hits a full navigation, the fresh page load will naturally re-run all
+your scripts and you don't need re-hydration.
+
+### View Transitions integration
+
+When `document.startViewTransition` is available (Chrome/Edge ≥ 111,
+Safari 18.2+), the swap is wrapped in a transition callback so it
+composes with the `@view-transition { navigation: auto }` rule Mandu
+already emits. If the transition API throws, the helper falls back
+to a synchronous swap *and* logs a warning — no navigation is lost.
 
 ## Known limits
 

@@ -67,6 +67,29 @@ export interface PrerenderCrawlOptions {
    * instead of extending it. Default `false` (safe — defaults win).
    */
   replaceDefaultExclude?: boolean;
+  /**
+   * Issue #219 — file extensions treated as non-HTML assets. When a
+   * discovered `<a href>` / `href` value has a pathname ending in one
+   * of these extensions, the crawler skips it instead of enqueuing it
+   * for prerender. Without this filter, markup like `<picture><source
+   * srcset="/hero.avif"><img src="/hero.webp"></picture>` would cause
+   * the engine to render the asset as HTML and overwrite it on disk.
+   *
+   * Matching is case-insensitive and ignores query strings / hash
+   * fragments. See {@link DEFAULT_ASSET_EXTENSIONS} for the built-in
+   * list.
+   *
+   * Merged with {@link DEFAULT_ASSET_EXTENSIONS} unless
+   * {@link PrerenderCrawlOptions.replaceDefaultAssetExtensions} is
+   * `true`. Entries may be given with or without a leading dot
+   * (`"webp"` and `".webp"` are equivalent).
+   */
+  assetExtensions?: string[];
+  /**
+   * When `true`, `assetExtensions` replaces the built-in asset
+   * extension set entirely. Default `false` (safe — defaults win).
+   */
+  replaceDefaultAssetExtensions?: boolean;
 }
 
 export interface PrerenderOptions {
@@ -186,6 +209,53 @@ export const DEFAULT_CRAWL_DENYLIST: readonly string[] = [
 ];
 
 /**
+ * Issue #219 — default non-HTML asset extensions the link crawler
+ * refuses to enqueue as prerender targets.
+ *
+ * Motivation: markup like `<picture><source srcset="/hero.avif"><img
+ * src="/hero.webp"></picture>` and `<a href="/whitepaper.pdf">` used
+ * to leak the asset URL into the render queue. The engine would then
+ * invoke the SSR handler, receive a non-HTML response (or an HTML
+ * error page), and write it to `.mandu/prerendered/hero.webp/index.html`
+ * — corrupting the static-asset dispatch for that URL on subsequent
+ * requests.
+ *
+ * Each entry is lowercased with a leading dot. Comparison is
+ * case-insensitive; the crawler strips query strings and hash
+ * fragments before extension testing.
+ *
+ * Extend or replace via `ManduConfig.build.crawl.assetExtensions` /
+ * `replaceDefaultAssetExtensions`.
+ */
+export const DEFAULT_ASSET_EXTENSIONS: readonly string[] = [
+  ".webp",
+  ".avif",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".svg",
+  ".ico",
+  ".pdf",
+  ".zip",
+  ".mp4",
+  ".webm",
+  ".mp3",
+  ".wav",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".css",
+  ".js",
+  ".map",
+  ".json",
+  ".xml",
+  ".txt",
+];
+
+/**
  * Issue #216 — aggregate error thrown when one or more routes fail
  * during prerender (and `skipErrors !== true`). Each entry carries the
  * offending route pattern plus the underlying `cause`, so CI logs show
@@ -275,6 +345,9 @@ export async function prerenderRoutes(
   // user's replacement list) into an array of regexes once. Doing this
   // outside the per-page crawl loop avoids recompiling N times.
   const crawlDenylist = compileCrawlDenylist(crawlOptions);
+  // Issue #219 — resolve the non-HTML asset extension set once. Same
+  // rationale: the crawl loop runs N times, set lookup is O(1).
+  const crawlAssetExtensions = resolveAssetExtensions(crawlOptions);
 
   // 1. Explicit user-supplied routes.
   const pathsToRender = new Set<string>(options.routes ?? []);
@@ -450,7 +523,9 @@ export async function prerenderRoutes(
       if (crawl) {
         // Issue #213 — strip code regions + apply denylist before adding
         // discovered paths to the render queue.
-        const links = extractInternalLinks(html, crawlDenylist);
+        // Issue #219 — also filter out asset URLs (`/hero.webp`, etc.)
+        // so the engine doesn't try to render them as HTML.
+        const links = extractInternalLinks(html, crawlDenylist, crawlAssetExtensions);
         for (const link of links) {
           if (!renderedPaths.has(link) && !pathsToRender.has(link)) {
             pathsToRender.add(link);
@@ -655,6 +730,61 @@ function denylistEntryToRegex(entry: string): RegExp {
 }
 
 /**
+ * Issue #219 — resolve the effective asset extension set from options.
+ *
+ * Normalizes every entry to `.lowercase` with a leading dot (so users
+ * can write `"webp"` or `".WEBP"`), merges with
+ * {@link DEFAULT_ASSET_EXTENSIONS} unless `replaceDefaultAssetExtensions`
+ * is `true`, and returns a `Set<string>` for O(1) lookup in the crawl
+ * loop.
+ *
+ * Exported for test coverage.
+ */
+export function resolveAssetExtensions(
+  options: PrerenderCrawlOptions | undefined,
+): Set<string> {
+  const defaults = options?.replaceDefaultAssetExtensions
+    ? []
+    : DEFAULT_ASSET_EXTENSIONS;
+  const extras = options?.assetExtensions ?? [];
+  const out = new Set<string>();
+  for (const ext of [...defaults, ...extras]) {
+    out.add(normalizeAssetExtension(ext));
+  }
+  return out;
+}
+
+function normalizeAssetExtension(ext: string): string {
+  const lower = ext.toLowerCase();
+  return lower.startsWith(".") ? lower : `.${lower}`;
+}
+
+/**
+ * Issue #219 — does the given pathname end with a known asset
+ * extension? Extracts the basename's extension (case-insensitive) and
+ * tests it against the resolved set.
+ *
+ * `pathname` is the normalized crawl path (query + hash already
+ * stripped by {@link normalizeCrawlPath}) — we still defend in depth
+ * by splitting on `?` / `#` in case a caller passes a raw href.
+ *
+ * Exported for test coverage.
+ */
+export function isAssetPathname(
+  pathname: string,
+  assetExtensions: Set<string>,
+): boolean {
+  if (assetExtensions.size === 0) return false;
+  const clean = pathname.split("?")[0].split("#")[0];
+  const lastSlash = clean.lastIndexOf("/");
+  const basename = lastSlash === -1 ? clean : clean.slice(lastSlash + 1);
+  const dot = basename.lastIndexOf(".");
+  if (dot === -1 || dot === 0) return false;
+  const ext = basename.slice(dot).toLowerCase();
+  return assetExtensions.has(ext);
+}
+
+/**
  * Normalize a discovered pathname for de-duplication + matching.
  * Lowercases (HTML href matching is case-insensitive) and strips a
  * trailing slash except for the root.
@@ -677,11 +807,28 @@ function normalizeCrawlPath(href: string): string {
  * into the crawl queue. Also applies the configurable denylist so
  * placeholder paths like `/path` or `/your-route` are filtered out.
  *
+ * Issue #219 — filters out URLs whose pathname ends with a known
+ * non-HTML asset extension (`.webp`, `.avif`, `.pdf`, `.css`, …). This
+ * prevents the prerender engine from rendering `<img src>` / `<source
+ * srcset>` / `<a href="/whitepaper.pdf">` values as HTML and
+ * overwriting the real asset on disk. Pass a custom `Set` (e.g. built
+ * by {@link resolveAssetExtensions}) to extend or replace the default
+ * list; callers that want to disable the filter entirely may pass an
+ * empty `Set`.
+ *
+ * Ordering rationale: `stripCodeRegions` runs first so doc examples
+ * never reach the regex. The asset-extension filter runs AFTER the
+ * strip (so `<pre>` code doesn't contribute asset URLs) but BEFORE
+ * the denylist (Set.has is cheaper than an `Array.some` regex scan,
+ * and asset URLs are strictly orthogonal to placeholder denylist
+ * entries — see #213 vs #219).
+ *
  * Exported for test coverage.
  */
 export function extractInternalLinks(
   html: string,
   denylist: RegExp[] = [],
+  assetExtensions: Set<string> = resolveAssetExtensions(undefined),
 ): string[] {
   const stripped = stripCodeRegions(html);
   const links: string[] = [];
@@ -692,9 +839,9 @@ export function extractInternalLinks(
     if (!href.startsWith("/") || href.startsWith("//")) continue;
     const normalized = normalizeCrawlPath(href);
     if (!normalized) continue;
-    if (normalized.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/)) {
-      continue;
-    }
+    // Issue #219 — asset URLs (`.webp`, `.pdf`, `.css`, …) never get
+    // prerendered. This supersedes the old hard-coded regex.
+    if (isAssetPathname(normalized, assetExtensions)) continue;
     if (denylist.some((re) => re.test(normalized))) continue;
     links.push(normalized);
   }
