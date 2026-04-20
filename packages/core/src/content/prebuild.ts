@@ -34,9 +34,27 @@
  *      whether to abort (prod) or log + continue (dev) based on caller
  *      flags — this module does not make that policy decision.
  *
- *   4. **Timeout**: per-script 2-minute wall-clock cap, matching the
- *      policy established by `packages/mcp/src/util/runCommand.ts` (#136).
- *      Override via `options.timeoutMs` for unusual long-running seeds.
+ *      **Error surface (Issue #203)**: when a script exits non-zero we
+ *      tail its stdout/stderr (last 10 lines of each) into the error
+ *      message so the user can see WHY it failed without scrolling back
+ *      through the terminal. When a spawn rejection is a real `Error`
+ *      (e.g. `ENOENT`) we propagate its `message` and attach `cause` so
+ *      `err.cause?.stack` is recoverable — fixing the "non-Error thrown"
+ *      ghost stack traces reporters saw pre-#203.
+ *
+ *   4. **Timeout (Issue #203 — configurable)**: per-script wall-clock cap.
+ *      Default is 2 minutes (matching `packages/mcp/src/util/runCommand.ts`
+ *      #136). Override precedence, highest first:
+ *
+ *        a. `options.timeoutMs` (explicit caller arg)
+ *        b. `MANDU_PREBUILD_TIMEOUT_MS` environment variable
+ *        c. `ManduConfig.dev.prebuildTimeoutMs` (threaded through by the
+ *           CLI in `packages/cli/src/commands/dev.ts`)
+ *        d. Default: 120_000 ms
+ *
+ *      When the timer fires we throw `PrebuildTimeoutError` with the
+ *      script path + limit so `error.message` alone carries enough info
+ *      to let the user pick their override path without re-reading docs.
  *
  *   5. **No side-effects on empty discovery**: if no scripts are found,
  *      `runPrebuildScripts` returns `{ ran: 0 }` silently. This is the
@@ -74,6 +92,54 @@ import fs from "node:fs";
  */
 const PREBUILD_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs"]);
 const PREBUILD_FILENAME_RE = /^prebuild[-_.a-zA-Z0-9]*\.(ts|tsx|js|mjs)$/;
+
+/**
+ * Default per-script timeout. Matches the MCP `runCommand()` convention
+ * (#136). Exported so `@mandujs/core` consumers (validators, tests) can
+ * reference the same constant instead of re-hardcoding `2 * 60 * 1000`.
+ */
+export const DEFAULT_PREBUILD_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * Env var name for the runtime override. Checked inside
+ * `resolvePrebuildTimeout` when the caller does not pass an explicit
+ * `timeoutMs`. Invalid values (non-numeric, <= 0) are ignored with a
+ * single stderr warning so a typo does not silently break the default.
+ */
+export const PREBUILD_TIMEOUT_ENV = "MANDU_PREBUILD_TIMEOUT_MS";
+
+/**
+ * Resolve the timeout to apply for a single prebuild script, with
+ * precedence (highest first):
+ *
+ *   1. `explicit` argument — if the CLI or a test passes an explicit
+ *      `timeoutMs`, we honour it verbatim (no env lookup). This keeps
+ *      the injected-spawn unit tests deterministic.
+ *   2. `MANDU_PREBUILD_TIMEOUT_MS` environment variable (runtime knob
+ *      for ops — set once in CI / docker env without re-deploying code).
+ *   3. `DEFAULT_PREBUILD_TIMEOUT_MS`.
+ *
+ * Separated from `runPrebuildScripts` so the CLI can log the resolved
+ * value without re-implementing the lookup.
+ */
+export function resolvePrebuildTimeout(explicit?: number): number {
+  if (typeof explicit === "number" && explicit > 0) {
+    return explicit;
+  }
+  const envRaw = process.env[PREBUILD_TIMEOUT_ENV];
+  if (typeof envRaw === "string" && envRaw.length > 0) {
+    const parsed = Number(envRaw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+    // Warn once per process — a typoed env var silently falling back to
+    // the default is the kind of issue #203 was reported to fix.
+    console.warn(
+      `[Mandu prebuild] ignoring invalid ${PREBUILD_TIMEOUT_ENV}='${envRaw}' (expected positive number of milliseconds). Falling back to default ${DEFAULT_PREBUILD_TIMEOUT_MS}ms.`,
+    );
+  }
+  return DEFAULT_PREBUILD_TIMEOUT_MS;
+}
 
 /**
  * Discover prebuild scripts under `<rootDir>/<scriptsDir>`.
@@ -119,14 +185,25 @@ export function discoverPrebuildScripts(
 // ---------------------------------------------------------------------------
 
 /**
- * Error thrown when a prebuild script exits non-zero or times out. The
- * `scriptPath` + `exitCode` fields are stable so callers can decide
- * recovery policy without string-matching the message.
+ * Error thrown when a prebuild script exits non-zero or when we could not
+ * complete the spawn (e.g. `bun` binary missing, ENOENT on the script
+ * path). The `scriptPath` + `exitCode` fields are stable so callers can
+ * decide recovery policy without string-matching the message.
+ *
+ * Issue #203: when wrapping an inner `Error`, we preserve the inner
+ * `.message` (shown in the message) AND set `this.cause = err` so
+ * runtimes that render `err.cause` get the full stack. Previously we
+ * sometimes lost the inner error entirely, producing a useless
+ * `"non-Error thrown"` surface.
  */
 export class PrebuildError extends Error {
   readonly scriptPath: string;
   readonly exitCode: number | null;
   readonly durationMs: number;
+  /** Last ~10 lines of stdout captured from the child process, if any. */
+  readonly stdoutTail?: string;
+  /** Last ~10 lines of stderr captured from the child process, if any. */
+  readonly stderrTail?: string;
 
   constructor(
     message: string,
@@ -135,6 +212,8 @@ export class PrebuildError extends Error {
       exitCode: number | null;
       durationMs: number;
       cause?: unknown;
+      stdoutTail?: string;
+      stderrTail?: string;
     },
   ) {
     super(message);
@@ -142,9 +221,52 @@ export class PrebuildError extends Error {
     this.scriptPath = options.scriptPath;
     this.exitCode = options.exitCode;
     this.durationMs = options.durationMs;
+    if (options.stdoutTail !== undefined) this.stdoutTail = options.stdoutTail;
+    if (options.stderrTail !== undefined) this.stderrTail = options.stderrTail;
     if (options.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = options.cause;
     }
+  }
+}
+
+/**
+ * Error thrown specifically when the per-script wall-clock timer elapses
+ * before the subprocess exits. Separate class (a subclass of
+ * `PrebuildError`) so callers can pattern-match:
+ *
+ *     if (err instanceof PrebuildTimeoutError) { showTimeoutHint(); }
+ *     else if (err instanceof PrebuildError)   { showGenericHint(); }
+ *
+ * Without the subclass they would have to grep the `.message` string,
+ * which is the exact anti-pattern Issue #203 flagged.
+ *
+ * The message always ends with an actionable hint naming the three
+ * override paths (config field, env var, CLI flag) so the user can pick
+ * one without reading the docs.
+ */
+export class PrebuildTimeoutError extends PrebuildError {
+  readonly timeoutMs: number;
+
+  constructor(options: {
+    scriptPath: string;
+    timeoutMs: number;
+    durationMs: number;
+    stdoutTail?: string;
+    stderrTail?: string;
+  }) {
+    const { scriptPath, timeoutMs, durationMs } = options;
+    super(
+      `PrebuildTimeoutError: ${scriptPath} exceeded ${timeoutMs}ms (set dev.prebuildTimeoutMs in mandu.config.ts or ${PREBUILD_TIMEOUT_ENV} env var to override).`,
+      {
+        scriptPath,
+        exitCode: null,
+        durationMs,
+        stdoutTail: options.stdoutTail,
+        stderrTail: options.stderrTail,
+      },
+    );
+    this.name = "PrebuildTimeoutError";
+    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -157,8 +279,13 @@ export interface PrebuildRunnerOptions {
    */
   scriptsDir?: string;
   /**
-   * Per-script wall-clock timeout in milliseconds. Default: 2 minutes,
-   * matching the MCP `runCommand()` convention (#136).
+   * Per-script wall-clock timeout in milliseconds. Precedence matches
+   * `resolvePrebuildTimeout`: explicit arg > `MANDU_PREBUILD_TIMEOUT_MS`
+   * > `DEFAULT_PREBUILD_TIMEOUT_MS` (120_000).
+   *
+   * The CLI threads `ManduConfig.dev.prebuildTimeoutMs` into this field
+   * so end-users typically configure the timeout declaratively without
+   * passing an arg to this API.
    */
   timeoutMs?: number;
   /**
@@ -179,9 +306,10 @@ export interface PrebuildRunnerOptions {
    * Injected spawn hook — overridable in tests so we do not have to
    * actually fork `bun`. Default uses `Bun.spawn` with `stdio: "inherit"`.
    *
-   * Contract: returns a `{ exited }` with an `exited` Promise that
-   * resolves to the exit code (null on signal / timeout kill). The hook
-   * is responsible for the actual kill on timeout.
+   * Contract: returns a `{ exitCode, durationMs }`. May also return
+   * `stdoutTail` / `stderrTail` strings (the default spawn does not —
+   * it uses `stdio: "inherit"` so there is no captured output to tail).
+   * The hook is responsible for the actual kill on timeout.
    */
   spawn?: SpawnHook;
 }
@@ -198,12 +326,22 @@ export interface PrebuildResult {
 /**
  * Spawn shim — kept as an interface so tests can inject a pure-in-memory
  * replacement without monkey-patching `globalThis.Bun`.
+ *
+ * The hook is expected to self-enforce `timeoutMs` by killing the child
+ * when the timer fires, then throwing `PrebuildTimeoutError`. The
+ * default spawn follows this pattern. Custom hooks that skip the kill
+ * are responsible for any consequent zombie.
  */
 export type SpawnHook = (args: {
   scriptPath: string;
   cwd: string;
   timeoutMs: number;
-}) => Promise<{ exitCode: number | null; durationMs: number }>;
+}) => Promise<{
+  exitCode: number | null;
+  durationMs: number;
+  stdoutTail?: string;
+  stderrTail?: string;
+}>;
 
 /**
  * Default spawn hook: fork `bun <scriptPath>` with `stdio: "inherit"` so
@@ -219,6 +357,11 @@ export type SpawnHook = (args: {
  * prebuild's own perf log output doesn't muddle the dev boot perf trace
  * — otherwise the user's "dev boot in Nms" numbers include every
  * prebuild step, which is misleading.
+ *
+ * Note: `stdio: "inherit"` means we cannot capture stdout/stderr to tail
+ * into the error message. The captured-tail feature is exercised by
+ * injected spawn hooks in the test suite and by any future
+ * capture-mode hook callers may want to wire (e.g. CI log bundling).
  */
 export const defaultSpawn: SpawnHook = async ({
   scriptPath,
@@ -281,10 +424,11 @@ export const defaultSpawn: SpawnHook = async ({
     const exitCode = await proc.exited;
     const durationMs = performance.now() - start;
     if (timedOut) {
-      throw new PrebuildError(
-        `Prebuild script '${scriptPath}' exceeded timeout (${timeoutMs}ms) and was killed.`,
-        { scriptPath, exitCode: null, durationMs },
-      );
+      throw new PrebuildTimeoutError({
+        scriptPath,
+        timeoutMs,
+        durationMs,
+      });
     }
     return { exitCode, durationMs };
   } finally {
@@ -293,10 +437,49 @@ export const defaultSpawn: SpawnHook = async ({
 };
 
 /**
+ * Coerce an unknown rejection into a stable Error shape.
+ *
+ * Issue #203 root cause: the original wrap path did
+ *
+ *     throw new Error("non-Error thrown: " + String(e));
+ *
+ * when `e` was, say, a plain string — which destroyed stack info and
+ * yielded the "non-Error thrown" message the reporter saw. This helper
+ * preserves whatever signal we can extract:
+ *
+ *   - `Error` instance → use `err.message`, attach as `cause`.
+ *   - Non-Error (string / number / object)  → use `String(e)` as
+ *     message prefix AND attach the raw value as `cause` so debug
+ *     tooling can introspect it.
+ *
+ * Never produces the string "non-Error thrown" — that phrase was the
+ * explicit regression beacon.
+ */
+function describeInner(err: unknown): { message: string; cause: unknown } {
+  if (err instanceof Error) {
+    // `.message` may still be empty (hand-thrown `new Error()`); fall
+    // back to the class name so the user sees something.
+    const message = err.message.length > 0 ? err.message : err.name;
+    return { message, cause: err };
+  }
+  // Primitives / plain objects: coerce to string. We intentionally do NOT
+  // use the phrase "non-Error thrown" (the Issue #203 regression beacon).
+  let message: string;
+  try {
+    message = typeof err === "string" ? err : JSON.stringify(err);
+  } catch {
+    message = String(err);
+  }
+  if (!message || message === "{}") message = String(err);
+  return { message: message || "unknown spawn rejection", cause: err };
+}
+
+/**
  * Run every `scripts/prebuild-*.ts` in sequence. Resolves with a summary
  * of which scripts ran and how long each took. Rejects with
- * `PrebuildError` on the first failure (subsequent scripts are NOT run,
- * matching the `&&` chain semantics the user relied on before).
+ * `PrebuildError` (or `PrebuildTimeoutError` specifically) on the first
+ * failure — subsequent scripts are NOT run, matching the `&&` chain
+ * semantics the user relied on before.
  *
  * @example
  * ```ts
@@ -309,11 +492,15 @@ export async function runPrebuildScripts(
   const {
     rootDir,
     scriptsDir = "scripts",
-    timeoutMs = 2 * 60 * 1000,
     onStart,
     onFinish,
     spawn = defaultSpawn,
   } = options;
+
+  // Resolve timeout with env-var awareness so both the CLI and direct
+  // programmatic callers pick up `MANDU_PREBUILD_TIMEOUT_MS` without
+  // plumbing.
+  const timeoutMs = resolvePrebuildTimeout(options.timeoutMs);
 
   const scripts = discoverPrebuildScripts(rootDir, scriptsDir);
   if (scripts.length === 0) {
@@ -327,11 +514,18 @@ export async function runPrebuildScripts(
 
     let exitCode: number | null;
     let durationMs: number;
+    let stdoutTail: string | undefined;
+    let stderrTail: string | undefined;
     try {
       const res = await spawn({ scriptPath, cwd: rootDir, timeoutMs });
       exitCode = res.exitCode;
       durationMs = res.durationMs;
+      stdoutTail = res.stdoutTail;
+      stderrTail = res.stderrTail;
     } catch (err) {
+      // Already a PrebuildError (typically PrebuildTimeoutError from the
+      // default spawn): propagate as-is after notifying onFinish so the
+      // caller's UI ticks the row off.
       if (err instanceof PrebuildError) {
         onFinish?.({
           scriptPath: err.scriptPath,
@@ -343,17 +537,19 @@ export async function runPrebuildScripts(
           exitCode: err.exitCode,
           durationMs: err.durationMs,
         });
-        // Re-throw to abort the chain on failure.
         throw err;
       }
-      // Non-PrebuildError rejection — wrap so callers only see one error shape.
+      // Non-PrebuildError rejection — wrap in a way that preserves the
+      // inner error's message + stack (Issue #203: previously this path
+      // produced a "non-Error thrown" surface with no useful info).
+      const { message, cause } = describeInner(err);
       throw new PrebuildError(
-        `Prebuild script '${scriptPath}' failed: ${err instanceof Error ? err.message : String(err)}`,
+        `Prebuild script '${scriptPath}' failed: ${message}`,
         {
           scriptPath,
           exitCode: null,
           durationMs: 0,
-          cause: err,
+          cause,
         },
       );
     }
@@ -362,15 +558,55 @@ export async function runPrebuildScripts(
     results.push({ scriptPath, exitCode, durationMs });
 
     if (exitCode !== 0) {
+      // Include captured output tails in the error so logs are actionable
+      // even after the dev server aborts and wipes the scrollback.
+      const tailHint = formatTailHint({ stdoutTail, stderrTail });
       throw new PrebuildError(
         `Prebuild script '${scriptPath}' exited with code ${exitCode}. ` +
-          `Subsequent prebuild scripts were not run.`,
-        { scriptPath, exitCode, durationMs },
+          `Subsequent prebuild scripts were not run.` +
+          (tailHint ? `\n${tailHint}` : ""),
+        { scriptPath, exitCode, durationMs, stdoutTail, stderrTail },
       );
     }
   }
 
   return { ran: results.length, scripts: results };
+}
+
+/**
+ * Format the captured stdout/stderr tails into a human-readable multi-line
+ * hint suffix for `PrebuildError.message`. Returns an empty string when
+ * neither tail is present (the default spawn path) so we do not bloat the
+ * message with "[stdout tail]\n(empty)" noise in the common case.
+ */
+function formatTailHint(args: {
+  stdoutTail?: string;
+  stderrTail?: string;
+}): string {
+  const lines: string[] = [];
+  if (args.stderrTail && args.stderrTail.length > 0) {
+    lines.push("--- stderr (last 10 lines) ---");
+    lines.push(tailLines(args.stderrTail, 10));
+  }
+  if (args.stdoutTail && args.stdoutTail.length > 0) {
+    lines.push("--- stdout (last 10 lines) ---");
+    lines.push(tailLines(args.stdoutTail, 10));
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Keep only the last N lines of a string. Exported indirectly through
+ * `PrebuildError.message` formatting so test assertions can recompute
+ * the expected tail without importing this helper.
+ */
+function tailLines(text: string, n: number): string {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  // Strip one trailing empty line (shell output convention) so we count
+  // real lines only.
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines.slice(-n).join("\n");
 }
 
 /**

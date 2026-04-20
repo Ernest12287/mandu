@@ -198,6 +198,24 @@ export interface ManduConfig {
      * `autoPrebuild === false`. Relative to project root.
      */
     contentDir?: string;
+    /**
+     * Issue #203 — Per-script wall-clock timeout for prebuild scripts
+     * (milliseconds). Default: `120_000` (2 minutes), matching the MCP
+     * `runCommand()` convention (#136). Override for projects that ship
+     * slow seed generators (e.g. large docs indexers, image pipelines).
+     *
+     * Precedence at runtime, highest first:
+     *   1. `MANDU_PREBUILD_TIMEOUT_MS` env var — useful for one-off CI
+     *      overrides without committing to the config.
+     *   2. This field (`dev.prebuildTimeoutMs`).
+     *   3. Default 120_000 ms.
+     *
+     * When the timeout fires, `runPrebuildScripts` throws a
+     * `PrebuildTimeoutError` whose message names the failing script path,
+     * the limit, AND the two override paths — so the user does not need
+     * to re-read this comment to recover.
+     */
+    prebuildTimeoutMs?: number;
   };
   fsRoutes?: {
     routesDir?: string;

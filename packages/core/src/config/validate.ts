@@ -122,6 +122,14 @@ const DevConfigSchema = z
      * an empty pattern. Default `"content"`.
      */
     contentDir: z.string().min(1).default("content"),
+    /**
+     * Issue #203 — per-script wall-clock timeout (ms) for
+     * `scripts/prebuild-*.ts`. `undefined` = use default (120_000 ms) or
+     * the `MANDU_PREBUILD_TIMEOUT_MS` env var if set. Explicit positive
+     * integer overrides both. The boundary check mirrors
+     * `server.rateLimit.windowMs` style — positive integers only.
+     */
+    prebuildTimeoutMs: z.number().int().positive().optional(),
   })
   .strict();
 

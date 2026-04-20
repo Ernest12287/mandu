@@ -185,6 +185,9 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     try {
       const prebuildResult = await runPrebuildScripts({
         rootDir,
+        // Issue #203 — thread the user-configurable per-script timeout
+        // through. `undefined` means "use default (120s) / env override".
+        timeoutMs: devConfig.prebuildTimeoutMs,
         onStart: (script, i, total) => {
           process.stdout.write(
             `Prebuild [${i + 1}/${total}]: ${path.relative(rootDir, script)}\n`,
@@ -210,6 +213,14 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         console.error(
           `\n[Mandu] Prebuild failed: ${path.relative(rootDir, err.scriptPath)} (exit ${err.exitCode})`,
         );
+        // Issue #203 — surface the underlying message so the user sees
+        // WHY the script failed (inner Error message, timeout hint, or
+        // captured stderr tail) without digging through scrollback.
+        console.error(err.message);
+        if ((err as Error & { cause?: unknown }).cause instanceof Error) {
+          const causeErr = (err as Error & { cause?: Error }).cause!;
+          if (causeErr.stack) console.error(causeErr.stack);
+        }
         console.error(
           "Dev server aborted. Fix the prebuild script or set `dev.autoPrebuild: false` in mandu.config.ts to skip.",
         );
@@ -1150,7 +1161,11 @@ export async function dev(options: DevOptions = {}): Promise<void> {
               "Action: re-run prebuild scripts",
             ]);
             try {
-              const res = await runPrebuildScripts({ rootDir });
+              const res = await runPrebuildScripts({
+                rootDir,
+                // Issue #203 — honour the same timeout on watch re-runs.
+                timeoutMs: devConfig.prebuildTimeoutMs,
+              });
               if (res.ran > 0) {
                 console.log(`  Prebuild: ${res.ran} script(s) refreshed`);
                 hmrServer?.broadcast({
