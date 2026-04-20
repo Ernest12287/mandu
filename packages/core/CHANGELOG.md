@@ -1,5 +1,17 @@
 # @mandujs/core
 
+## 0.34.1
+
+### Patch Changes
+
+- fix(core): resolve #221 — prerendered HTML Cache-Control + ETag
+  revalidation. 같은 패턴 재발 (#218 `/.mandu/client/*` fix 이후 prerender
+  HTML 경로는 그대로 `immutable`). `tryServePrerendered()` 가 #218 helper
+  (`computeStaticCacheControl` / `computeStrongEtag` / `matchesEtag`) 재사용,
+  기본 policy `public, max-age=0, must-revalidate` + strong ETag +
+  `If-None-Match` 304. 사용자 `PrerenderSettings.cacheControl` override
+  우선. 13 regression tests.
+
 ## 0.34.0
 
 ### Minor Changes

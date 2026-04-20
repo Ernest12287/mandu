@@ -1,5 +1,13 @@
 # mandu-edge-workers-starter
 
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.34.1
+  - @mandujs/edge@0.4.15
+
 ## 0.1.18
 
 ### Patch Changes
