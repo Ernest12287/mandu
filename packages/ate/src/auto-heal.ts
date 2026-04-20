@@ -30,6 +30,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FailureV1, HealAction } from "../schemas/failure.v1";
+import { appendMemoryEvent } from "./memory/store";
+import { nowTimestamp } from "./memory/schema";
 
 const DEFAULT_THRESHOLD = 0.75;
 
@@ -138,6 +140,25 @@ export function applyHeal(options: ApplyHealOptions): ApplyHealResult {
       error: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+
+  // Phase B.2 — auto-record accepted healing event to memory. Failures
+  // here are non-fatal; the heal itself already succeeded.
+  try {
+    appendMemoryEvent(repoRoot, {
+      kind: "accepted_healing",
+      timestamp: nowTimestamp(),
+      specPath: abs,
+      change: { change: change.change, old: change.old, new: change.new },
+      // Confidence is the caller's field on the HealAction shape.
+      confidence:
+        typeof (change as { confidence?: number }).confidence === "number"
+          ? (change as { confidence: number }).confidence
+          : 0,
+    });
+  } catch {
+    // swallow — memory writes must not block heal propagation.
+  }
+
   return { applied: true, spec: abs, changedLines };
 }
 

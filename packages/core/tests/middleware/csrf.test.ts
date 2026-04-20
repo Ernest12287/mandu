@@ -147,6 +147,7 @@ describe("csrf: safe methods", () => {
 // ========== Unsafe methods — failure paths ==========
 
 describe("csrf: unsafe methods (reject)", () => {
+  // @ate-exemplar: kind=guard_security depth=basic tags=csrf,reject,403
   it("POST without any token returns 403", async () => {
     const mw = csrf({ secret: SECRET });
     const ctx = makeCtx(makeReq("http://localhost/items", { method: "POST" }));
@@ -154,6 +155,7 @@ describe("csrf: unsafe methods (reject)", () => {
     expect(res.status).toBe(403);
   });
 
+  // @ate-exemplar: kind=guard_security depth=intermediate tags=csrf,token-mismatch,403
   it("POST with mismatched header token returns 403", async () => {
     const mw = csrf({ secret: SECRET });
 

@@ -80,6 +80,51 @@ const e2eExemplar: Exemplar = {
 })`,
 };
 
+// Phase B.5 — new prompt kinds.
+const propertyBasedExemplar: Exemplar = {
+  path: "packages/ate/tests/exemplar-sources/property-based.examples.ts",
+  startLine: 10,
+  endLine: 40,
+  kind: "property_based",
+  depth: "basic",
+  tags: ["signup", "email", "boundary"],
+  code: `it("every probe round-trips to contract-declared status", () => {
+  fc.assert(
+    fc.property(fc.constantFrom(...probes), async (probe) => {
+      const res = await testFilling(handler, { method: "POST", body: { email: probe.value } });
+      return res.status === probe.expectedStatus;
+    }),
+  );
+})`,
+};
+
+const contractShapeExemplar: Exemplar = {
+  path: "packages/core/tests/server/api-methods.test.ts",
+  startLine: 53,
+  endLine: 71,
+  kind: "contract_shape",
+  depth: "basic",
+  tags: ["response", "shape", "200"],
+  code: `it("GET /api/users - 목록 조회", async () => {
+  // (abbreviated for golden)
+})`,
+};
+
+const guardSecurityExemplar: Exemplar = {
+  path: "packages/core/tests/middleware/csrf.test.ts",
+  startLine: 150,
+  endLine: 165,
+  kind: "guard_security",
+  depth: "basic",
+  tags: ["csrf", "reject", "403"],
+  code: `it("POST without any token returns 403", async () => {
+  const mw = csrf({ secret: SECRET });
+  const ctx = makeCtx(makeReq("http://localhost/items", { method: "POST" }));
+  const res = await runMw(mw, ctx);
+  expect(res.status).toBe(403);
+})`,
+};
+
 const CASES: GoldenCase[] = [
   {
     kind: "filling_unit",
@@ -106,6 +151,35 @@ const CASES: GoldenCase[] = [
       guard: { suggestedSelectors: ["[data-route-id=signup]"] },
     },
     exemplars: [e2eExemplar],
+  },
+  {
+    kind: "property_based",
+    context: {
+      route: { id: "api-signup", pattern: "/api/signup", methods: ["POST"] },
+      boundary: {
+        probes: [
+          { field: "email", category: "valid", value: "a@b.com", expectedStatus: 201 },
+          { field: "email", category: "invalid_format", value: "not-an-email", expectedStatus: 400 },
+        ],
+      },
+    },
+    exemplars: [propertyBasedExemplar],
+  },
+  {
+    kind: "contract_shape",
+    context: {
+      route: { id: "api-signup", pattern: "/api/signup", methods: ["POST"] },
+      contract: { responses: [{ status: 201 }, { status: 400 }] },
+    },
+    exemplars: [contractShapeExemplar],
+  },
+  {
+    kind: "guard_security",
+    context: {
+      route: { id: "api-signup", pattern: "/api/signup", methods: ["POST"] },
+      middleware: [{ name: "csrf" }, { name: "session" }],
+    },
+    exemplars: [guardSecurityExemplar],
   },
 ];
 

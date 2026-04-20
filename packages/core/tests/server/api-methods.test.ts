@@ -50,6 +50,7 @@ describe("Server API Methods", () => {
 
   describe("GET 요청", () => {
     // @ate-exemplar: kind=filling_integration depth=basic tags=server,get,api,list
+    // @ate-exemplar: kind=contract_shape depth=basic tags=response,shape,200,array
     it("GET /api/users - 목록 조회", async () => {
       const users = [{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }];
 
@@ -71,6 +72,7 @@ describe("Server API Methods", () => {
     });
 
     // @ate-exemplar: kind=filling_integration depth=intermediate tags=server,get,api,dynamic-param
+    // @ate-exemplar: kind=contract_shape depth=intermediate tags=response,shape,dynamic-param
     it("GET /api/users/:id - 단일 조회", async () => {
       const user = { id: 1, name: "Alice" };
 
@@ -94,6 +96,7 @@ describe("Server API Methods", () => {
 
   describe("POST 요청", () => {
     // @ate-exemplar: kind=filling_integration depth=basic tags=server,post,api,201,create
+    // @ate-exemplar: kind=contract_shape depth=basic tags=response,shape,201,object
     it("POST /api/users - 새 사용자 생성", async () => {
       registry.registerApiHandler("api/users", async (req) => {
         if (req.method === "POST") {
@@ -122,6 +125,7 @@ describe("Server API Methods", () => {
     });
 
     // @ate-exemplar: kind=filling_integration depth=intermediate tags=server,post,error-path,400,bad-body
+    // @ate-exemplar: kind=contract_shape depth=intermediate tags=response,shape,400,error
     it("POST 빈 body 처리", async () => {
       registry.registerApiHandler("api/users", async (req) => {
         if (req.method === "POST") {

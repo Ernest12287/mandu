@@ -140,6 +140,58 @@ export type {
   FailureCategory,
 } from "./heal";
 export { computeImpact } from "./impact";
+// Phase B.3 — impact v2 (git diff + contract diff classifier)
+export { computeImpactV2, classifyContractDiff, levenshteinRatio } from "./impact/v2";
+export type {
+  ImpactV2Input,
+  ImpactV2Result,
+  ImpactSince,
+  ContractDiff,
+  ContractDiffKind,
+  ImpactSuggestion,
+} from "./impact/v2";
+// Phase B.1 — boundary probe
+export {
+  generateProbes as generateBoundaryProbes,
+  parseZodExpression,
+  probesForView,
+  dedupProbes,
+  deriveExpectedStatus,
+} from "./boundary";
+export type {
+  BoundaryProbe,
+  ProbeCategory,
+  ZodTypeView,
+  GenerateProbesInput,
+  GenerateProbesResult,
+} from "./boundary";
+// Phase B.2 — memory
+export {
+  appendMemoryEvent,
+  readMemoryEvents,
+  memoryFilePath,
+  memoryStats,
+  clearMemory,
+  rotateNow as rotateMemoryNow,
+} from "./memory/store";
+export type { AppendMemoryResult, MemoryStats } from "./memory/store";
+export { recallMemory, tokenOverlapScore } from "./memory/recall";
+export type { RecallQuery, RecallResult } from "./memory/recall";
+export { parseMemoryEvent, nowTimestamp } from "./memory/schema";
+export type {
+  MemoryEvent,
+  MemoryEventKind,
+  IntentHistoryEvent,
+  RejectedSpecEvent,
+  AcceptedHealingEvent,
+  RejectedHealingEvent,
+  PromptVersionDriftEvent,
+  BoundaryGapFilledEvent,
+  CoverageSnapshotEvent,
+} from "./memory/schema";
+// Phase B.4 — coverage metrics
+export { computeCoverage } from "./coverage/compute";
+export type { CoverageMetrics, ComputeCoverageOptions } from "./coverage/compute";
 export { generateUnitSpec, generateUnitSpecs, promptForUnitTest } from "./unit-codegen";
 export type { UnitCodegenResult } from "./unit-codegen";
 

@@ -21,7 +21,12 @@
  * importable from non-MCP callers (CLI, tests).
  */
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { ateContext } from "@mandujs/ate";
+import {
+  ateContext,
+  appendMemoryEvent,
+  nowTimestamp,
+  readMemoryEvents,
+} from "@mandujs/ate";
 
 export const ateContextToolDefinitions: Tool[] = [
   {
@@ -90,7 +95,65 @@ export function ateContextTools(_projectRoot: string) {
         return { ok: false, error: "scope is required" };
       }
       const blob = await ateContext({ repoRoot, scope, id, route });
+
+      // Phase B.2 — first `mandu_ate_context` call of the day writes a
+      // `coverage_snapshot` event (best-effort). The snapshot is derived
+      // from the `project`-scope blob summary; for other scopes we still
+      // fire the snapshot (using scope==='project' would require an
+      // extra call — the project summary's field presence is enough).
+      try {
+        if (!snapshottedToday(repoRoot)) {
+          const withSpec = countWithSpec(blob);
+          const withProperty = 0; // Phase B — property-test detection is part of `mandu_ate_coverage`.
+          const totalRoutes = countTotalRoutes(blob);
+          appendMemoryEvent(repoRoot, {
+            kind: "coverage_snapshot",
+            timestamp: nowTimestamp(),
+            routes: totalRoutes,
+            withSpec,
+            withProperty,
+          });
+        }
+      } catch {
+        // swallow — snapshot is best-effort.
+      }
+
       return { ok: true, context: blob };
     },
   };
+}
+
+function snapshottedToday(repoRoot: string): boolean {
+  try {
+    const events = readMemoryEvents(repoRoot);
+    const today = new Date().toISOString().slice(0, 10);
+    return events.some(
+      (e) => e.kind === "coverage_snapshot" && e.timestamp.slice(0, 10) === today,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function countTotalRoutes(blob: unknown): number {
+  if (!blob || typeof blob !== "object") return 0;
+  const b = blob as { scope?: string; summary?: { routes?: number }; route?: unknown };
+  if (b.scope === "project" && b.summary && typeof b.summary.routes === "number") {
+    return b.summary.routes;
+  }
+  // Non-project scope — we can't meaningfully count; leave 0 so the snapshot
+  // still records the timestamp without lying about totals.
+  return 0;
+}
+
+function countWithSpec(blob: unknown): number {
+  if (!blob || typeof blob !== "object") return 0;
+  const b = blob as {
+    scope?: string;
+    routes?: Array<{ existingSpecCount: number }>;
+  };
+  if (b.scope === "project" && Array.isArray(b.routes)) {
+    return b.routes.filter((r) => (r.existingSpecCount ?? 0) > 0).length;
+  }
+  return 0;
 }

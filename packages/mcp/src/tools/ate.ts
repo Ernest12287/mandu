@@ -171,16 +171,27 @@ export const ateToolDefinitions: Tool[] = [
       readOnlyHint: true,
     },
     description:
-      "ATE Optimization — Impact Analysis: Calculate the minimal subset of routes affected by changed files using git diff. " +
-      "Avoids running the full test suite when only part of the codebase changed. " +
-      "Returns selectedRoutes to pass to mandu.ate.generate (onlyRoutes) or mandu.ate.run. " +
-      "Typical use: run after `git commit` to test only affected routes in CI.",
+      "ATE Impact Analysis (Phase B.3 v2). Calculates the minimal set of " +
+      "routes / specs affected by changed files using git diff, classifies " +
+      "contract changes (additive / breaking / renaming), and returns " +
+      "`affected.specsToReRun`, `affected.specsLikelyBroken`, " +
+      "`affected.missingCoverage`, plus a `suggestions` list keyed to " +
+      "re_run / heal / regenerate / add_boundary_test. Stamped with " +
+      "graphVersion for agent caching. Keeps v1 fields (changedFiles, " +
+      "selectedRoutes, warnings) for backwards compatibility. " +
+      "Pass `since: 'working'` for uncommitted changes, `since: 'staged'` " +
+      "for staged changes, or a git rev (default: HEAD~1) for committed diffs.",
     inputSchema: {
       type: "object",
       properties: {
         repoRoot: { type: "string", description: "Absolute path to the Mandu project root" },
-        base: { type: "string", description: "Git base ref for diff (default: HEAD~1 or main branch)" },
-        head: { type: "string", description: "Git head ref for diff (default: current working tree)" },
+        base: { type: "string", description: "Git base ref (legacy v1 — use `since` instead)" },
+        head: { type: "string", description: "Git head ref (legacy v1 — defaults to HEAD)" },
+        since: {
+          type: "string",
+          description:
+            "v2 diff source: 'HEAD~1' | 'staged' | 'working' | any git rev. Default 'HEAD~1'.",
+        },
       },
       required: ["repoRoot"],
     },
@@ -333,11 +344,27 @@ export function ateTools(projectRoot: string) {
       return ateHeal({ repoRoot, runId });
     },
     "mandu.ate.impact": async (args: Record<string, unknown>) => {
-      const { repoRoot, base, head } = args as {
+      const { repoRoot, base, head, since } = args as {
         repoRoot: string;
         base?: string;
         head?: string;
+        since?: "HEAD~1" | "staged" | "working" | string;
       };
+
+      // Phase B.3 — try the v2 impact pipeline first so callers get
+      // `affected`, `suggestions`, `contractDiffs`, `graphVersion` in
+      // addition to the v1 fields. Fall back to v1 on failure so the
+      // tool contract stays backwards compatible.
+      try {
+        const { computeImpactV2 } = await import("@mandujs/ate");
+        const v2 = await computeImpactV2({
+          repoRoot,
+          since: since ?? base,
+        });
+        return { ok: true, ...v2 };
+      } catch {
+        // Fall through to v1.
+      }
       return ateImpact({ repoRoot, base, head });
     },
     "mandu.ate.auto_pipeline": async (args: Record<string, unknown>) => {

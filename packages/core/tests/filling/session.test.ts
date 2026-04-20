@@ -123,6 +123,7 @@ describe("createCookieSessionStorage", () => {
   });
 
   // @ate-exemplar: kind=filling_unit depth=intermediate tags=session,cookie,security,tamper
+  // @ate-exemplar: kind=guard_security depth=intermediate tags=session,cookie,tamper
   it("getSession returns empty session for tampered cookie", async () => {
     const storage = createCookieSessionStorage({ cookie: { secrets: [secret] } });
     const data = JSON.stringify({ id: "123" });

@@ -59,6 +59,7 @@ describe("Server Rate Limit", () => {
   });
 
   // @ate-exemplar: kind=filling_integration depth=intermediate tags=rate-limit,route-isolation
+  // @ate-exemplar: kind=guard_security depth=intermediate tags=rate-limit,route-isolation,429
   it("라우트별로 독립적으로 카운트한다", async () => {
     registry.registerApiHandler("api/limited", async () => Response.json({ route: "limited" }));
     registry.registerApiHandler("api/other", async () => Response.json({ route: "other" }));

@@ -18,7 +18,12 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
-import { lintSpecContent, type LintDiagnostic } from "@mandujs/ate";
+import {
+  lintSpecContent,
+  appendMemoryEvent,
+  nowTimestamp,
+  type LintDiagnostic,
+} from "@mandujs/ate";
 
 // Re-export the diagnostic shape so callers can type-check against it without
 // pulling @mandujs/ate directly.
@@ -75,11 +80,13 @@ export const ateSaveToolDefinitions: Tool[] = [
   },
 ];
 
-export function ateSaveTools(_projectRoot: string) {
+export function ateSaveTools(projectRoot: string) {
   return {
     mandu_ate_save: async (args: Record<string, unknown>) => {
       const path = args.path as string | undefined;
       const content = args.content as string | undefined;
+      const intent = typeof args.intent === "string" ? args.intent : undefined;
+      const kind = typeof args.kind === "string" ? args.kind : undefined;
       const allowWarnings = args.allowWarnings !== false;
 
       if (!path || typeof path !== "string") {
@@ -118,6 +125,20 @@ export function ateSaveTools(_projectRoot: string) {
       }
 
       writeFileSync(path, content, "utf8");
+
+      // Phase B.2 — auto-record intent_history event. Non-fatal on failure.
+      try {
+        appendMemoryEvent(projectRoot, {
+          kind: "intent_history",
+          timestamp: nowTimestamp(),
+          intent: intent ?? "(no intent supplied)",
+          agent: typeof args.agent === "string" ? (args.agent as string) : "unknown",
+          resulting: { saved: [path] },
+          ...(kind ? { routeId: kind } : {}),
+        });
+      } catch {
+        // swallow
+      }
 
       return {
         saved: true,

@@ -34,6 +34,10 @@ export { ateFlakesTools, ateFlakesToolDefinitions } from "./ate-flakes.js";
 export { atePromptTools, atePromptToolDefinitions } from "./ate-prompt.js";
 export { ateExemplarTools, ateExemplarToolDefinitions } from "./ate-exemplar.js";
 export { ateSaveTools, ateSaveToolDefinitions } from "./ate-save.js";
+export { ateBoundaryProbeTools, ateBoundaryProbeToolDefinitions } from "./ate-boundary-probe.js";
+export { ateRecallTools, ateRecallToolDefinitions } from "./ate-recall.js";
+export { ateRememberTools, ateRememberToolDefinitions } from "./ate-remember.js";
+export { ateCoverageTools, ateCoverageToolDefinitions } from "./ate-coverage.js";
 export { resourceTools, resourceToolDefinitions } from "./resource.js";
 export { componentTools, componentToolDefinitions } from "./component.js";
 export { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -80,6 +84,13 @@ import { ateFlakesTools, ateFlakesToolDefinitions } from "./ate-flakes.js";
 import { atePromptTools, atePromptToolDefinitions } from "./ate-prompt.js";
 import { ateExemplarTools, ateExemplarToolDefinitions } from "./ate-exemplar.js";
 import { ateSaveTools, ateSaveToolDefinitions } from "./ate-save.js";
+import {
+  ateBoundaryProbeTools,
+  ateBoundaryProbeToolDefinitions,
+} from "./ate-boundary-probe.js";
+import { ateRecallTools, ateRecallToolDefinitions } from "./ate-recall.js";
+import { ateRememberTools, ateRememberToolDefinitions } from "./ate-remember.js";
+import { ateCoverageTools, ateCoverageToolDefinitions } from "./ate-coverage.js";
 import { resourceTools, resourceToolDefinitions } from "./resource.js";
 import { componentTools, componentToolDefinitions } from "./component.js";
 import { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -143,6 +154,19 @@ const TOOL_MODULES: ToolModule[] = [
   { category: "ate-prompt", definitions: atePromptToolDefinitions, handlers: atePromptTools },
   { category: "ate-exemplar", definitions: ateExemplarToolDefinitions, handlers: ateExemplarTools },
   { category: "ate-save", definitions: ateSaveToolDefinitions, handlers: ateSaveTools },
+  // Phase B tool suite
+  {
+    category: "ate-boundary-probe",
+    definitions: ateBoundaryProbeToolDefinitions,
+    handlers: ateBoundaryProbeTools,
+  },
+  { category: "ate-recall", definitions: ateRecallToolDefinitions, handlers: ateRecallTools },
+  { category: "ate-remember", definitions: ateRememberToolDefinitions, handlers: ateRememberTools },
+  {
+    category: "ate-coverage",
+    definitions: ateCoverageToolDefinitions,
+    handlers: ateCoverageTools,
+  },
   { category: "resource", definitions: resourceToolDefinitions, handlers: resourceTools },
   { category: "component", definitions: componentToolDefinitions, handlers: componentTools },
   { category: "kitchen", definitions: kitchenToolDefinitions, handlers: kitchenTools },
