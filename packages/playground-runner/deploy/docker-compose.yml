@@ -1,0 +1,152 @@
+# =============================================================================
+# Mandu Playground Runner — self-host stack (Phase 16.2)
+# =============================================================================
+# What this deploys:
+#
+#   Host (Ubuntu 22.04+ with Docker 24+)
+#   |
+#   |--- caddy ------ HTTPS ingress (ACME/Let's Encrypt auto), ports 80+443
+#   |      +- reverse_proxy -> playground:8788
+#   |
+#   \--- playground - long-lived outer container (bun run local-server.ts)
+#          +- /var/run/docker.sock bind-mounted (sibling-spawn)
+#          \-> docker run --rm <sandbox>   (per-request user-code container)
+#
+# Operator runbook:
+#
+#   1. cp .env.example .env
+#   2. edit .env — set PLAYGROUND_DOMAIN and PLAYGROUND_ORIGIN
+#   3. docker compose up -d
+#   4. point DNS A record: playground.<your-domain> -> <host IP>
+#   5. Caddy auto-provisions a Let's Encrypt cert on first request
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Outer container — hosts the Bun server that fans out to per-request
+  # sandbox containers. NOT exposed to the public network directly.
+  # ---------------------------------------------------------------------------
+  playground:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: mandu-playground:latest
+    container_name: mandu-playground
+    restart: unless-stopped
+    environment:
+      # Force the Docker adapter — MockAdapter would be a security hole in
+      # a self-host deployment (it runs user code inside THIS container).
+      - MANDU_PLAYGROUND_ADAPTER=docker
+      - MANDU_PLAYGROUND_PORT=8788
+      - MANDU_PLAYGROUND_HOST=0.0.0.0
+      # CORS origin — set to the site that embeds the playground UI.
+      # Browsers that visit any other origin will be refused. Defaults to
+      # the domain Caddy is fronting so same-origin fetches work.
+      - MANDU_PLAYGROUND_CORS_ORIGIN=${PLAYGROUND_ORIGIN:-https://${PLAYGROUND_DOMAIN}}
+      # Image for ephemeral sandbox containers. Pin to a local build once
+      # you've vendored @mandujs/core at the right version (see
+      # Dockerfile.sandbox).
+      - MANDU_DOCKER_SANDBOX_IMAGE=${MANDU_DOCKER_SANDBOX_IMAGE:-oven/bun:1.3.12-slim}
+      - MANDU_DOCKER_WORK_DIR=/tmp/mandu-playground
+      # Optional: Turnstile siteverify secret for the production gate.
+      # Not used by the self-host adapter today (rate limit lives in
+      # Caddy), but accepted for future parity with the Worker path.
+      - TURNSTILE_SECRET=${TURNSTILE_SECRET:-}
+    volumes:
+      # Sibling-spawn: outer container shells out to `docker run …` that
+      # talks to the host daemon. RO mount so a compromised outer process
+      # can't re-create the socket with different perms.
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # User-code staging area. Mounted on BOTH sides so the ephemeral
+      # sandbox container's `-v $PATH:/work/index.ts:ro` refers to the
+      # same host file the outer container just wrote.
+      - mandu_playground_work:/tmp/mandu-playground
+    # No public ports — only Caddy has :80/:443. The playground-runner
+    # port is internal-only to the `playground_net` bridge.
+    expose:
+      - "8788"
+    networks:
+      - playground_net
+    # docker run a sibling container often needs `group_add` to match
+    # the host's `docker` group gid. Override via GID env if your host
+    # uses a non-standard value (`getent group docker | cut -d: -f3`).
+    group_add:
+      - "${DOCKER_GID:-999}"
+    # Security hardening for the outer container itself. The inner
+    # sandbox containers get stricter flags (see src/docker-adapter.ts).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # `docker-cli` inside the container needs CAP_CHOWN + CAP_DAC_OVERRIDE
+    # to invoke the socket — we grant the minimum.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    read_only: false
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "await fetch('http://127.0.0.1:8788/api/playground/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # Caddy — HTTPS ingress. Handles Let's Encrypt ACME auto-provisioning,
+  # request logging, and basic security headers. Sits in front of the
+  # playground-runner container.
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: mandu-playground-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - PLAYGROUND_DOMAIN=${PLAYGROUND_DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - playground_net
+    depends_on:
+      playground:
+        condition: service_started
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  playground_net:
+    driver: bridge
+    # No internal: true — Caddy needs outbound HTTPS for ACME challenges.
+    # The playground service has no public ingress; isolation comes from
+    # the `expose:` (vs `ports:`) convention above.
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  mandu_playground_work:
+    driver: local

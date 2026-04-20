@@ -1,0 +1,114 @@
+# =============================================================================
+# Caddy config for the Mandu Playground Runner self-host stack.
+# =============================================================================
+# This Caddyfile is rendered by docker-compose which injects
+# {$PLAYGROUND_DOMAIN} (and optionally {$ACME_EMAIL}) from the `.env`
+# file. Caddy's env-expansion happens at config-load time.
+#
+# What it does:
+#   - Terminates TLS on 443 using Let's Encrypt auto-provisioning
+#   - Reverse-proxies to the `playground:8788` service over the Docker
+#     network, with `flush_interval -1` so SSE streams pass through
+#     without buffering
+#   - Sets hardened response headers (HSTS, X-Frame-Options, etc.)
+#   - Enforces compression for non-SSE responses
+#   - Logs to /data/access.log with rotation (read by `docker exec caddy cat`)
+# =============================================================================
+
+# Set the global ACME email from the compose env. Optional — if
+# ACME_EMAIL is empty Caddy prompts on first use (fine for dev, but
+# operators SHOULD set it so LE renewal notices reach you).
+{
+	email {$ACME_EMAIL}
+}
+
+{$PLAYGROUND_DOMAIN} {
+	# -------------------------------------------------------------------------
+	# Reverse proxy — SSE-safe.
+	#
+	# `flush_interval -1` disables response buffering. Without it, Caddy
+	# coalesces responses to 4 KiB chunks and the playground front-end
+	# sees stdout events delayed by seconds. SSE demands immediate flush.
+	#
+	# `transport.http` keeps connections open for the SSE duration; Bun's
+	# server emits `Connection: keep-alive` already so this is belt-and-
+	# suspenders.
+	# -------------------------------------------------------------------------
+	reverse_proxy playground:8788 {
+		flush_interval -1
+		transport http {
+			keepalive 60s
+			keepalive_idle_conns 4
+		}
+	}
+
+	# -------------------------------------------------------------------------
+	# Compression — gzip + zstd. Caddy auto-skips for already-compressed
+	# content types and (importantly) skips text/event-stream on most
+	# builds. If your workload is mostly SSE this is a no-op.
+	# -------------------------------------------------------------------------
+	encode gzip zstd
+
+	# -------------------------------------------------------------------------
+	# Security headers.
+	#
+	# - HSTS: 1 year, include-subdomains. Drop `preload` unless you've
+	#   actually submitted the domain to hstspreload.org.
+	# - X-Frame-Options: DENY blocks all iframing. If the front-end
+	#   embeds this runner via fetch() only (the default) you can keep
+	#   DENY. If you embed via <iframe> remove this header or switch to
+	#   `frame-ancestors` CSP.
+	# - Referrer-Policy: strict-origin-when-cross-origin is the safe
+	#   modern default.
+	# - Permissions-Policy: disable a handful of high-risk features that
+	#   have no business being called from an API endpoint.
+	# -------------------------------------------------------------------------
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		# Remove the `Server` header so we don't leak the Caddy version.
+		-Server
+	}
+
+	# -------------------------------------------------------------------------
+	# Access log with rotation. Lives inside the `caddy_data` volume so
+	# it survives container restarts; exec into the container to inspect:
+	#
+	#   docker compose exec caddy tail -f /data/access.log
+	# -------------------------------------------------------------------------
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format json
+	}
+
+	# -------------------------------------------------------------------------
+	# Basic per-IP soft throttle at the HTTP layer. Caddy's built-in
+	# `rate_limit` directive is in the caddy-ratelimit plugin — not in
+	# the default `caddy:2-alpine` image. For a plugin-free default we
+	# keep this commented out; operators who want hard rate limits
+	# should build a custom Caddy image with xcaddy:
+	#
+	#   FROM caddy:builder AS builder
+	#   RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+	#
+	# Then in the site block:
+	#
+	#   rate_limit {
+	#       zone per_ip {
+	#           key    {client_ip}
+	#           window 1m
+	#           events 30
+	#       }
+	#   }
+	#
+	# Until you do that, rely on the runner's per-run wall-clock limit
+	# (SECURITY_POLICY.wallClockMs = 30s) and container isolation.
+	# -------------------------------------------------------------------------
+}

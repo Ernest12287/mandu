@@ -27,7 +27,9 @@
  *   dev-only env var pointing at `http://127.0.0.1:8788`.
  */
 
+import { DockerSandboxAdapter } from "./docker-adapter";
 import { LocalRunner } from "./local-runner";
+import { MockAdapter } from "./adapter";
 import { SECURITY_POLICY } from "./security";
 import type { ExampleSlug, RunRequestBody, SSEEvent } from "./types";
 
@@ -50,13 +52,28 @@ const DEFAULT_PORT = 8788;
  */
 const DEFAULT_CORS_ORIGIN = "http://localhost:5173";
 
-/** Loopback-only bind address. See §security boundary in README. */
-const BIND_HOSTNAME = "127.0.0.1";
+/**
+ * Default bind address. Loopback-only in local dev so the MockAdapter is
+ * never reachable from the network. When running the self-host Docker
+ * stack, the outer container binds to `0.0.0.0` because Caddy sits in
+ * front and is the only ingress — operators flip this via
+ * `MANDU_PLAYGROUND_HOST`.
+ */
+const DEFAULT_BIND_HOSTNAME_LOOPBACK = "127.0.0.1";
+const DEFAULT_BIND_HOSTNAME_CONTAINER = "0.0.0.0";
 
 /** Configuration for {@link startLocalServer}. */
 export interface LocalServerOptions {
   /** Override the bind port. Defaults to env `MANDU_PLAYGROUND_PORT` or 8788. */
   port?: number;
+  /**
+   * Override the bind hostname. In local dev (default) this is `127.0.0.1`
+   * so the server is unreachable from the network. In the self-host Docker
+   * stack the outer container MUST bind `0.0.0.0` so Caddy can reach it;
+   * set `MANDU_PLAYGROUND_HOST=0.0.0.0` or use adapter=docker which flips
+   * the default for you.
+   */
+  hostname?: string;
   /** Override the allowed CORS origin. Defaults to env or Vite's 5173. */
   corsOrigin?: string;
   /** Inject a pre-built runner — used by tests to supply a short-clock runner. */
@@ -97,13 +114,17 @@ export async function startLocalServer(
 ): Promise<LocalServerHandle> {
   const port = options.port ?? readPort();
   const corsOrigin = options.corsOrigin ?? readCorsOrigin();
-  const runner = options.runner ?? new LocalRunner();
+  const adapterMode = readAdapterMode();
+  const hostname = options.hostname ?? readBindHostname(adapterMode);
+  const runner = options.runner ?? new LocalRunner({ adapter: buildAdapter(adapterMode) });
+
+  const adapterLabel: "mock" | "docker" = adapterMode === "docker" ? "docker" : "mock";
 
   const server = Bun.serve({
     port,
-    hostname: BIND_HOSTNAME,
+    hostname,
     async fetch(request: Request): Promise<Response> {
-      return await handleRequest(request, runner, corsOrigin);
+      return await handleRequest(request, runner, corsOrigin, adapterLabel);
     },
   });
 
@@ -121,9 +142,13 @@ export async function startLocalServer(
   }
 
   if (!options.quiet) {
-    // Startup log — format matches the task spec exactly.
+    // Startup log — surface which adapter is active so operators don't
+    // accidentally assume MockAdapter when they've configured Docker.
+    const adapterLabel = adapterMode === "docker"
+      ? "DockerSandboxAdapter (self-host)"
+      : "MockAdapter (loopback dev-only)";
     console.log(
-      `🎮 Playground dev server at http://${resolvedHost}:${resolvedPort} (local-only, MockAdapter)`
+      `[playground] dev server at http://${resolvedHost}:${resolvedPort} — ${adapterLabel}`,
     );
   }
 
@@ -148,7 +173,8 @@ export async function startLocalServer(
 async function handleRequest(
   request: Request,
   runner: LocalRunner,
-  corsOrigin: string
+  corsOrigin: string,
+  adapterLabel: "mock" | "docker" = "mock",
 ): Promise<Response> {
   const url = new URL(request.url);
 
@@ -166,7 +192,7 @@ async function handleRequest(
   }
 
   if (request.method === "GET" && url.pathname === "/api/playground/health") {
-    return handleHealth(cors, runner);
+    return handleHealth(cors, runner, adapterLabel);
   }
 
   if (request.method === "POST" && url.pathname === "/api/playground/run") {
@@ -185,18 +211,21 @@ async function handleRequest(
 
 function handleHealth(
   cors: HeadersInit,
-  runner: LocalRunner
+  runner: LocalRunner,
+  adapterLabel: "mock" | "docker" = "mock",
 ): Response {
   // Surface enough state to let a smoke check verify:
   //   1. The server is up (200 + JSON body)
   //   2. It's the local server (mode === "local") — distinguishes from
   //      the CF Worker which returns `status: "ok"` + `adapter: "..."`
   //   3. Security limits match the policy (operators / tests assert)
+  //   4. Which backend adapter is active — mock for local dev, docker for
+  //      self-host deployments
   return Response.json(
     {
       ok: true,
       mode: "local" as const,
-      adapter: "mock",
+      adapter: adapterLabel,
       activeRuns: runner.activeRunCount,
       limits: {
         wallClockMs: SECURITY_POLICY.wallClockMs,
@@ -333,6 +362,56 @@ function readPort(): number {
 
 function readCorsOrigin(): string {
   return process.env.MANDU_PLAYGROUND_CORS_ORIGIN ?? DEFAULT_CORS_ORIGIN;
+}
+
+/**
+ * Resolve the adapter mode for the *local server* (distinct from the CF
+ * Worker's ADAPTER_MODE binding). Two values are meaningful here:
+ *
+ *   mock    — default. Uses {@link MockAdapter}. Loopback-only bind.
+ *   docker  — self-host. Uses {@link DockerSandboxAdapter}. Binds 0.0.0.0
+ *             by default so the Caddy reverse proxy can reach it. The
+ *             outer container MUST be the only ingress (no public ports).
+ *
+ * We intentionally accept only these two values; the `fly` / `cloudflare`
+ * modes are CF-specific and don't apply to a plain Bun.serve process.
+ */
+function readAdapterMode(): "mock" | "docker" {
+  const raw = process.env.MANDU_PLAYGROUND_ADAPTER;
+  if (raw === "docker") return "docker";
+  if (raw && raw !== "mock") {
+    console.warn(
+      `[playground] unrecognized MANDU_PLAYGROUND_ADAPTER=${raw} — ` +
+        "falling back to 'mock'. Valid values: mock, docker.",
+    );
+  }
+  return "mock";
+}
+
+/**
+ * Pick the bind hostname. In `mock` mode we stay on loopback (security
+ * boundary — MockAdapter spawns `bun -e` locally). In `docker` mode we
+ * bind all interfaces so the Caddy container can reach us, trusting that
+ * the operator has configured compose with `expose:` (not `ports:`) so
+ * the port is only reachable over the internal Docker network.
+ *
+ * Explicit `MANDU_PLAYGROUND_HOST` overrides either default.
+ */
+function readBindHostname(mode: "mock" | "docker"): string {
+  const explicit = process.env.MANDU_PLAYGROUND_HOST;
+  if (explicit && explicit.length > 0) return explicit;
+  return mode === "docker"
+    ? DEFAULT_BIND_HOSTNAME_CONTAINER
+    : DEFAULT_BIND_HOSTNAME_LOOPBACK;
+}
+
+/**
+ * Instantiate the adapter for the given mode. Kept adjacent to the env
+ * readers so every startup knob lives in one place.
+ */
+function buildAdapter(mode: "mock" | "docker"): MockAdapter | DockerSandboxAdapter {
+  if (mode === "docker") return DockerSandboxAdapter.fromEnv();
+  return new MockAdapter();
 }
 
 // -----------------------------------------------------------------------------

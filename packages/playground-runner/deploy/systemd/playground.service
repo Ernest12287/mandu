@@ -1,0 +1,74 @@
+# =============================================================================
+# Mandu Playground Runner — systemd unit
+# =============================================================================
+# Alternative to running `docker compose up -d` by hand. Installs the
+# compose stack as a system service so it starts on boot and restarts
+# on failure.
+#
+# Install:
+#
+#   sudo cp playground.service /etc/systemd/system/mandu-playground.service
+#   sudo sed -i 's|/opt/mandu-playground|<your-path>|g' \
+#       /etc/systemd/system/mandu-playground.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mandu-playground.service
+#
+# Manage:
+#
+#   sudo systemctl status   mandu-playground
+#   sudo systemctl stop     mandu-playground
+#   sudo systemctl restart  mandu-playground
+#   sudo journalctl -u      mandu-playground -f
+#
+# NOTE: the service runs `docker compose up` with `--wait` so systemd
+# waits for healthchecks to pass before marking the unit active. The
+# `ExecStop` cleans up cleanly on `systemctl stop`.
+# =============================================================================
+
+[Unit]
+Description=Mandu Playground Runner (Docker Compose)
+Documentation=https://github.com/konamgil/mandu
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Working directory — where your docker-compose.yml + .env + Caddyfile
+# live. Operators MUST `sed` this path to match their install location.
+WorkingDirectory=/opt/mandu-playground/deploy
+
+# Pull the latest images before (re)starting so the unit picks up updates
+# that `docker compose pull` would fetch.
+ExecStartPre=/usr/bin/docker compose pull --quiet --ignore-pull-failures
+ExecStart=/usr/bin/docker compose up -d --wait --remove-orphans
+ExecStop=/usr/bin/docker compose down
+
+# Reload via `systemctl reload` picks up Caddyfile edits without a full
+# restart — it re-exec's Caddy using compose's reload hook.
+ExecReload=/usr/bin/docker compose restart caddy
+
+# systemd will restart the unit if compose up exits nonzero — 5s backoff
+# prevents a tight loop if the daemon's genuinely unhappy.
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=120s
+TimeoutStopSec=60s
+
+# Hardening — systemd-level sandbox for the management process itself.
+# The containers have their own isolation from docker-compose.yml /
+# docker-adapter.ts; this just keeps the systemctl shim minimal.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/mandu-playground/deploy
+
+# Log to journald so `journalctl -u mandu-playground` picks it up.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

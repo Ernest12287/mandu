@@ -17,6 +17,7 @@ import {
   CloudflareSandboxAdapter,
   FlyMachineAdapter,
   selectAdapter,
+  resolveAdapterMode,
 } from "../src/adapter";
 import type { RunOptions, SSEEvent, WorkerBindings } from "../src/types";
 
@@ -190,5 +191,42 @@ describe("selectAdapter", () => {
   it("defaults to cloudflare when ADAPTER_MODE is omitted", () => {
     const a = selectAdapter({ ...baseEnv, SANDBOX: { fake: true } });
     expect(a.name).toBe("cloudflare-sandbox");
+  });
+
+  it("returns DockerSandboxAdapter when ADAPTER_MODE=docker", () => {
+    const a = selectAdapter({ ...baseEnv, ADAPTER_MODE: "docker" });
+    expect(a.name).toBe("docker-sandbox");
+  });
+});
+
+describe("resolveAdapterMode", () => {
+  const baseEnv = {
+    PLAYGROUND_DO: {} as WorkerBindings["PLAYGROUND_DO"],
+    RATE_LIMIT: {} as WorkerBindings["RATE_LIMIT"],
+  };
+
+  it("honors explicit ADAPTER_MODE over process.env", () => {
+    expect(
+      resolveAdapterMode(
+        { ...baseEnv, ADAPTER_MODE: "mock" },
+        { MANDU_PLAYGROUND_ADAPTER: "docker" },
+      ),
+    ).toBe("mock");
+  });
+
+  it("falls back to MANDU_PLAYGROUND_ADAPTER when ADAPTER_MODE absent", () => {
+    expect(
+      resolveAdapterMode(baseEnv, { MANDU_PLAYGROUND_ADAPTER: "docker" }),
+    ).toBe("docker");
+  });
+
+  it("defaults to cloudflare when both are absent", () => {
+    expect(resolveAdapterMode(baseEnv, {})).toBe("cloudflare");
+  });
+
+  it("ignores invalid MANDU_PLAYGROUND_ADAPTER values", () => {
+    expect(
+      resolveAdapterMode(baseEnv, { MANDU_PLAYGROUND_ADAPTER: "garbage" }),
+    ).toBe("cloudflare");
   });
 });

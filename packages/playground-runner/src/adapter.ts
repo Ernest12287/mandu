@@ -18,6 +18,7 @@
 
 import type { PlaygroundAdapter, RunOptions, SSEEvent, WorkerBindings } from "./types";
 import { SECURITY_POLICY, stripAnsi, truncateOutput } from "./security";
+import { DockerSandboxAdapter } from "./docker-adapter";
 
 // -----------------------------------------------------------------------------
 // Mock adapter — used by unit + integration tests. NO network access.
@@ -285,15 +286,24 @@ export class FlyMachineAdapter implements PlaygroundAdapter {
  * entrypoint calls this once per request.
  *
  * Selection logic:
- *  - `env.ADAPTER_MODE === "mock"` → MockAdapter (dev + CI)
- *  - `env.ADAPTER_MODE === "fly"`  → FlyMachineAdapter (stubbed, errors)
- *  - default                       → CloudflareSandboxAdapter (prod)
+ *  - `env.ADAPTER_MODE === "mock"`   → MockAdapter (dev + CI)
+ *  - `env.ADAPTER_MODE === "docker"` → DockerSandboxAdapter (self-host)
+ *  - `env.ADAPTER_MODE === "fly"`    → FlyMachineAdapter (stubbed, errors)
+ *  - default                         → CloudflareSandboxAdapter (prod CF)
+ *
+ * **Self-host detection**: in addition to explicit `ADAPTER_MODE`, the
+ * host process may also set `MANDU_PLAYGROUND_ADAPTER=docker` on the
+ * ambient `process.env` — this is the path used by the Docker Compose
+ * stack. The Worker-side `env.ADAPTER_MODE` still wins if provided so
+ * CF operators can override per-deploy.
  */
 export function selectAdapter(env: WorkerBindings): PlaygroundAdapter {
-  const mode = env.ADAPTER_MODE ?? "cloudflare";
+  const mode = resolveAdapterMode(env);
   switch (mode) {
     case "mock":
       return new MockAdapter();
+    case "docker":
+      return DockerSandboxAdapter.fromEnv();
     case "fly":
       return new FlyMachineAdapter({
         apiToken: "",
@@ -303,6 +313,28 @@ export function selectAdapter(env: WorkerBindings): PlaygroundAdapter {
     default:
       return new CloudflareSandboxAdapter(env.SANDBOX);
   }
+}
+
+/**
+ * Resolve the adapter mode using (in priority order):
+ *   1. explicit `env.ADAPTER_MODE` (Worker binding)
+ *   2. ambient `process.env.MANDU_PLAYGROUND_ADAPTER` (self-host, local-server)
+ *   3. fallback to `"cloudflare"` (default production CF Worker path)
+ *
+ * Exposed so `local-server.ts` can reuse the exact same resolution.
+ */
+export function resolveAdapterMode(
+  env: WorkerBindings,
+  processEnv: Record<string, string | undefined> = (typeof process !== "undefined"
+    ? (process.env as Record<string, string | undefined>)
+    : {}),
+): NonNullable<WorkerBindings["ADAPTER_MODE"]> {
+  if (env.ADAPTER_MODE) return env.ADAPTER_MODE;
+  const ambient = processEnv.MANDU_PLAYGROUND_ADAPTER;
+  if (ambient === "mock" || ambient === "docker" || ambient === "fly" || ambient === "cloudflare") {
+    return ambient;
+  }
+  return "cloudflare";
 }
 
 // -----------------------------------------------------------------------------

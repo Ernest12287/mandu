@@ -1,6 +1,6 @@
 {
   "name": "@mandujs/playground-runner",
-  "version": "1.0.0",
+  "version": "6.0.0",
   "private": true,
   "description": "Phase 16.2 live Bun runtime on Cloudflare Sandboxes. Worker + Durable Object + adapter for running user-submitted Mandu code in isolated sandboxes with SSE streaming.",
   "type": "module",
@@ -10,12 +10,15 @@
   "exports": {
     ".": "./src/worker.ts",
     "./adapter": "./src/adapter.ts",
+    "./docker-adapter": "./src/docker-adapter.ts",
     "./durable-object": "./src/durable-object.ts",
     "./security": "./src/security.ts",
     "./types": "./src/types.ts"
   },
   "files": [
     "src/**/*",
+    "deploy/**/*",
+    "Dockerfile",
     "Dockerfile.sandbox",
     "wrangler.toml.template",
     "README.md"

@@ -95,7 +95,7 @@ export interface PlaygroundAdapter {
   dispose?(): Promise<void>;
 
   /** Adapter identity for logs + metrics. */
-  readonly name: "cloudflare-sandbox" | "fly-machine" | "mock";
+  readonly name: "cloudflare-sandbox" | "fly-machine" | "mock" | "docker-sandbox";
 }
 
 /**
@@ -113,7 +113,7 @@ export interface WorkerBindings {
   /** Secret — Turnstile server-side verification key. */
   TURNSTILE_SECRET?: string;
   /** Feature flag — set to `"mock"` in dev to force MockAdapter. */
-  ADAPTER_MODE?: "cloudflare" | "fly" | "mock";
+  ADAPTER_MODE?: "cloudflare" | "fly" | "mock" | "docker";
 }
 
 // -----------------------------------------------------------------------------
