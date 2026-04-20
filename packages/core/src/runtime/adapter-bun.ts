@@ -48,9 +48,11 @@ export function adapterBun(): ManduAdapter {
 
           return {
             port: manduServer.server.port ?? port,
-            // Report the effective bind address. startServer() defaults to
-            // 0.0.0.0 when no hostname is supplied. See #190.
-            hostname: hostname ?? "0.0.0.0",
+            // Report the effective bind address. startServer() defaults
+            // to `"::"` (dual-stack IPv6 wildcard) when no hostname is
+            // supplied — accepts both IPv4 and IPv6 clients on one
+            // socket. See #190 #223.
+            hostname: hostname ?? "::",
           };
         },
 

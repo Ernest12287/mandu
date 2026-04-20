@@ -6,6 +6,7 @@
  */
 import {
   startServer,
+  formatServerAddresses,
   loadEnv,
   validateAndReport,
   runHook,
@@ -231,8 +232,13 @@ export async function start(options: StartOptions = {}): Promise<void> {
   const displayHost = resolveDisplayHost(serverConfig.hostname);
   const baseUrl = `http://${displayHost}:${actualPort}`;
   console.log(`\n🚀 Production server running on ${baseUrl}`);
-  if (serverConfig.hostname === "0.0.0.0" || !serverConfig.hostname) {
-    console.log(`   (also reachable at http://127.0.0.1:${actualPort} and http://[::1]:${actualPort})`);
+  // #225 — compute the "also reachable at" list from the actual bind
+  // address. `formatServerAddresses()` guarantees every URL it reports
+  // is answered by the socket we just started (no more lying about
+  // `[::1]` when bound to `0.0.0.0`).
+  const { additional } = formatServerAddresses(serverConfig.hostname, actualPort);
+  if (additional.length > 0) {
+    console.log(`   (also reachable at ${additional.join(", ")})`);
   }
 
   await writeRuntimeControl(rootDir, {

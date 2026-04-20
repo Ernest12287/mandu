@@ -4255,42 +4255,98 @@ function startBunServerWithFallback(options: {
 // ========== Server Startup ==========
 
 /**
+ * Derive the list of loopback-style hosts actually reachable for a given
+ * bind address, without issuing any network probes. Used by the startup
+ * banner (`formatServerAddresses`) and by tooling that needs to know
+ * which loopback URLs will succeed for a given server.
+ *
+ * Matrix:
+ *   - `"0.0.0.0"` (IPv4 wildcard) → `["127.0.0.1"]` only. A server bound
+ *     to `0.0.0.0` does NOT answer on `[::1]` — the IPv6 loopback is a
+ *     different socket. This was the root cause of #225.
+ *   - `"::"` / `"::0"` / `"[::]"` / `"0:0:0:0:0:0:0:0"` (IPv6 wildcard,
+ *     dual-stack) → `["127.0.0.1", "[::1]"]`. IPV6_V6ONLY is off by
+ *     default on Bun, so the dual-stack socket accepts IPv4-mapped
+ *     connections too.
+ *   - `undefined` / `""` → same as the current default (`"::"`).
+ *   - `"127.0.0.1"` / `"::1"` / a specific IP → just that address.
+ *   - DNS name → just that name.
+ *
+ * @see issues #223 #225
+ */
+export function reachableHosts(hostname: string | undefined): string[] {
+  const h = (hostname ?? "").trim();
+
+  // IPv4 wildcard — IPv4 loopback only.
+  if (h === "0.0.0.0") {
+    return ["127.0.0.1"];
+  }
+
+  // IPv6 wildcard (dual-stack). Empty / undefined is treated as the
+  // default, which is now `"::"` (dual-stack) — see `startServer()`.
+  if (h === "" || h === "::" || h === "::0" || h === "[::]" || h === "0:0:0:0:0:0:0:0") {
+    return ["127.0.0.1", "[::1]"];
+  }
+
+  // Bare IPv6 literal → bracket for URL syntax.
+  if (h.includes(":") && !h.startsWith("[")) {
+    return [`[${h}]`];
+  }
+
+  return [h];
+}
+
+/**
  * Format a base URL for startup logging based on the bound hostname.
  *
- * When binding to wildcard addresses (`0.0.0.0`, `::`, or empty string),
- * the server listens on all interfaces — browsers must use `localhost`
- * or a specific loopback address to connect. We surface both IPv4 and IPv6
- * loopback URLs so the user can pick whichever their OS prefers.
- *
  * Returns `{ primary, additional }` where `primary` is the canonical URL
- * for UX (open-in-browser, runtime control) and `additional` are supplementary
- * URLs shown in the startup log.
+ * for UX (open-in-browser, runtime control) and `additional` are
+ * supplementary URLs shown in the startup log. Every URL in `additional`
+ * is guaranteed to actually resolve to the running server — no more
+ * "(also reachable at [::1])" when the socket only answers on IPv4.
+ *
+ * @see issue #225
  */
 export function formatServerAddresses(
   hostname: string | undefined,
   port: number
 ): { primary: string; additional: string[] } {
-  const isWildcardV4 = hostname === "0.0.0.0" || hostname === undefined || hostname === "";
-  const isWildcardV6 = hostname === "::" || hostname === "[::]";
+  const h = (hostname ?? "").trim();
+  const isWildcardV4 = h === "0.0.0.0";
+  const isWildcardV6 =
+    h === "" || h === "::" || h === "::0" || h === "[::]" || h === "0:0:0:0:0:0:0:0";
+  const hosts = reachableHosts(hostname);
+
   if (isWildcardV4 || isWildcardV6) {
     return {
       primary: `http://localhost:${port}`,
-      additional: [`http://127.0.0.1:${port}`, `http://[::1]:${port}`],
+      additional: hosts.map((x) => `http://${x}:${port}`),
     };
   }
-  // Bracket IPv6 literals for URL syntax.
-  const host = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
-  return { primary: `http://${host}:${port}`, additional: [] };
+
+  // Specific host — `primary` is that host, no additional entries.
+  return { primary: `http://${hosts[0]}:${port}`, additional: [] };
 }
 
 export function startServer(manifest: RoutesManifest, options: ServerOptions = {}): ManduServer {
   const {
     port = 3000,
-    // Default to 0.0.0.0 (dual-stack wildcard on IPv4) so `localhost` resolves
-    // to 127.0.0.1 via OS-level IPv4-preferred lookups (e.g., Windows). Users
-    // can still pin `hostname: "::1"` or `hostname: "127.0.0.1"` explicitly.
-    // See issue #190.
-    hostname = "0.0.0.0",
+    // Default to `"::"` (IPv6 wildcard, dual-stack). Bun leaves IPV6_V6ONLY
+    // off, so this single socket accepts both IPv4 (as IPv4-mapped IPv6)
+    // and IPv6 clients — covering `127.0.0.1`, `[::1]`, and LAN addresses
+    // of either family with one bind.
+    //
+    // Why not `"0.0.0.0"`? On Windows with Node 17+, `fetch("localhost:...")`
+    // resolves to `::1` first. A server bound to `0.0.0.0` accepts IPv4
+    // only, so Node clients (Playwright test runner, ATE-generated specs)
+    // fail with `ECONNREFUSED ::1:PORT`. Browsers and `curl` silently
+    // fall back to IPv4, hiding the bug. See issues #190 #223.
+    //
+    // Explicit `"0.0.0.0"` is still honored — users who need IPv4-only
+    // binds (certain container networks, firewall policies) keep that
+    // option; a one-line warning is emitted on Windows so the trap is
+    // discoverable.
+    hostname = "::",
     rootDir = process.cwd(),
     isDev = false,
     hmrPort,
@@ -4609,6 +4665,25 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
 
   if (hmrPort !== undefined && hmrPort === port && actualPort !== port) {
     registry.settings = { ...registry.settings, hmrPort: actualPort };
+  }
+
+  // ─── #223 — Windows hostname="0.0.0.0" discoverability warning ────────
+  // We cannot silently rewrite an explicit `"0.0.0.0"` (user may need
+  // IPv4-only binds for container/firewall reasons), but we CAN warn
+  // the one platform where the gotcha actually bites: Windows, where
+  // Node 17+ fetch prefers `::1` for `localhost` and will therefore
+  // fail to reach an IPv4-only bind. Silent on non-Windows, silent
+  // when `silent: true`.
+  // ──────────────────────────────────────────────────────────────────────
+  if (
+    !silent &&
+    options.hostname === "0.0.0.0" &&
+    process.platform === "win32"
+  ) {
+    console.warn(
+      `⚠️  hostname="0.0.0.0" binds IPv4 only; Node fetch('localhost:${actualPort}') ` +
+        `may fail on Windows (prefers ::1). Consider hostname="::" for dual-stack.`
+    );
   }
 
   const addresses = formatServerAddresses(hostname, actualPort);

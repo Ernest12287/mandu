@@ -112,9 +112,17 @@ describe("startServer default hostname (#190)", () => {
   });
 });
 
-describe("formatServerAddresses() helper (#190)", () => {
-  it("maps wildcard 0.0.0.0 → localhost + both loopbacks", () => {
+describe("formatServerAddresses() helper (#190 #225)", () => {
+  it("maps wildcard 0.0.0.0 → localhost + IPv4 loopback ONLY (#225)", () => {
+    // Pre-#225 this reported `[::1]` too, which was a lie — an IPv4
+    // wildcard bind does NOT answer on the IPv6 loopback socket.
     const { primary, additional } = formatServerAddresses("0.0.0.0", 3333);
+    expect(primary).toBe("http://localhost:3333");
+    expect(additional).toEqual(["http://127.0.0.1:3333"]);
+  });
+
+  it("maps wildcard :: → localhost + both loopbacks (dual-stack)", () => {
+    const { primary, additional } = formatServerAddresses("::", 3333);
     expect(primary).toBe("http://localhost:3333");
     expect(additional).toEqual([
       "http://127.0.0.1:3333",
@@ -122,16 +130,15 @@ describe("formatServerAddresses() helper (#190)", () => {
     ]);
   });
 
-  it("maps wildcard :: → localhost + both loopbacks", () => {
-    const { primary, additional } = formatServerAddresses("::", 3333);
-    expect(primary).toBe("http://localhost:3333");
-    expect(additional.length).toBe(2);
-  });
-
-  it("maps undefined hostname → localhost + both loopbacks", () => {
+  it("maps undefined hostname → localhost + both loopbacks (dual-stack default)", () => {
+    // `undefined` flows through as the default, which is now `"::"`
+    // (#223) — dual-stack. Previously defaulted to `"0.0.0.0"`.
     const { primary, additional } = formatServerAddresses(undefined, 3333);
     expect(primary).toBe("http://localhost:3333");
-    expect(additional.length).toBe(2);
+    expect(additional).toEqual([
+      "http://127.0.0.1:3333",
+      "http://[::1]:3333",
+    ]);
   });
 
   it("passes through specific IPv4 host", () => {

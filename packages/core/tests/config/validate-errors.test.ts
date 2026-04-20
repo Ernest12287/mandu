@@ -40,9 +40,11 @@ describe("ManduConfigSchema — valid configs", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.server.port).toBe(3000);
-      // Default changed from "localhost" → "0.0.0.0" in #190 so that IPv4
-      // `localhost` resolution (Windows default) reaches the server.
-      expect(result.data.server.hostname).toBe("0.0.0.0");
+      // Default: #190 moved from "localhost" → "0.0.0.0"; #223 moved
+      // from "0.0.0.0" → "::" (IPv6 wildcard, dual-stack) so Windows
+      // Node fetch("localhost") — which resolves to `::1` — reaches
+      // the server instead of hitting ECONNREFUSED.
+      expect(result.data.server.hostname).toBe("::");
       expect(result.data.guard.preset).toBe("mandu");
       expect(result.data.build.outDir).toBe(".mandu");
       expect(result.data.build.minify).toBe(true);

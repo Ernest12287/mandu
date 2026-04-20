@@ -126,6 +126,29 @@ export interface ManduConfig {
   spa?: boolean;
   server?: {
     port?: number;
+    /**
+     * Bind hostname for the HTTP server.
+     *
+     * Default: `"::"` (IPv6 wildcard, dual-stack). Bun leaves
+     * `IPV6_V6ONLY` off, so this one socket accepts both IPv6 clients
+     * (e.g. Node 17+ `fetch("localhost:PORT")` on Windows resolves to
+     * `::1`) and IPv4 clients (as IPv4-mapped IPv6) — you effectively
+     * get `0.0.0.0` + `::` for free.
+     *
+     * Set `"0.0.0.0"` to bind IPv4 only (container/firewall setups that
+     * need it). Note: on Windows, an IPv4-only bind makes Node's
+     * `fetch("localhost:PORT")` fail with `ECONNREFUSED ::1:PORT`
+     * because Node prefers the IPv6 address for `localhost`. `curl`
+     * and browsers silently fall back to IPv4, hiding the bug — Mandu
+     * emits a one-line warning on Windows when you pick this value
+     * explicitly so the trap is discoverable.
+     *
+     * Set `"127.0.0.1"` or `"::1"` to bind loopback-only (no LAN
+     * visibility). Set any other value (e.g. `"10.0.0.2"`,
+     * `"myhost.example.com"`) to bind that specific interface.
+     *
+     * @see issues #190 #223 #225
+     */
     hostname?: string;
     cors?:
       | boolean

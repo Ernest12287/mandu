@@ -44,9 +44,12 @@ function strictWithWarnings<T extends z.ZodRawShape>(
 const ServerConfigSchema = z
   .object({
     port: z.number().min(1).max(65535).default(3000),
-    // Default 0.0.0.0 so IPv4 `localhost` resolution (Windows default) succeeds.
-    // Users may pin "::1" or "127.0.0.1" explicitly. See issue #190.
-    hostname: z.string().default("0.0.0.0"),
+    // Default `"::"` (IPv6 wildcard, dual-stack): accepts both IPv4 and
+    // IPv6 clients on one socket. Fixes Windows Node 17+ fetch failing
+    // with `ECONNREFUSED ::1:PORT` because `localhost` resolves to `::1`
+    // first there. Explicit `"0.0.0.0"` (IPv4-only) and `"::1"` /
+    // `"127.0.0.1"` (loopback-only) are still honored. See #190 #223.
+    hostname: z.string().default("::"),
     cors: z
       .union([
         z.boolean(),
