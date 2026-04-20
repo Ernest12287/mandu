@@ -18,11 +18,19 @@ export * from "./logger";
 export * from "./boundary";
 export * from "./stable-selector";
 export {
+  revalidate,
   revalidatePath,
   revalidateTag,
   getCacheStoreStats,
+  computeCacheControl,
+  createCacheStoreFromConfig,
+  setGlobalCacheDefaults,
+  getGlobalCacheDefaults,
   type CacheStore,
   type CacheStoreStats,
+  type CacheConfig,
+  type CacheMetadata,
+  type CacheEntry,
   MemoryCacheStore,
 } from "./cache";
 export { type MiddlewareContext, type MiddlewareNext, type MiddlewareFn, type MiddlewareConfig } from "./middleware";

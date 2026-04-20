@@ -46,6 +46,7 @@
     "./bundler/scenario-matrix": "./src/bundler/scenario-matrix.ts",
     "./bundler/vendor-cache-types": "./src/bundler/vendor-cache-types.ts",
     "./bundler/manifest-schema": "./src/bundler/manifest-schema.ts",
+    "./bundler/analyzer": "./src/bundler/analyzer.ts",
     "./bundler/plugins": "./src/bundler/plugins/index.ts",
     "./bundler/plugins/block-generated-imports": "./src/bundler/plugins/block-generated-imports.ts",
     "./bundler/generate-static-params": "./src/bundler/generate-static-params.ts",

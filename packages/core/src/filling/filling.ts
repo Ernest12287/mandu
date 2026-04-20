@@ -72,8 +72,17 @@ export interface LoaderOptions<T = unknown> {
 
 /** Loader 캐시/ISR 옵션 */
 export interface LoaderCacheOptions {
-  /** 캐시 유지 시간 (초). 0이면 캐시 안 함, Infinity면 영구 */
+  /**
+   * Fresh 캐시 유지 시간 (초). `maxAge` 의 별칭 — Next.js `revalidate`
+   * API 와 호환성을 유지한다. 0 이면 캐시 안 함.
+   */
   revalidate?: number;
+  /**
+   * Phase 18.ζ — fresh 창을 지난 뒤 캐시를 계속 서빙할 stale-while-revalidate
+   * 창 길이 (초). 지정 시 `revalidate` 구간 후 이 기간만큼 STALE 응답을
+   * 즉시 반환하고 백그라운드에서 재생성한다.
+   */
+  staleWhileRevalidate?: number;
   /** 온디맨드 무효화 태그 */
   tags?: string[];
 }

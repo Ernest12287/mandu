@@ -22,12 +22,17 @@ import {
   type CacheStore,
   type CacheStoreStats,
   type CacheLookupResult,
+  type CacheConfig,
   MemoryCacheStore,
   lookupCache,
   createCacheEntry,
   createCachedResponse,
+  computeCacheControl,
   getCacheStoreStats,
   setGlobalCache,
+  setGlobalCacheDefaults,
+  getGlobalCacheDefaults,
+  createCacheStoreFromConfig,
 } from "./cache";
 import {
   createNotFoundResponse,
@@ -57,6 +62,16 @@ import {
   isObservabilityExposed,
   recordHttpRequest,
 } from "../observability/metrics";
+// Phase 18.θ — request tracing. Tracer lifecycle is owned by
+// `startServer()`; `runWithSpan` is used at the absolute TOP of the
+// request handler so every downstream await (middleware, filling
+// loader, SSR render) inherits the active span via AsyncLocalStorage.
+import {
+  Tracer,
+  createTracerFromConfig,
+  runWithSpan,
+  setTracer,
+} from "../observability/tracing";
 import {
   type MiddlewareFn,
   type MiddlewareConfig,
@@ -367,12 +382,17 @@ export interface ServerOptions {
    */
   guardConfig?: import("../guard/types").GuardConfig | null;
   /**
-   * SSR 캐시 설정 (ISR/SWR 용)
-   * - true: 기본 메모리 캐시 (LRU 1000 엔트리)
-   * - CacheStore: 커스텀 캐시 구현체
-   * - false/undefined: 캐시 비활성화
+   * SSR 캐시 설정 (ISR/SWR 용).
+   *
+   * Phase 18.ζ — `CacheConfig` 객체를 추가로 지원한다.
+   * - `true`         : 기본 메모리 캐시 (LRU 1000 엔트리)
+   * - `CacheStore`   : 커스텀 캐시 구현체 (e.g. redis 어댑터)
+   * - `CacheConfig`  : `{ defaultMaxAge, defaultSwr, maxEntries, store }`
+   *                    전역 기본값을 설정 — loader 가 `_cache` 를 안 내도
+   *                    자동으로 캐싱됨 (Next.js `export const revalidate` 등가).
+   * - `false`/undefined : 캐시 비활성화
    */
-  cache?: boolean | CacheStore;
+  cache?: boolean | CacheStore | CacheConfig;
   /**
    * Internal management token for local CLI/runtime control endpoints.
    * When set, token-protected endpoints such as `/_mandu/cache` become available.
@@ -429,6 +449,22 @@ export interface ServerOptions {
   observability?: {
     heapEndpoint?: boolean;
     metricsEndpoint?: boolean;
+    /**
+     * Phase 18.θ — OpenTelemetry-compatible request tracing. See
+     * `@mandujs/core/observability` {@link import("../observability/tracing").TracerConfig}
+     * for field semantics. `undefined` leaves tracing disabled;
+     * `{ enabled: true }` opens a root span for every request and
+     * propagates the trace context across `await`s via
+     * AsyncLocalStorage. The `MANDU_OTEL_ENDPOINT` env var forces
+     * tracing on with the OTLP exporter when the config is omitted.
+     */
+    tracing?: {
+      enabled?: boolean;
+      exporter?: "console" | "otlp";
+      endpoint?: string;
+      headers?: Record<string, string>;
+      serviceName?: string;
+    };
   };
   /**
    * Phase 18 — prerendered HTML pass-through (SSG).
@@ -626,6 +662,12 @@ export interface ServerRegistrySettings {
    */
   metricsEndpoint?: boolean;
   /**
+   * Phase 18.θ — resolved request-tracing state. `undefined` means
+   * tracing is disabled (the hot path is branch-free). When set, every
+   * request opens a root span via `tracer.startSpanFromRequest()`.
+   */
+  tracer?: import("../observability/tracing").Tracer;
+  /**
    * Phase 18 — resolved prerender pass-through state. `undefined`
    * means the feature is disabled for this server instance.
    */
@@ -691,7 +733,7 @@ export class ServerRegistry {
   /** Kitchen dev dashboard handler (dev mode only) */
   kitchen: KitchenHandler | null = null;
   /** 라우트별 캐시 옵션 (filling.loader()의 cacheOptions에서 등록) */
-  readonly cacheOptions: Map<string, { revalidate?: number; tags?: string[] }> = new Map();
+  readonly cacheOptions: Map<string, { revalidate?: number; staleWhileRevalidate?: number; tags?: string[] }> = new Map();
   /** 라우트별 렌더 모드 */
   readonly renderModes: Map<string, RenderMode> = new Map();
   /** Layout slot 파일 경로 캐시 (모듈 경로 → slot 경로 | null) */
@@ -1429,6 +1471,73 @@ async function handleRequest(req: Request, router: Router, registry: ServerRegis
   const requestStart = Date.now();
   // Phase 1-4: Correlation ID — 한 요청에서 발생하는 모든 이벤트를 추적
   const correlationId = req.headers.get("x-mandu-request-id") ?? newId();
+
+  // ─── Phase 18.θ — TRACING wrap (absolute TOP of request handler) ─────────
+  // Opens a root server span BEFORE γ's prerendered check, BEFORE ζ's
+  // cache check, BEFORE any other Phase 18 logic. The span is bound to
+  // AsyncLocalStorage so every downstream `await` (middleware chain,
+  // filling loader, SSR render, sandbox exec) inherits it transparently
+  // via `getActiveSpan()` / `ctx.span`.
+  //
+  // Parent context: honours an incoming W3C `traceparent` header so
+  // upstream gateways / load balancers can correlate traces across
+  // service boundaries. Missing / malformed header → a new root trace-id.
+  //
+  // Zero overhead when tracing is disabled: `settings.tracer` is
+  // `undefined`, the `if` falls through, and we call the uninstrumented
+  // path exactly as before.
+  const tracer = registry.settings.tracer;
+  if (tracer && tracer.enabled) {
+    const url = new URL(req.url);
+    const rootSpan = tracer.startSpanFromRequest("http.request", req, {
+      kind: "server",
+      attributes: {
+        "http.method": req.method,
+        "http.url": req.url,
+        "http.target": url.pathname,
+        "http.scheme": url.protocol.replace(":", ""),
+        "http.host": url.host,
+        "mandu.correlation_id": correlationId,
+      },
+    });
+    try {
+      const response = await runWithSpan(rootSpan, () =>
+        handleRequestWithTracing(req, router, registry, requestStart, correlationId)
+      );
+      rootSpan.setAttribute("http.status_code", response.status);
+      if (response.status >= 500) {
+        rootSpan.setStatus("error", `HTTP ${response.status}`);
+      } else if (rootSpan.status === "unset") {
+        rootSpan.setStatus("ok");
+      }
+      return response;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      rootSpan.setStatus("error", msg);
+      throw err;
+    } finally {
+      rootSpan.end();
+    }
+  }
+  // ─── End Phase 18.θ ──────────────────────────────────────────────────────
+
+  return await handleRequestWithTracing(req, router, registry, requestStart, correlationId);
+}
+
+/**
+ * Phase 18.θ — inner request handler. Extracted from {@link handleRequest}
+ * so the tracing wrap at the top can run the body inside a
+ * `runWithSpan()` scope without a giant indent level. Preserves the
+ * exact pre-tracing semantics (correlation-id logging, Cache-Control
+ * stamping, eventBus emission).
+ */
+async function handleRequestWithTracing(
+  req: Request,
+  router: Router,
+  registry: ServerRegistry,
+  requestStart: number,
+  correlationId: string
+): Promise<Response> {
   const result = await handleRequestInternal(req, router, registry);
 
   if (!result.ok) {
@@ -1629,11 +1738,24 @@ export function redactErrorForBoundary(error: Error, isDev: boolean): { error: E
   return { error: redacted, digest };
 }
 
+/**
+ * Phase 18.ζ — per-request 로더 캐시 메타데이터. loader 반환값의 `_cache`
+ * 프로퍼티 또는 `ctx.cache.*` 플루언트 호출에서 수집되어 렌더 후 캐시
+ * 저장 단계에서 route-level defaults 와 merge 된다.
+ */
+export interface RuntimeCacheMeta {
+  tags: string[];
+  maxAge?: number;
+  staleWhileRevalidate?: number;
+}
+
 interface PageLoadResult {
   loaderData: unknown;
   cookies?: CookieManager;
   /** Layout별 loader 데이터 (모듈 경로 → 데이터) */
   layoutData?: Map<string, unknown>;
+  /** Phase 18.ζ — per-request 캐시 메타데이터 (_cache or ctx.cache.*) */
+  cacheMeta?: RuntimeCacheMeta;
   /**
    * If the page's loader returned or threw a redirect Response, it surfaces
    * here. Callers short-circuit SSR and emit this Response to the browser
@@ -1654,6 +1776,71 @@ interface PageLoadResult {
    * — only `notFound()` from `runtime/not-found.ts` (checked via brand).
    */
   notFound?: Response;
+}
+
+/**
+ * Phase 18.ζ — loader 반환값에서 `_cache` 블록을 분리한다.
+ *
+ * 반환값이 `{ _cache: {...}, ...rest }` 모양이면 `_cache` 를 추출하고
+ * 나머지를 실제 loader 데이터로 돌려준다. `_cache` 형태가 잘못되면
+ * 조용히 무시하여 런타임이 깨지지 않도록 한다.
+ */
+function extractCacheMetaFromReturn(
+  returned: unknown
+): { data: unknown; meta: RuntimeCacheMeta | null } {
+  if (
+    returned &&
+    typeof returned === "object" &&
+    !Array.isArray(returned) &&
+    "_cache" in (returned as Record<string, unknown>)
+  ) {
+    const obj = returned as Record<string, unknown>;
+    const raw = obj._cache as Record<string, unknown> | null | undefined;
+    const data = obj.data ?? (() => {
+      // { _cache, ...rest } → strip _cache from the object
+      const { _cache: _omit, ...rest } = obj as Record<string, unknown>;
+      return rest;
+    })();
+    if (!raw || typeof raw !== "object") {
+      return { data, meta: null };
+    }
+    const tagsRaw = Array.isArray(raw.tags) ? raw.tags : [];
+    const tags = tagsRaw.filter((t): t is string => typeof t === "string" && t.length > 0);
+    const maxAgeRaw = typeof raw.maxAge === "number"
+      ? raw.maxAge
+      : typeof raw.revalidate === "number"
+        ? raw.revalidate
+        : undefined;
+    const swrRaw = typeof raw.staleWhileRevalidate === "number"
+      ? raw.staleWhileRevalidate
+      : typeof raw.swr === "number"
+        ? raw.swr
+        : undefined;
+    return {
+      data,
+      meta: { tags, maxAge: maxAgeRaw, staleWhileRevalidate: swrRaw },
+    };
+  }
+  return { data: returned, meta: null };
+}
+
+/**
+ * Phase 18.ζ — ctx.cache 스냅샷과 `_cache` 리턴 메타데이터를 병합한다.
+ * 둘 다 없으면 null. 태그는 합집합, 숫자는 return 값이 우선.
+ */
+function mergeRuntimeCacheMeta(
+  fromReturn: RuntimeCacheMeta | null,
+  fromCtx: { tags: string[]; maxAge?: number; staleWhileRevalidate?: number } | null
+): RuntimeCacheMeta | null {
+  if (!fromReturn && !fromCtx) return null;
+  const tags = new Set<string>();
+  fromReturn?.tags?.forEach((t) => tags.add(t));
+  fromCtx?.tags?.forEach((t) => tags.add(t));
+  return {
+    tags: [...tags],
+    maxAge: fromReturn?.maxAge ?? fromCtx?.maxAge,
+    staleWhileRevalidate: fromReturn?.staleWhileRevalidate ?? fromCtx?.staleWhileRevalidate,
+  };
 }
 
 /**
@@ -1710,9 +1897,15 @@ async function loadPageData(
           const redirectResponse = mergeCookiesIntoResponse(returned, ctx.cookies);
           return ok({ loaderData: undefined, redirect: redirectResponse });
         }
-        loaderData = returned;
+        // Phase 18.ζ — per-request cache meta collection
+        const { data: strippedData, meta: returnMeta } = extractCacheMetaFromReturn(returned);
+        const mergedMeta = mergeRuntimeCacheMeta(returnMeta, ctx.getCacheMetaSnapshot());
+        loaderData = strippedData;
         if (ctx.cookies.hasPendingCookies()) {
           cookies = ctx.cookies;
+        }
+        if (mergedMeta) {
+          return ok({ loaderData, cookies, cacheMeta: mergedMeta });
         }
       }
     } catch (error) {
@@ -1816,9 +2009,15 @@ async function loadPageData(
           const redirectResponse = mergeCookiesIntoResponse(returned, ctx.cookies);
           return ok({ loaderData: undefined, redirect: redirectResponse });
         }
-        loaderData = returned;
+        // Phase 18.ζ — per-request cache meta collection (legacy pageLoader path)
+        const { data: strippedData, meta: returnMeta } = extractCacheMetaFromReturn(returned);
+        const mergedMeta = mergeRuntimeCacheMeta(returnMeta, ctx.getCacheMetaSnapshot());
+        loaderData = strippedData;
         if (ctx.cookies.hasPendingCookies()) {
           cookies = ctx.cookies;
+        }
+        if (mergedMeta) {
+          return ok({ loaderData, cookies, cacheMeta: mergedMeta });
         }
       }
 
@@ -2536,7 +2735,19 @@ async function handlePageRoute(
     // Shell MISS: fall through to full render, then cache the shell below
   }
 
-  // ISR/SWR 캐시 확인 (SSR 렌더링 요청에만 적용)
+  // ─── Phase 18.ζ — ISR + cache-tags dispatch ────────────────────────────
+  // Runs AFTER γ's prerendered pass-through (handled earlier in
+  // `dispatchRequest`) and BEFORE full route dispatch.
+  //   HIT   : serve fresh cache entry directly, no SSR work.
+  //   STALE : serve stale HTML immediately + background revalidation
+  //           under a per-key mutex (`pendingRevalidations`).
+  //   MISS  : fall through to render. Save happens below (step 4b)
+  //           after `_cache` / `ctx.cache` metadata has been collected
+  //           from the loader return.
+  //
+  // Served responses carry `Cache-Control: public, max-age=…,
+  // stale-while-revalidate=…` for CDN alignment plus the debug header
+  // `X-Mandu-Cache: HIT|STALE`.
   if (cache && !isDataRequest && renderMode !== "dynamic" && renderMode !== "ppr") {
     const cacheKey = buildRouteCacheKey(route.id, url);
     const lookup = lookupCache(cache, cacheKey);
@@ -2563,6 +2774,7 @@ async function handlePageRoute(
       return ok(createCachedResponse(lookup.entry, "STALE"));
     }
   }
+  // ─── End Phase 18.ζ ────────────────────────────────────────────────────
 
   // 1. 페이지 + 레이아웃 데이터 병렬 로딩
   const [loadResult, layoutLoad] = await Promise.all([
@@ -2671,22 +2883,66 @@ async function handlePageRoute(
     }).catch(() => {});
   }
 
-  // 4b. ISR/SWR 캐시 저장 (revalidate 설정이 있는 경우 — non-blocking)
+  // ─── Phase 18.ζ — ISR/SWR cache save (step 4b) ────────────────────────
+  // Resolves the effective cache metadata from three tiers (per-request
+  // `_cache` / `ctx.cache` → route-level `filling.loader(fn, {...})` →
+  // global `ManduConfig.cache.defaultMaxAge/defaultSwr`). When a valid
+  // `maxAge > 0` is resolved, we:
+  //   1. Persist the rendered HTML under the same key used by the HIT
+  //      path above (`buildRouteCacheKey`).
+  //   2. Stamp the outgoing Response with `Cache-Control: public,
+  //      max-age=…, stale-while-revalidate=…` + `X-Mandu-Cache: MISS` so
+  //      CDNs and browsers can coordinate the same TTL we stored.
+  // The persisted entry has `tags` union'd across tiers — invalidation
+  // via `revalidateTag()` therefore hits both developer-declared tags
+  // and per-request tags for this URL.
   if (cache && ssrResult.ok && renderMode !== "dynamic" && renderMode !== "ppr") {
-    const cacheOptions = getCacheOptionsForRoute(route.id, registry);
-    if (cacheOptions?.revalidate && cacheOptions.revalidate > 0) {
+    const perRequest = loadResult.value.cacheMeta;
+    const resolved = resolveCacheMetaForSave(route.id, registry, perRequest);
+    if (resolved) {
       const cloned = ssrResult.value.clone();
       const status = ssrResult.value.status;
       const headers = Object.fromEntries(ssrResult.value.headers.entries());
       const cacheKey = buildRouteCacheKey(route.id, url);
       // streaming 응답도 블로킹하지 않도록 백그라운드에서 캐시 저장
       cloned.text().then((html) => {
-        cache.set(cacheKey, createCacheEntry(
-          html, loaderData, cacheOptions.revalidate!, cacheOptions.tags ?? [], status, headers
-        ));
+        cache.set(
+          cacheKey,
+          createCacheEntry(
+            html,
+            loaderData,
+            {
+              maxAge: resolved.maxAge,
+              staleWhileRevalidate: resolved.staleWhileRevalidate,
+              tags: resolved.tags,
+            },
+            status,
+            headers
+          )
+        );
       }).catch(() => {});
+
+      // Stamp Cache-Control + X-Mandu-Cache on the MISS response so
+      // downstream CDNs honor the same TTL we just persisted.
+      const freshEntryPreview = createCacheEntry(
+        "",
+        null,
+        { maxAge: resolved.maxAge, staleWhileRevalidate: resolved.staleWhileRevalidate, tags: resolved.tags },
+        status,
+        {}
+      );
+      const cc = computeCacheControl(freshEntryPreview);
+      const stamped = new Response(ssrResult.value.body, {
+        status: ssrResult.value.status,
+        statusText: ssrResult.value.statusText,
+        headers: ssrResult.value.headers,
+      });
+      stamped.headers.set("Cache-Control", cc);
+      stamped.headers.set("X-Mandu-Cache", "MISS");
+      return ok(stamped);
     }
   }
+  // ─── End Phase 18.ζ ────────────────────────────────────────────────────
 
   return ssrResult;
 }
@@ -2719,19 +2975,80 @@ async function regenerateCache(
   const ssrResult = await renderPageSSR(route, params, loaderData, req.url, registry, undefined, layoutData);
   if (!ssrResult.ok) return;
 
-  const cacheOptions = getCacheOptionsForRoute(route.id, registry);
-  if (!cacheOptions?.revalidate) return;
+  // Phase 18.ζ — resolve meta with the same 3-tier priority as the MISS
+  // path so background revalidation honors per-request `_cache` from the
+  // freshly re-executed loader.
+  const resolved = resolveCacheMetaForSave(
+    route.id,
+    registry,
+    loadResult.value.cacheMeta
+  );
+  if (!resolved) return;
 
   const html = await ssrResult.value.text();
   const entry = createCacheEntry(
     html,
     loaderData,
-    cacheOptions.revalidate,
-    cacheOptions.tags ?? [],
+    {
+      maxAge: resolved.maxAge,
+      staleWhileRevalidate: resolved.staleWhileRevalidate,
+      tags: resolved.tags,
+    },
     ssrResult.value.status,
     Object.fromEntries(ssrResult.value.headers.entries())
   );
   cache.set(cacheKey, entry);
+}
+
+/**
+ * Phase 18.ζ — 최종 캐시 엔트리 stamp 용 메타데이터 해석.
+ *
+ * 우선순위 (높음 → 낮음):
+ *   1. per-request: `loadResult.value.cacheMeta` (`_cache` 또는 `ctx.cache`)
+ *   2. route-level: `filling.getCacheOptions()` (`.loader(fn, {revalidate, tags})`)
+ *   3. global: `ManduConfig.cache.defaultMaxAge` / `defaultSwr`
+ *
+ * 반환값은 다음 의미를 가진다:
+ *   - `null` → 저장하지 않음 (maxAge 가 0 이하이거나 캐싱 의사 없음).
+ *   - `{ maxAge, staleWhileRevalidate, tags }` → 저장.
+ *
+ * 태그는 per-request + route-level 의 합집합이다.
+ */
+function resolveCacheMetaForSave(
+  routeId: string,
+  registry: ServerRegistry,
+  perRequest: RuntimeCacheMeta | undefined
+): { maxAge: number; staleWhileRevalidate: number; tags: string[] } | null {
+  const routeLevel = registry.cacheOptions?.get(routeId) ?? null;
+  // `getGlobalCacheDefaults` is imported from ./cache; defaults may be null.
+  const defaults = (function () {
+    try {
+      // Dynamic require-free import: re-expose via the module we already
+      // depend on at the top of this file (`./cache`).
+      return getGlobalCacheDefaults();
+    } catch {
+      return null;
+    }
+  })();
+
+  const maxAge =
+    perRequest?.maxAge ??
+    routeLevel?.revalidate ??
+    defaults?.defaultMaxAge ??
+    0;
+  const swr =
+    perRequest?.staleWhileRevalidate ??
+    routeLevel?.staleWhileRevalidate ??
+    defaults?.defaultSwr ??
+    0;
+
+  if (!Number.isFinite(maxAge) || maxAge <= 0) return null;
+
+  const tagSet = new Set<string>();
+  routeLevel?.tags?.forEach((t) => tagSet.add(t));
+  perRequest?.tags?.forEach((t) => tagSet.add(t));
+
+  return { maxAge, staleWhileRevalidate: Math.max(0, swr), tags: [...tagSet] };
 }
 
 /**
@@ -2740,7 +3057,7 @@ async function regenerateCache(
 function getCacheOptionsForRoute(
   routeId: string,
   registry: ServerRegistry
-): { revalidate?: number; tags?: string[] } | null {
+): { revalidate?: number; staleWhileRevalidate?: number; tags?: string[] } | null {
   const pageHandler = registry.pageHandlers.get(routeId);
   if (!pageHandler) return null;
 
@@ -3255,6 +3572,18 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     console.warn("   cors: { origin: ['https://yourdomain.com'] }");
   }
 
+  // Phase 18.θ — build a tracer once at boot. Honours
+  // `observability.tracing` in options AND `MANDU_OTEL_ENDPOINT` env var.
+  // When both are absent, `createTracerFromConfig({})` returns a disabled
+  // tracer (no allocations, no per-request overhead).
+  const tracerInstance: Tracer = createTracerFromConfig(
+    observabilityOption?.tracing
+  );
+  // Install as process-global so `@mandujs/core/observability`
+  // `getTracer()` returns the same instance user code sees through
+  // `ctx.startSpan(...)`.
+  setTracer(tracerInstance);
+
   // Registry settings 저장 (초기값)
   registry.settings = {
     isDev,
@@ -3273,18 +3602,52 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
     devtools,
     heapEndpoint: observabilityOption?.heapEndpoint,
     metricsEndpoint: observabilityOption?.metricsEndpoint,
+    tracer: tracerInstance.enabled ? tracerInstance : undefined,
     prerender: prerenderSettings,
     middlewareChain,
   };
 
   registry.rateLimiter = rateLimitOptions ? new MemoryRateLimiter() : null;
 
-  // ISR/SWR 캐시 초기화
+  // ─── Phase 18.ζ — ISR/SWR 캐시 초기화 ──────────────────────────────────
+  // `cacheOption` 는 `true` | `false` | `CacheStore` | `CacheConfig` 를 받는다:
+  //   - `true`          → MemoryCacheStore(1000) 를 기본값으로 생성.
+  //   - `CacheStore`    → 그대로 주입 (커스텀 어댑터, 예: redis).
+  //   - `CacheConfig`   → { defaultMaxAge, defaultSwr, maxEntries, store }
+  //                       에서 store="memory"(default) 로 MemoryCacheStore 생성
+  //                       후 defaults 를 global 에 기록하여 per-request `_cache`
+  //                       가 누락된 경우에도 자동 캐싱할 수 있게 한다.
+  //   - `false`/미지정  → 캐시 disabled.
   if (cacheOption) {
-    const store = cacheOption === true ? new MemoryCacheStore() : cacheOption;
-    registry.settings.cacheStore = store;
-    setGlobalCache(store); // revalidatePath/revalidateTag API에서 사용
+    const store = createCacheStoreFromConfig(
+      cacheOption as boolean | CacheStore | CacheConfig
+    );
+    if (store) {
+      registry.settings.cacheStore = store;
+      setGlobalCache(store); // revalidatePath/revalidateTag API에서 사용
+
+      // CacheConfig 객체일 때만 defaults 를 전역에 등록. boolean/CacheStore
+      // 형태로 들어오면 기존 동작 (per-route 설정 없으면 저장 안 함) 유지.
+      if (
+        typeof cacheOption === "object" &&
+        cacheOption !== null &&
+        !(typeof (cacheOption as CacheStore).get === "function")
+      ) {
+        const cfg = cacheOption as CacheConfig;
+        setGlobalCacheDefaults({
+          defaultMaxAge: cfg.defaultMaxAge,
+          defaultSwr: cfg.defaultSwr,
+        });
+      } else {
+        setGlobalCacheDefaults(null);
+      }
+    }
+  } else {
+    // 캐시 disabled — 이전 테스트 run 의 defaults 가 새 서버 instance 에
+    // 새어 들어오지 않도록 초기화.
+    setGlobalCacheDefaults(null);
   }
+  // ─── End Phase 18.ζ ────────────────────────────────────────────────────
 
   // Kitchen dev dashboard (dev mode only)
   if (isDev) {

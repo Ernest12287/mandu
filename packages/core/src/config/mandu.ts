@@ -170,6 +170,16 @@ export interface ManduConfig {
     minify?: boolean;
     sourcemap?: boolean;
     splitting?: boolean;
+    /**
+     * Phase 18.η — emit `.mandu/analyze/report.html` + `report.json` after
+     * a successful build. Equivalent to `mandu build --analyze`. Default:
+     * `false`. Report artefacts are self-contained (no CDN, no external
+     * JS) and safe to commit to a private dashboard or inspect locally.
+     *
+     * The CLI `--analyze` flag wins over this field; `--analyze=json`
+     * writes JSON only (useful for CI, skips the HTML render cost).
+     */
+    analyze?: boolean;
   };
   dev?: {
     hmr?: boolean;
@@ -286,6 +296,64 @@ export interface ManduConfig {
     heapEndpoint?: boolean;
     /** `/_mandu/metrics` Prometheus text exposure toggle. */
     metricsEndpoint?: boolean;
+    /**
+     * Phase 18.θ — OpenTelemetry-compatible request tracing.
+     *
+     * When enabled, every request opens a root server span
+     * (`http.request`) that chains child spans for middleware, loader,
+     * SSR, and sandbox execution. The root span's trace-id is
+     * propagated across AsyncLocalStorage and stamped onto outgoing
+     * fetches via `traceparent`.
+     *
+     * Exporters:
+     *   - `"console"` (default) — pretty-prints spans to stderr, useful
+     *     in `mandu dev`.
+     *   - `"otlp"` — POSTs OTLP/HTTP JSON to `endpoint/v1/traces`.
+     *     Compatible with Honeycomb, Grafana Tempo, AWS X-Ray (via the
+     *     OTel Collector), and the standalone OpenTelemetry Collector.
+     *
+     * Setting the `MANDU_OTEL_ENDPOINT` env var overrides both
+     * `enabled` and `exporter` at runtime (shortcut for ops that want
+     * to enable tracing without a config change).
+     *
+     * Default: disabled (zero overhead when `observability.tracing` is
+     * omitted).
+     */
+    tracing?: {
+      enabled?: boolean;
+      exporter?: "console" | "otlp";
+      endpoint?: string;
+      headers?: Record<string, string>;
+      serviceName?: string;
+    };
+  };
+  /**
+   * Phase 18.ζ — ISR / tag-based cache invalidation.
+   *
+   *   - `defaultMaxAge`   : fresh TTL (seconds) applied when a loader
+   *                         does not emit its own `_cache` / `ctx.cache`
+   *                         metadata. Set to a positive integer to enable
+   *                         automatic caching across every non-dynamic
+   *                         route (Next.js `export const revalidate`
+   *                         equivalent). Default `undefined` (no auto).
+   *   - `defaultSwr`      : stale-while-revalidate window (seconds)
+   *                         appended after the fresh TTL. Serves stale
+   *                         HTML instantly while background regeneration
+   *                         runs. Default `0`.
+   *   - `maxEntries`      : LRU bound for the in-memory store. Default
+   *                         `1000`.
+   *   - `store`           : backend. Currently `"memory"` only; reserved
+   *                         for future `"redis"` adapter.
+   *
+   * Disable entirely by omitting this block. Revalidation APIs live in
+   * `@mandujs/core/runtime`: `revalidate(tag)`, `revalidateTag(tag)`,
+   * `revalidatePath(path)`.
+   */
+  cache?: {
+    defaultMaxAge?: number;
+    defaultSwr?: number;
+    maxEntries?: number;
+    store?: "memory";
   };
   plugins?: ManduPlugin[];
   hooks?: Partial<ManduHooks>;

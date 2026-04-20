@@ -38,6 +38,38 @@ export { type GuardViolation } from "./guard";
 export { type Severity } from "./guard";
 export { Image, type ImageProps } from "./components/Image";
 
+// Phase 18.θ — `Tracer` is exported by both `runtime/trace.ts` (the
+// legacy lifecycle trace collector) and `observability/tracing.ts` (the
+// new OTel tracer). `export *` from both yields TS2308 ambiguity, so
+// explicitly re-export the new one as canonical. The legacy runtime
+// tracer remains accessible via the `runtime/trace` subpath export
+// (`createTracer`, `TraceEvent`, etc. are unchanged).
+export {
+  Tracer,
+  ConsoleSpanExporter,
+  OtlpHttpSpanExporter,
+  encodeOtlpJson,
+  parseTraceparent,
+  formatTraceparent,
+  newTraceId,
+  newSpanId,
+  getActiveSpan,
+  runWithSpan,
+  injectTraceContext,
+  getTracer,
+  setTracer,
+  resetTracer,
+  createTracerFromConfig,
+  type Span,
+  type SpanAttributes,
+  type SpanExporter,
+  type SpanKind,
+  type SpanOptions,
+  type SpanStatus,
+  type TraceparentFields,
+  type TracerConfig,
+} from "./observability/tracing";
+
 // Consolidated Mandu namespace
 import { ManduFilling, ManduContext, ManduFillingFactory, createSSEConnection } from "./filling";
 import { createContract, defineHandler, defineRoute, createClient, contractFetch, createClientContract, querySchema, bodySchema, apiError } from "./contract";

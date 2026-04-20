@@ -52,6 +52,19 @@ export interface BuildOptions {
    * Defaults to the host `package.json` `name` field, slugified.
    */
   projectName?: string;
+  /**
+   * Phase 18.η — emit `.mandu/analyze/report.html` + `report.json`
+   * after a successful build.
+   *
+   *   - `true`    → write both the HTML treemap and the JSON summary.
+   *   - `"json"`  → JSON only (skip HTML render; useful in CI pipelines).
+   *   - `false` / `undefined` → skip analyzer entirely. Still honours
+   *                              `ManduConfig.build.analyze` if set.
+   *
+   * The HTML report is self-contained (no CDN, no webpack-bundle-analyzer
+   * fork, no d3) — a single file you can open from a file:// URL or email.
+   */
+  analyze?: boolean | "json";
 }
 
 export async function build(options: BuildOptions = {}): Promise<boolean> {
@@ -357,6 +370,61 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
         duration: Math.round(performance.now() - buildStartTime),
       });
       return false;
+    }
+  }
+
+  // Phase 18.η — Bundle analyzer (--analyze / build.analyze).
+  //
+  // Runs AFTER prerender + edge target emitters so the HTML report reflects
+  // the final set of artefacts on disk. γ's prerender wiring is untouched;
+  // θ's observability wrap is a separate file. Analyzer is additive:
+  // failures are logged and non-fatal — a broken analyzer must never fail
+  // `mandu build`.
+  const analyzeFlag = options.analyze ?? buildConfig.analyze ?? false;
+  if (analyzeFlag && bundleManifest) {
+    try {
+      const { analyzeBundle, writeAnalyzeReport } = await import(
+        "@mandujs/core/bundler/analyzer"
+      );
+      const report = await analyzeBundle(cwd, bundleManifest);
+      const jsonOnly = analyzeFlag === "json";
+      const { jsonPath, htmlPath } = await writeAnalyzeReport(cwd, report, {
+        html: !jsonOnly,
+      });
+      console.log("\n🔍 Bundle analyzer");
+      console.log("=".repeat(50));
+      console.log(
+        `   ${report.summary.islandCount} island(s), ${report.summary.sharedCount} shared chunk(s)`
+      );
+      const { formatSize } = await import("@mandujs/core");
+      console.log(
+        `   Total: ${formatSize(report.summary.totalRaw)} raw / ${formatSize(report.summary.totalGz)} gzip`
+      );
+      if (report.summary.largestIsland) {
+        console.log(
+          `   Largest island: ${report.summary.largestIsland.name} (${formatSize(report.summary.largestIsland.totalRaw)})`
+        );
+      }
+      if (report.summary.heaviestDep) {
+        console.log(
+          `   Heaviest module: ${report.summary.heaviestDep.path} (${formatSize(report.summary.heaviestDep.size)})`
+        );
+      }
+      if (report.summary.dedupeSavings > 0) {
+        console.log(
+          `   Dedupe savings: ${formatSize(report.summary.dedupeSavings)} (shared chunks reused across islands)`
+        );
+      }
+      console.log(`   JSON: ${path.relative(cwd, jsonPath).replace(/\\/g, "/")}`);
+      if (htmlPath) {
+        console.log(
+          `   HTML: ${path.relative(cwd, htmlPath).replace(/\\/g, "/")} (open in browser)`
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `\n⚠️  Bundle analyzer failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 

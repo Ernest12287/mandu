@@ -12,6 +12,14 @@ import { ContractValidator, type ContractValidatorOptions } from "../contract/va
 import { getCookieCodec } from "./cookie-codec";
 import { type FillingDeps, globalDeps } from "./deps";
 import { createSSEConnection, type SSEOptions, type SSEConnection } from "./sse";
+import {
+  getActiveSpan,
+  getTracer,
+  runWithSpan,
+  type Span,
+  type SpanAttributes,
+  type SpanOptions,
+} from "../observability/tracing";
 
 type ContractInput<
   TContract extends ContractSchema,
@@ -285,12 +293,45 @@ async function hmacSign(data: string, secret: string): Promise<string> {
 
 // ========== ManduContext ==========
 
+/**
+ * Phase 18.ζ — 로더가 캐시 메타데이터를 선언하기 위한 플루언트 헬퍼.
+ *
+ * 내부적으로는 `ctx._cacheMeta` 에 누적하며, 서버 런타임이 loader 실행
+ * 직후 읽어 `_cache` 블록과 동일하게 해석한다. 반환 데이터에 `_cache` 를
+ * 끼워넣는 방식과 동일한 의미지만, 타입 안정성이 더 높다.
+ *
+ * @example
+ * ```ts
+ * .loader(async (ctx) => {
+ *   ctx.cache.tag("posts").tag("posts:42").maxAge(3600).swr(86400);
+ *   return { post: await db.getPost(42) };
+ * })
+ * ```
+ */
+export interface CacheHelper {
+  tag(...tags: string[]): CacheHelper;
+  maxAge(seconds: number): CacheHelper;
+  /** alias for maxAge — Next.js parity */
+  revalidate(seconds: number): CacheHelper;
+  swr(seconds: number): CacheHelper;
+  /** alias for swr */
+  staleWhileRevalidate(seconds: number): CacheHelper;
+  /** 현재까지 누적된 메타데이터 스냅샷 (런타임 내부용) */
+  readonly meta: {
+    tags: string[];
+    maxAge?: number;
+    staleWhileRevalidate?: number;
+  };
+}
+
 export class ManduContext {
   private store: Map<string, unknown> = new Map();
   private _params: Record<string, string>;
   private _query: Record<string, string>;
   private _cookies: CookieManager;
   private _deps: FillingDeps;
+  private _cacheMeta: { tags: string[]; maxAge?: number; staleWhileRevalidate?: number } = { tags: [] };
+  private _cacheHelper: CacheHelper | null = null;
 
   constructor(
     public readonly request: Request,
@@ -301,6 +342,59 @@ export class ManduContext {
     this._query = this.parseQuery();
     this._cookies = new CookieManager(request);
     this._deps = deps ?? globalDeps.get();
+  }
+
+  /**
+   * Phase 18.ζ — 로더 내부에서 호출하는 캐시 메타데이터 플루언트 헬퍼.
+   * 누적 호출 가능: `ctx.cache.tag("a", "b").maxAge(60).swr(300)`
+   */
+  get cache(): CacheHelper {
+    if (this._cacheHelper) return this._cacheHelper;
+    const meta = this._cacheMeta;
+    const helper: CacheHelper = {
+      tag: (...tags: string[]) => {
+        for (const t of tags) {
+          if (typeof t === "string" && t.length > 0 && !meta.tags.includes(t)) {
+            meta.tags.push(t);
+          }
+        }
+        return helper;
+      },
+      maxAge: (seconds: number) => {
+        if (Number.isFinite(seconds) && seconds >= 0) meta.maxAge = seconds;
+        return helper;
+      },
+      revalidate: (seconds: number) => helper.maxAge(seconds),
+      swr: (seconds: number) => {
+        if (Number.isFinite(seconds) && seconds >= 0) meta.staleWhileRevalidate = seconds;
+        return helper;
+      },
+      staleWhileRevalidate: (seconds: number) => helper.swr(seconds),
+      get meta() {
+        return {
+          tags: [...meta.tags],
+          maxAge: meta.maxAge,
+          staleWhileRevalidate: meta.staleWhileRevalidate,
+        };
+      },
+    };
+    this._cacheHelper = helper;
+    return helper;
+  }
+
+  /**
+   * Phase 18.ζ — 서버 런타임이 loader 종료 후 누적된 메타 스냅샷을 읽는다.
+   * 내부 전용. 유저 코드는 `ctx.cache` 를 사용할 것.
+   */
+  getCacheMetaSnapshot(): { tags: string[]; maxAge?: number; staleWhileRevalidate?: number } | null {
+    if (this._cacheMeta.tags.length === 0 && this._cacheMeta.maxAge === undefined && this._cacheMeta.staleWhileRevalidate === undefined) {
+      return null;
+    }
+    return {
+      tags: [...this._cacheMeta.tags],
+      maxAge: this._cacheMeta.maxAge,
+      staleWhileRevalidate: this._cacheMeta.staleWhileRevalidate,
+    };
   }
 
   /**
@@ -630,6 +724,78 @@ export class ManduContext {
   /** Check if key exists */
   has(key: string): boolean {
     return this.store.has(key);
+  }
+
+  // ============================================
+  // 🥟 Tracing (Phase 18.θ)
+  // ============================================
+
+  /**
+   * The currently-active tracing span for this request, or `undefined`
+   * when tracing is disabled. Looked up via AsyncLocalStorage so it
+   * stays accurate across nested awaits — a loader that opens a child
+   * span before hitting an external API will see `ctx.span` return
+   * that child span until the child's `end()` fires.
+   *
+   * When tracing is disabled this reads as `undefined` (the runtime
+   * never opens a recording span), keeping the hot path free of
+   * extra allocations.
+   */
+  get span(): Span | undefined {
+    const active = getActiveSpan();
+    return active && active.recording ? active : undefined;
+  }
+
+  /**
+   * Open a child span scoped to the async context of `fn`. The span
+   * auto-ends when the returned promise resolves; if `fn` throws, the
+   * span is marked `status=error` with the thrown message, the span
+   * is ended, and the error re-thrown.
+   *
+   * When tracing is disabled this degenerates to just `await fn(noopSpan)`
+   * with no allocation in the hot path — callers don't have to branch
+   * on `ctx.span` themselves.
+   *
+   * @example
+   *   const users = await ctx.startSpan("db.users.findAll", async (span) => {
+   *     span.setAttribute("db.system", "postgres");
+   *     return await sql\`SELECT * FROM users\`;
+   *   });
+   */
+  async startSpan<T>(
+    name: string,
+    fn: (span: Span) => Promise<T> | T,
+    opts: SpanOptions = {}
+  ): Promise<T> {
+    const tracer = getTracer();
+    if (!tracer.enabled) {
+      // Fast path: invoke fn with a shared no-op span (type-shape
+      // identical, zero allocations).
+      const { startSpan } = tracer;
+      const span = startSpan.call(tracer, name, opts);
+      return await fn(span);
+    }
+    const span = tracer.startSpan(name, opts);
+    try {
+      const result = await runWithSpan(span, () => fn(span));
+      if (span.status === "unset") span.setStatus("ok");
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      span.setStatus("error", msg);
+      throw err;
+    } finally {
+      span.end();
+    }
+  }
+
+  /**
+   * Set attributes on the active request span (if any). Convenience
+   * wrapper so user code doesn't have to null-check `ctx.span`
+   * themselves.
+   */
+  setSpanAttributes(attrs: SpanAttributes): void {
+    this.span?.setAttributes(attrs);
   }
 }
 

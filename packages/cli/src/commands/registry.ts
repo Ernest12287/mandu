@@ -164,6 +164,7 @@ registerCommand({
     "    --target=<name>         Deployment target (workers|deno|vercel-edge|netlify-edge)",
     "    --worker-name=<slug>    Cloudflare Workers project name (target=workers)",
     "    --project-name=<slug>   Project name (target=deno|vercel-edge|netlify-edge)",
+    "    --analyze[=json]        Emit .mandu/analyze/report.html + report.json (Phase 18.η)",
     "",
     "  Outputs:",
     "    .mandu/client/                              Hydration bundles (default target)",
@@ -204,6 +205,14 @@ registerCommand({
         return false;
       }
     }
+    // Phase 18.η — `--analyze` (bare) → boolean true; `--analyze=json`
+    // → string "json" (JSON-only, skip HTML render). Any other value is
+    // treated as truthy to keep the flag permissive.
+    const rawAnalyze = ctx.options.analyze;
+    let analyze: boolean | "json" | undefined;
+    if (rawAnalyze === "json") analyze = "json";
+    else if (rawAnalyze === "true") analyze = true;
+    else if (rawAnalyze !== undefined) analyze = true;
     return build({
       watch: ctx.options.watch === "true",
       target,
@@ -213,6 +222,7 @@ registerCommand({
       projectName: ctx.options["project-name"] && ctx.options["project-name"] !== "true"
         ? ctx.options["project-name"]
         : undefined,
+      analyze,
     });
   },
 });

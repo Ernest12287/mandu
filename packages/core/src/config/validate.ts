@@ -105,6 +105,13 @@ const BuildConfigSchema = z
      * module exports `generateStaticParams` is prerendered).
      */
     prerender: z.boolean().default(true),
+    /**
+     * Phase 18.η — opt into post-build bundle analyzer artefacts
+     * (`.mandu/analyze/report.html` + `report.json`). Default `false`.
+     * CLI `--analyze` overrides this at runtime; config is the "always on
+     * for this project" switch.
+     */
+    analyze: z.boolean().default(false),
   })
   .strict();
 
@@ -229,10 +236,28 @@ const TestConfigSchema = z
  * default so the runtime can distinguish "not set" (use mode default)
  * from "explicit false" (force off even in dev).
  */
+/**
+ * Phase 18.θ — tracing sub-block. All fields optional; omitting the
+ * whole block keeps tracing disabled and incurs zero runtime overhead.
+ * `endpoint` and `headers` are only meaningful when `exporter === "otlp"`
+ * but we don't make that a cross-field refine — runtime falls back to
+ * console with a warning when `"otlp"` is requested without an endpoint.
+ */
+const TracingConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    exporter: z.enum(["console", "otlp"]).optional(),
+    endpoint: z.string().url().optional(),
+    headers: z.record(z.string()).optional(),
+    serviceName: z.string().min(1).optional(),
+  })
+  .strict();
+
 const ObservabilityConfigSchema = z
   .object({
     heapEndpoint: z.boolean().optional(),
     metricsEndpoint: z.boolean().optional(),
+    tracing: TracingConfigSchema.optional(),
   })
   .strict();
 
@@ -293,6 +318,23 @@ const MiddlewareSchema = z.custom<Middleware>(
   }
 );
 
+/**
+ * Phase 18.ζ — ISR / cache config (strict).
+ *
+ * All fields optional. Omitting the block leaves caching disabled unless
+ * individual routes opt in via `filling.loader(fn, { revalidate })` or
+ * loader-level `_cache` metadata. Setting `defaultMaxAge` makes every
+ * non-dynamic route auto-cache with that fresh TTL.
+ */
+const CacheConfigSchema = z
+  .object({
+    defaultMaxAge: z.number().int().nonnegative().optional(),
+    defaultSwr: z.number().int().nonnegative().optional(),
+    maxEntries: z.number().int().positive().optional(),
+    store: z.enum(["memory"]).optional(),
+  })
+  .strict();
+
 export const ManduConfigSchema = z
   .object({
     adapter: AdapterConfigSchema.optional(),
@@ -322,6 +364,8 @@ export const ManduConfigSchema = z
     seo: SeoConfigSchema.default({}),
     test: TestConfigSchema.default({}),
     observability: ObservabilityConfigSchema.default({}),
+    /** Phase 18.ζ — ISR / tag-based cache invalidation. Optional. */
+    cache: CacheConfigSchema.optional(),
     plugins: z.array(ManduPluginSchema).optional(),
     hooks: ManduHooksSchema.optional(),
     /**
