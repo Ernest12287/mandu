@@ -176,6 +176,14 @@ export async function generateRoutes(
   for (let routeIndex = 0; routeIndex < manifest.routes.length; routeIndex++) {
     const route = manifest.routes[routeIndex];
 
+    // Issue #206: metadata routes (sitemap/robots/llms.txt/manifest)
+    // are served directly from the user's `app/*.ts` file — no
+    // scaffold files to emit in `.mandu/generated/`, no slot/contract
+    // mapping. Skip them so we don't create ghost server handlers.
+    if (route.kind === "metadata") {
+      continue;
+    }
+
     try {
       // Spec 위치 정보
       const specLocation: SpecLocation = {

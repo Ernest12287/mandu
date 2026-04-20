@@ -217,7 +217,10 @@ describe("Collection.getCompiled()", () => {
   test("returns a React-like element when MDX tooling is absent", async () => {
     writeDoc("docs/a.md", "---\ntitle: A\n---\n# Hello\n\nBody.");
     const c = defineCollection({ path: "docs", root: tmpDir });
-    const compiled = await c.getCompiled("a");
+    // `silent: true` suppresses the "MDX tooling missing" warning —
+    // this test intentionally exercises the fallback path and does
+    // not need that noise in bun test output.
+    const compiled = await c.getCompiled("a", { silent: true });
     expect(compiled).toBeDefined();
     // Even without unified+remark+rehype installed, we guarantee a
     // callable Component that produces a React element shape.
@@ -233,6 +236,126 @@ describe("Collection.getCompiled()", () => {
   test("returns undefined for unknown slug", async () => {
     const c = defineCollection({ path: "docs", root: tmpDir });
     expect(await c.getCompiled("none")).toBeUndefined();
+  });
+});
+
+describe("Collection.getCompiled() plugin hooks (Issue #205)", () => {
+  test("accepts CompileOptions without throwing when deps absent", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\n# H\n");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    const compiled = await c.getCompiled("a", {
+      remarkPlugins: [() => {}],
+      rehypePlugins: [() => {}],
+      silent: true,
+    });
+    expect(compiled).toBeDefined();
+    expect(compiled!.compilationMode).toBe("fallback-missing-deps");
+  });
+
+  test("compilationMode signals fallback when deps missing", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\n# H\n");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    const compiled = await c.getCompiled("a", { silent: true });
+    // `fallback-missing-deps` is the canonical mode for projects
+    // without `unified` + remark/rehype installed. It lets
+    // consumers surface a clearer warning than "why is my MDX a
+    // <pre>?".
+    expect(compiled!.compilationMode).toBe("fallback-missing-deps");
+    expect(compiled!.html).toBeUndefined();
+  });
+
+  test("warning surfaces missing modules by name", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\n# H\n");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+    try {
+      await c.getCompiled("a");
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings.some((w) => w.includes("MDX tooling missing"))).toBe(true);
+    expect(warnings.some((w) => w.includes("unified"))).toBe(true);
+  });
+
+  test("silent: true suppresses the warning", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\n# H\n");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+    try {
+      await c.getCompiled("a", { silent: true });
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings.length).toBe(0);
+  });
+});
+
+describe("Collection watcher lifecycle (Issue #204)", () => {
+  test("all() does NOT start a watcher — process exits cleanly", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\nBody");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    // The whole point of Issue #204: `all()` must not pin the
+    // event loop. We verify by asserting that no "fs.watch" handle
+    // gets added to the process after the call.
+    const before = (process as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.().length ?? 0;
+    await c.all();
+    const after = (process as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.().length ?? 0;
+    // Exact equality is too strict (bun:test itself holds handles)
+    // — we verify `after <= before` so the collection contributes
+    // nothing.
+    expect(after).toBeLessThanOrEqual(before);
+  });
+
+  test("watch() opens a handle that dispose() closes", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\nBody");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    await c.all();
+    const handle = c.watch(() => {});
+    expect(typeof handle.unsubscribe).toBe("function");
+    // Manually triggering dispose must be safe and idempotent.
+    c.dispose();
+    c.dispose();
+    // Unsubscribe after dispose is also a no-op (not an error).
+    handle.unsubscribe();
+  });
+
+  test("Symbol.asyncDispose cleans up watchers", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\nBody");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    c.watch(() => {});
+    c.watch(() => {}); // Second subscriber, second handle.
+    // Cast to satisfy TS without pulling the full ES2023 lib.
+    await (c as unknown as { [Symbol.asyncDispose]: () => Promise<void> })[
+      Symbol.asyncDispose
+    ]();
+    // After dispose, dispose again is still a no-op.
+    c.dispose();
+  });
+
+  test("watch() on missing directory returns a no-op handle", async () => {
+    const c = defineCollection({ path: "does-not-exist", root: tmpDir });
+    const handle = c.watch(() => {});
+    // No directory means nothing to watch; the handle must still
+    // have an unsubscribe function so callers don't have to branch.
+    expect(typeof handle.unsubscribe).toBe("function");
+    handle.unsubscribe();
+  });
+
+  test("unsubscribe() is idempotent", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\nBody");
+    const c = defineCollection({ path: "docs", root: tmpDir });
+    const handle = c.watch(() => {});
+    handle.unsubscribe();
+    handle.unsubscribe(); // Second call must not throw.
+    c.dispose();
   });
 });
 

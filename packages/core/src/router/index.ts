@@ -34,6 +34,7 @@ export type {
   // File types
   ScannedFileType,
   ScannedFile,
+  MetadataFileKind,
 
   // Route config
   FSRouteConfig,
@@ -56,6 +57,7 @@ export {
   segmentsToPattern,
   pathToPattern,
   detectFileType,
+  detectMetadataFileKind,
   isPrivateFolder,
   isGroupFolder,
   generateRouteId,

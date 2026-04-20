@@ -185,6 +185,9 @@ export type {
   CompiledCollectionEntry,
   CollectionSort,
   DefineCollectionOptions,
+  CompileOptions,
+  CollectionWatchHandler,
+  CollectionWatchHandle,
 } from "./collection";
 
 export { z } from "./schema";
@@ -196,8 +199,14 @@ export type { ParsedFrontmatter } from "./frontmatter";
 export { slugFromPath } from "./slug";
 export type { SlugFromPathOptions } from "./slug";
 
-export { generateSidebar } from "./sidebar";
-export type { SidebarNode, GenerateSidebarOptions } from "./sidebar";
+export { generateSidebar, generateCategoryTree } from "./sidebar";
+export type {
+  SidebarNode,
+  GenerateSidebarOptions,
+  Category,
+  CategoryEntry,
+  DirMeta,
+} from "./sidebar";
 
 export { generateLLMSTxt } from "./llms-txt";
 export type { LLMSTxtInput, GenerateLLMSTxtOptions } from "./llms-txt";

@@ -53,8 +53,16 @@ export type LoaderConfig = z.infer<typeof LoaderConfig>;
 
 // ========== Route 설정 ==========
 
-export const RouteKind = z.enum(["page", "api"]);
+export const RouteKind = z.enum(["page", "api", "metadata"]);
 export type RouteKind = z.infer<typeof RouteKind>;
+
+/**
+ * Metadata route kinds — one for each file-convention metadata file
+ * detected under `app/`. Kept in sync with
+ * `@mandujs/core/routes` → `MetadataRouteKind`.
+ */
+export const MetadataRouteKind = z.enum(["sitemap", "robots", "llms-txt", "manifest"]);
+export type MetadataRouteKind = z.infer<typeof MetadataRouteKind>;
 
 export const SpecHttpMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
 export type SpecHttpMethod = z.infer<typeof SpecHttpMethod>;
@@ -115,6 +123,27 @@ export const ApiRouteSpec = z.object({
 
 export type ApiRouteSpec = z.infer<typeof ApiRouteSpec>;
 
+// ---- Metadata 라우트 (Issue #206) ----
+// sitemap.ts / robots.ts / llms.txt.ts / manifest.ts — file-convention
+// metadata routes. Dispatched through `@mandujs/core/routes`.
+export const MetadataRouteSpec = z.object({
+  ...RouteSpecBase,
+  kind: z.literal("metadata"),
+  /** Which metadata file this entry represents. */
+  metadataKind: MetadataRouteKind,
+  /** MIME type used on the served response. */
+  contentType: z.string().min(1),
+  // Re-declare shared optional fields so downstream consumers that
+  // switch on kind can still read them without type widening gymnastics.
+  componentModule: z.string().optional(),
+  methods: z.array(SpecHttpMethod).optional(),
+  layoutChain: z.array(z.string()).optional(),
+  loadingModule: z.string().optional(),
+  errorModule: z.string().optional(),
+});
+
+export type MetadataRouteSpec = z.infer<typeof MetadataRouteSpec>;
+
 // ---- discriminatedUnion ----
 export const RouteSpec = z.discriminatedUnion("kind", [
   // PageRouteSpec에 .refine()이 적용되어 있으므로 내부 shape를 직접 사용
@@ -132,6 +161,17 @@ export const RouteSpec = z.discriminatedUnion("kind", [
     kind: z.literal("api"),
     methods: z.array(SpecHttpMethod).optional(),
     componentModule: z.string().optional(),
+    layoutChain: z.array(z.string()).optional(),
+    loadingModule: z.string().optional(),
+    errorModule: z.string().optional(),
+  }),
+  z.object({
+    ...RouteSpecBase,
+    kind: z.literal("metadata"),
+    metadataKind: MetadataRouteKind,
+    contentType: z.string().min(1),
+    componentModule: z.string().optional(),
+    methods: z.array(SpecHttpMethod).optional(),
     layoutChain: z.array(z.string()).optional(),
     loadingModule: z.string().optional(),
     errorModule: z.string().optional(),
@@ -191,6 +231,16 @@ export function assertPageRoute(route: RouteSpec): asserts route is PageRouteSpe
 export function assertApiRoute(route: RouteSpec): asserts route is ApiRouteSpec {
   if (route.kind !== "api") {
     throw new Error(`Expected API route, got "${route.kind}" (id: ${route.id})`);
+  }
+}
+
+/**
+ * Asserts that the given route is a metadata route.
+ * After this call, TypeScript narrows the type to MetadataRouteSpec.
+ */
+export function assertMetadataRoute(route: RouteSpec): asserts route is MetadataRouteSpec {
+  if (route.kind !== "metadata") {
+    throw new Error(`Expected metadata route, got "${route.kind}" (id: ${route.id})`);
   }
 }
 

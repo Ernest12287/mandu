@@ -4,6 +4,7 @@ import {
   registerPageHandler,
   registerLayoutLoader,
   registerNotFoundHandler,
+  registerMetadataHandler,
   registerWSHandler,
   registerManifest,
   needsHydration,
@@ -97,6 +98,20 @@ export async function registerManifestHandlers(
   registerManifest("routes", manifest);
 
   for (const route of manifest.routes) {
+    // Issue #206: metadata routes (sitemap/robots/llms.txt/manifest)
+    // register a thunk that lazily imports the user module. The
+    // runtime dispatcher invokes the default export on each request
+    // so HMR reloads pick up edits automatically (same pattern as
+    // API routes below).
+    if (route.kind === "metadata") {
+      const modulePath = path.resolve(rootDir, route.module);
+      registerMetadataHandler(route.id, async () => {
+        return importFn(modulePath, importOpts);
+      });
+      console.log(`  🗺️  Metadata: ${route.pattern} -> ${route.id}`);
+      continue;
+    }
+
     if (route.kind === "api") {
       const modulePath = path.resolve(rootDir, route.module);
       try {

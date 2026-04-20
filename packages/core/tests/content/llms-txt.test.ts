@@ -143,3 +143,91 @@ describe("generateLLMSTxt", () => {
     ]);
   });
 });
+
+describe("generateLLMSTxt expanded options (Issue #205)", () => {
+  test("baseUrl alias produces absolute URLs", async () => {
+    writeDoc("docs/hello.md", "---\ntitle: Hello\n---\n");
+    const docs = defineCollection({
+      path: "docs",
+      root: tmpDir,
+      schema: z.object({ title: z.string() }),
+    });
+    const out = await generateLLMSTxt(
+      [{ name: "docs", collection: docs }],
+      { baseUrl: "https://mandujs.com" }
+    );
+    expect(out).toContain("https://mandujs.com/docs/hello");
+  });
+
+  test("baseUrl overrides basePath when both provided", async () => {
+    writeDoc("docs/a.md", "---\ntitle: A\n---\n");
+    const docs = defineCollection({
+      path: "docs",
+      root: tmpDir,
+      schema: z.object({ title: z.string() }),
+    });
+    // `baseUrl` wins — the doc comment promises that.
+    const out = await generateLLMSTxt(
+      [{ name: "docs", collection: docs }],
+      { basePath: "/ignored", baseUrl: "https://example.com" }
+    );
+    expect(out).toContain("https://example.com/docs/a");
+    expect(out).not.toContain("/ignored");
+  });
+
+  test("groupByCategory buckets entries by first slug segment", async () => {
+    writeDoc("docs/intro.md", "---\ntitle: Intro\n---\n");
+    writeDoc("docs/guide/setup.md", "---\ntitle: Setup\n---\n");
+    writeDoc("docs/guide/deploy.md", "---\ntitle: Deploy\n---\n");
+    writeDoc("docs/api/client.md", "---\ntitle: Client\n---\n");
+    const docs = defineCollection({
+      path: "docs",
+      root: tmpDir,
+      schema: z.object({ title: z.string() }),
+    });
+    const out = await generateLLMSTxt(
+      [{ name: "docs", collection: docs }],
+      { groupByCategory: true }
+    );
+    // Categories appear as ### headings under ## docs.
+    expect(out).toContain("## docs");
+    expect(out).toContain("### api");
+    expect(out).toContain("### guide");
+    // The root entry (intro) appears BEFORE the category headings.
+    const introIdx = out.indexOf("[Intro]");
+    const apiIdx = out.indexOf("### api");
+    expect(introIdx).toBeGreaterThan(-1);
+    expect(apiIdx).toBeGreaterThan(introIdx);
+  });
+
+  test("full: true + groupByCategory inlines body under categorized entries", async () => {
+    writeDoc("docs/guide/setup.md", "---\ntitle: Setup\n---\nPoint A");
+    writeDoc("docs/guide/deploy.md", "---\ntitle: Deploy\n---\nPoint B");
+    const docs = defineCollection({
+      path: "docs",
+      root: tmpDir,
+      schema: z.object({ title: z.string() }),
+    });
+    const out = await generateLLMSTxt(
+      [{ name: "docs", collection: docs }],
+      { full: true, groupByCategory: true }
+    );
+    expect(out).toContain("### guide");
+    expect(out).toContain("Point A");
+    expect(out).toContain("Point B");
+  });
+
+  test("empty collection yields no category heading output", async () => {
+    const docs = defineCollection({
+      path: "missing",
+      root: tmpDir,
+      schema: z.object({ title: z.string() }),
+    });
+    const out = await generateLLMSTxt(
+      [{ name: "docs", collection: docs }],
+      { groupByCategory: true }
+    );
+    expect(out).not.toContain("## docs");
+    expect(out).not.toContain("###");
+  });
+});

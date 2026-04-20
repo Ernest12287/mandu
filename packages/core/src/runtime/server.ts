@@ -69,6 +69,7 @@ import { extractShellHtml, createPPRResponse } from "./ppr";
 import { isRedirectResponse } from "./redirect";
 import { isNotFoundResponse } from "./not-found";
 import { newId } from "../id";
+import { handleMetadataRoute as dispatchMetadataRoute } from "../routes/metadata-routes";
 
 export interface RateLimitOptions {
   windowMs?: number;
@@ -461,6 +462,15 @@ export interface PageRegistration {
  */
 export type PageHandler = () => Promise<PageRegistration>;
 
+/**
+ * Issue #206 — Metadata route handler. A thunk that returns the
+ * imported user module (or its `default` export) so the dispatcher
+ * in `handleMetadataRoute` can invoke the user-supplied function with
+ * the correct Content-Type + cache headers. The indirection keeps dev
+ * HMR cheap: the handler only imports on the request that needs it.
+ */
+export type MetadataHandler = () => Promise<unknown>;
+
 export interface AppContext {
   routeId: string;
   url: string;
@@ -541,6 +551,15 @@ export class ServerRegistry {
   readonly pageHandlers: Map<string, PageHandler> = new Map();
   readonly pageFillings: Map<string, ManduFilling<unknown>> = new Map();
   readonly routeComponents: Map<string, RouteComponent> = new Map();
+  /**
+   * Issue #206 — metadata-route handlers keyed by `route.id`
+   * (`metadata-sitemap` / `metadata-robots` / `metadata-llms-txt` /
+   * `metadata-manifest`). Each handler is a thunk that imports the
+   * user module lazily so dev HMR can swap it without restarting the
+   * server. The dispatcher in `handleMetadataRoute()` extracts the
+   * default export and invokes it.
+   */
+  readonly metadataHandlers: Map<string, MetadataHandler> = new Map();
   /** Layout 컴포넌트 캐시 (모듈 경로 → 컴포넌트) */
   readonly layoutComponents: Map<string, LayoutComponent> = new Map();
   /** Layout 로더 (모듈 경로 → 로더 함수) */
@@ -594,6 +613,17 @@ export class ServerRegistry {
 
   registerApiHandler(routeId: string, handler: ApiHandler): void {
     this.apiHandlers.set(routeId, handler);
+  }
+
+  /**
+   * Issue #206 — register a metadata-route loader. The handler must
+   * be a thunk returning either the raw user function or the
+   * module namespace (`{ default: fn }`). The dispatcher accepts both
+   * shapes so callers don't have to care whether they imported with
+   * `import("./sitemap")` or a bundled variant.
+   */
+  registerMetadataHandler(routeId: string, handler: MetadataHandler): void {
+    this.metadataHandlers.set(routeId, handler);
   }
 
   registerPageLoader(routeId: string, loader: PageLoader): void {
@@ -760,6 +790,7 @@ export class ServerRegistry {
     this.pageGenerateMetadata.clear();
     this.layoutMetadata.clear();
     this.layoutGenerateMetadata.clear();
+    this.metadataHandlers.clear();
     this.createAppFn = null;
     this.rateLimiter = null;
     this.notFoundHandler = null;
@@ -790,6 +821,17 @@ export function clearDefaultRegistry(): void {
 
 export function registerApiHandler(routeId: string, handler: ApiHandler): void {
   defaultRegistry.registerApiHandler(routeId, handler);
+}
+
+/**
+ * Issue #206 — register a metadata route handler on the default
+ * registry. See {@link ServerRegistry.registerMetadataHandler} for
+ * the handler contract. Exposed at module scope so the CLI handlers
+ * wiring (`packages/cli/src/util/handlers.ts`) can reach it without
+ * threading a registry reference.
+ */
+export function registerMetadataHandler(routeId: string, handler: MetadataHandler): void {
+  defaultRegistry.registerMetadataHandler(routeId, handler);
 }
 
 export function registerPageLoader(routeId: string, loader: PageLoader): void {
@@ -1362,6 +1404,47 @@ async function handleApiRoute(
 
   try {
     const response = await handler(req, params);
+    return ok(response);
+  } catch (errValue) {
+    const error = errValue instanceof Error ? errValue : new Error(String(errValue));
+    return err(createSSRErrorResponse(route.id, route.pattern, error));
+  }
+}
+
+// ---------- Metadata Route Handler (Issue #206) ----------
+
+/**
+ * Dispatch a metadata route (sitemap / robots / llms.txt / manifest).
+ *
+ * The registry stores a thunk that lazily imports the user module
+ * on the first request. We delegate the actual validation + render
+ * + Response assembly to `dispatchMetadataRoute()` from
+ * `@mandujs/core/routes` so the pipeline stays testable in isolation.
+ *
+ * A missing registration falls through to the framework's
+ * "handler not found" 500 response — typically only reachable if the
+ * scanner detected the file but `registerManifestHandlers` skipped it
+ * (which would be a framework bug).
+ */
+async function handleMetadataRouteRequest(
+  route: RouteSpec,
+  registry: ServerRegistry
+): Promise<Result<Response>> {
+  if (route.kind !== "metadata") {
+    return err(createHandlerNotFoundResponse(route.id, route.pattern));
+  }
+  const handler = registry.metadataHandlers.get(route.id);
+  if (!handler) {
+    return err(createHandlerNotFoundResponse(route.id, route.pattern));
+  }
+
+  try {
+    const userExport = await handler();
+    const response = await dispatchMetadataRoute({
+      kind: route.metadataKind,
+      userExport,
+      sourceFile: route.module,
+    });
     return ok(response);
   } catch (errValue) {
     const error = errValue instanceof Error ? errValue : new Error(String(errValue));
@@ -2699,6 +2782,10 @@ async function handleRequestInternal(
 
   if (route.kind === "page") {
     return handlePageRoute(req, url, route, params, registry);
+  }
+
+  if (route.kind === "metadata") {
+    return handleMetadataRouteRequest(route, registry);
   }
 
   // 4. 알 수 없는 라우트 종류 — exhaustiveness check

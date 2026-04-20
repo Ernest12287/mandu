@@ -37,6 +37,7 @@
     "./observability": "./src/observability/index.ts",
     "./perf": "./src/perf/index.ts",
     "./perf/hmr-markers": "./src/perf/hmr-markers.ts",
+    "./routes": "./src/routes/index.ts",
     "./scheduler": "./src/scheduler/index.ts",
     "./storage/s3": "./src/storage/s3/index.ts",
     "./bundler/prerender": "./src/bundler/prerender.ts",

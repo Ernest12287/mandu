@@ -72,8 +72,19 @@ export interface GenerateLLMSTxtOptions {
    * an absolute origin (e.g. `https://example.com`) to produce an
    * outward-facing llms.txt that third-party crawlers can consume
    * without resolving against the host.
+   *
+   * Alias for `baseUrl` — accepts either name so the API reads
+   * naturally whether the caller thinks in "site base path" or
+   * "absolute URL".
    */
   basePath?: string;
+  /**
+   * Alias for `basePath`. When both are provided, `baseUrl` wins
+   * (callers explicitly typing an absolute URL typically mean
+   * "use this verbatim"). Useful in docs-site configs that already
+   * expose `baseUrl` for their router / canonical URL helpers.
+   */
+  baseUrl?: string;
   /**
    * When true, include each entry's body verbatim under its heading.
    * This produces the `llms-full.txt` variant — significantly larger
@@ -92,6 +103,18 @@ export interface GenerateLLMSTxtOptions {
    * omits the trailing `: {summary}` tail.
    */
   getSummary?: (entry: CollectionEntry<unknown>) => string;
+  /**
+   * When true, emit a nested heading structure that groups entries
+   * by their first slug segment (the "category"). With `full: true`
+   * this produces an `llms-full.txt` that mirrors the docs sidebar
+   * layout — useful for LLM crawlers that consume the
+   * category-section convention.
+   *
+   * The category headings use `###` so they nest cleanly under the
+   * `##` collection heading. Entries without a slash in their slug
+   * are placed under an implicit "root" section.
+   */
+  groupByCategory?: boolean;
 }
 
 /**
@@ -108,11 +131,13 @@ export async function generateLLMSTxt(
   const {
     siteName,
     description,
-    basePath = "/",
     full = false,
     includeDrafts = false,
     getSummary,
+    groupByCategory = false,
   } = options;
+  // `baseUrl` wins when both are provided — see the option JSDoc.
+  const basePath = options.baseUrl ?? options.basePath ?? "/";
 
   const lines: string[] = [];
   if (siteName) {
@@ -140,23 +165,54 @@ export async function generateLLMSTxt(
 
     lines.push(`## ${input.name}`);
     lines.push("");
-    for (const entry of sorted) {
-      const title =
-        typeof (entry.data as { title?: unknown })?.title === "string"
-          ? String((entry.data as { title: string }).title)
-          : entry.slug || "index";
-      const href = joinHref(basePath, input.name, entry.slug);
-      const summary = getSummary
-        ? getSummary(entry)
-        : typeof (entry.data as { description?: unknown })?.description === "string"
-          ? String((entry.data as { description: string }).description)
-          : "";
-      const tail = summary ? `: ${summary}` : "";
-      lines.push(`- [${title}](${href})${tail}`);
-      if (full) {
+
+    if (groupByCategory) {
+      // Bucket entries by their first slug segment. Entries without
+      // a slash go under the "__root__" sentinel so we can render
+      // them above the categorized groups.
+      const groups = new Map<string, typeof sorted>();
+      for (const entry of sorted) {
+        const [head, ...rest] = entry.slug.split("/");
+        const key = rest.length > 0 ? head : "__root__";
+        const bucket = groups.get(key);
+        if (bucket) bucket.push(entry);
+        else groups.set(key, [entry]);
+      }
+      // Emit root-level entries first (if any), then categorized
+      // groups in alphabetical category order for determinism.
+      const rootEntries = groups.get("__root__") ?? [];
+      for (const entry of rootEntries) {
+        lines.push(renderEntryLine(entry, input.name, basePath, getSummary));
+        if (full) {
+          lines.push("");
+          lines.push(entry.content);
+          lines.push("");
+        }
+      }
+      const categoryKeys = Array.from(groups.keys())
+        .filter((k) => k !== "__root__")
+        .sort();
+      for (const catKey of categoryKeys) {
+        if (rootEntries.length > 0) lines.push("");
+        lines.push(`### ${catKey}`);
         lines.push("");
-        lines.push(entry.content);
-        lines.push("");
+        for (const entry of groups.get(catKey) ?? []) {
+          lines.push(renderEntryLine(entry, input.name, basePath, getSummary));
+          if (full) {
+            lines.push("");
+            lines.push(entry.content);
+            lines.push("");
+          }
+        }
+      }
+    } else {
+      for (const entry of sorted) {
+        lines.push(renderEntryLine(entry, input.name, basePath, getSummary));
+        if (full) {
+          lines.push("");
+          lines.push(entry.content);
+          lines.push("");
+        }
       }
     }
     lines.push("");
@@ -175,6 +231,31 @@ async function loadInput(input: LLMSTxtInput): Promise<CollectionEntry<unknown>[
   // CollectionEntry<unknown>[] — the cast here is a trivial widening.
   const entries = await input.collection.all();
   return entries as CollectionEntry<unknown>[];
+}
+
+/**
+ * Format a single entry as a `- [Title](href): summary` line. Split
+ * out from the main loop so both the flat and the categorized
+ * rendering paths share the same output shape.
+ */
+function renderEntryLine(
+  entry: CollectionEntry<unknown>,
+  collectionName: string,
+  basePath: string,
+  getSummary: ((entry: CollectionEntry<unknown>) => string) | undefined
+): string {
+  const title =
+    typeof (entry.data as { title?: unknown })?.title === "string"
+      ? String((entry.data as { title: string }).title)
+      : entry.slug || "index";
+  const href = joinHref(basePath, collectionName, entry.slug);
+  const summary = getSummary
+    ? getSummary(entry)
+    : typeof (entry.data as { description?: unknown })?.description === "string"
+      ? String((entry.data as { description: string }).description)
+      : "";
+  const tail = summary ? `: ${summary}` : "";
+  return `- [${title}](${href})${tail}`;
 }
 
 function joinHref(base: string, collectionName: string, slug: string): string {

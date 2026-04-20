@@ -70,6 +70,68 @@ export interface CompiledCollectionEntry<T = Record<string, unknown>>
   Component: () => unknown;
   /** Rendered HTML string (only populated when MDX tooling is available). */
   html?: string;
+  /**
+   * Diagnostic info describing which pipeline produced `Component`.
+   *
+   *   - `"unified"`  — the full `unified + remark + rehype` chain ran.
+   *     `html` is populated, `Component` wraps it via
+   *     `dangerouslySetInnerHTML`.
+   *   - `"fallback-missing-deps"` — one or more optional MDX deps were
+   *     absent. `Component` returns a `<pre>` shell.
+   *   - `"fallback-pipeline-error"` — deps loaded but the pipeline
+   *     threw; `Component` returns a `<pre>` shell with `error` set.
+   */
+  compilationMode: "unified" | "fallback-missing-deps" | "fallback-pipeline-error";
+  /** The pipeline error when `compilationMode === "fallback-pipeline-error"`. */
+  error?: Error;
+}
+
+/**
+ * Compile-time options forwarded to `getCompiled()`. All fields are
+ * optional; supplying any of the `*Plugins` arrays triggers the
+ * `unified + remark-parse + remark-rehype + rehype-stringify` pipeline
+ * (when the deps are installed).
+ *
+ * The plugins arrays are typed as `unknown[]` because the optional MDX
+ * ecosystem does not carry types into `@mandujs/core`. Consumers pass
+ * whatever their plugin entry exports — typically a function or a
+ * `[plugin, options]` tuple.
+ */
+export interface CompileOptions {
+  /** Extra remark plugins applied BEFORE `remark-rehype`. */
+  remarkPlugins?: unknown[];
+  /** Extra rehype plugins applied AFTER `remark-rehype`. */
+  rehypePlugins?: unknown[];
+  /**
+   * When true, suppress the warning emitted when optional MDX deps
+   * are missing and the function falls back to a `<pre>` shell.
+   * Use this in build scripts where you deliberately do not install
+   * the MDX toolchain. Default: false.
+   */
+  silent?: boolean;
+}
+
+/**
+ * Callback invoked by `Collection.watch()` on every filesystem event
+ * that could affect the collection. The handler is called with a
+ * shallow describe object so consumers can decide whether to
+ * `collection.invalidate()` and re-render, or skip (e.g. when the
+ * event targets a file outside the `extensions` allow-list).
+ *
+ * The watcher intentionally does NOT call `invalidate()` itself —
+ * callers typically know when to force a reload (debounce, batch with
+ * other changes) and the library staying hands-off matches how
+ * `chokidar`-style APIs behave in the wild.
+ */
+export type CollectionWatchHandler = (event: {
+  type: "change" | "rename";
+  filePath: string;
+}) => void;
+
+/** Control handle returned by `Collection.watch()`. */
+export interface CollectionWatchHandle {
+  /** Stop listening to this watcher. Idempotent. */
+  unsubscribe(): void;
 }
 
 /**
@@ -147,16 +209,41 @@ const DEFAULT_EXTENSIONS = [".md", ".mdx", ".markdown"] as const;
 /**
  * Collection instance returned by `defineCollection({ path, ... })`.
  *
+ * # Caching
+ *
  * Load results are cached in-memory after the first `.load()` call.
  * This is intentional — at the MVP we treat collections as build-time
- * data that doesn't change within a process lifetime. Projects that
- * need hot-reload during `mandu dev` will need to call `.invalidate()`
- * explicitly (not yet implemented — tracked as a follow-up).
+ * data that doesn't change within a process lifetime. Call
+ * `.invalidate()` to force a rescan.
+ *
+ * # Watcher lifecycle (Issue #204 — critical)
+ *
+ * **Default: zero watchers.** `all()`, `get()`, and `getCompiled()`
+ * do NOT open any `fs.watch` handle. Build scripts like
+ * `scripts/prebuild-docs.ts` can run `await docs.all()` and the
+ * process will exit cleanly — no active handles left to pin the
+ * event loop.
+ *
+ * **Opt-in via `watch()`**: dev-mode tooling that wants change
+ * notifications calls `const handle = collection.watch(cb)`. This
+ * opens ONE `fs.watch` handle per collection (not per file), so the
+ * cost is bounded regardless of collection size.
+ *
+ * **Cleanup**: user code either calls `handle.unsubscribe()` or
+ * `await collection[Symbol.asyncDispose]()` (ES2023 `using`
+ * semantics). Either path closes every open watcher so the process
+ * exits.
  */
 export class Collection<T = Record<string, unknown>> {
   readonly options: DefineCollectionOptions<T>;
   private entries: CollectionEntry<T>[] | null = null;
   private loadPromise: Promise<CollectionEntry<T>[]> | null = null;
+  /**
+   * Active `fs.watch` handles — one per `watch()` call. Stored so
+   * `dispose()` can close every handle regardless of whether the
+   * user tracked the returned `unsubscribe` callback.
+   */
+  private watchHandles: Set<{ close: () => void }> = new Set();
 
   constructor(options: DefineCollectionOptions<T>) {
     this.options = options;
@@ -280,18 +367,38 @@ export class Collection<T = Record<string, unknown>> {
    * `Component` still returns a valid React element — a `<pre>` wrapper
    * around the raw markdown — so callers never have to branch on the
    * missing-dep case.
+   *
+   * # Plugin support (Issue #205)
+   *
+   * Pass `{ remarkPlugins, rehypePlugins }` to extend the pipeline
+   * — e.g. `rehype-slug`, `rehype-autolink-headings`, `shiki` for
+   * syntax highlighting. Plugins are applied in array order, remark
+   * plugins before `remark-rehype` and rehype plugins after.
+   *
+   * # Diagnostics (Issue #205)
+   *
+   * The returned entry includes a `compilationMode` discriminator
+   * so callers can tell whether the full pipeline ran or the fallback
+   * was used. When a dep is missing we emit a single-line warning
+   * (unless `silent: true`) naming which module could not be
+   * resolved — previously the fallback was silent, which made it
+   * impossible to diagnose why a `<pre>` appeared.
    */
   async getCompiled(
-    slug: string
+    slug: string,
+    compileOptions: CompileOptions = {}
   ): Promise<CompiledCollectionEntry<T> | undefined> {
     const entry = await this.get(slug);
     if (!entry) return undefined;
-    const rendered = await renderMarkdownSafe(entry.content);
-    return {
+    const rendered = await renderMarkdownSafe(entry.content, compileOptions);
+    const compiled: CompiledCollectionEntry<T> = {
       ...entry,
-      html: rendered.html,
       Component: rendered.Component,
+      compilationMode: rendered.mode,
     };
+    if (rendered.html !== undefined) compiled.html = rendered.html;
+    if (rendered.error !== undefined) compiled.error = rendered.error;
+    return compiled;
   }
 
   /**
@@ -300,6 +407,127 @@ export class Collection<T = Record<string, unknown>> {
    */
   invalidate(): void {
     this.entries = null;
+  }
+
+  /**
+   * Subscribe to filesystem events for this collection's root
+   * directory. The watcher is lazy — created here, not in the
+   * constructor — so callers who never call `watch()` pay no cost
+   * and their process exits cleanly after `all()`.
+   *
+   * The callback is invoked with a `{ type, filePath }` object
+   * where `filePath` is relative to the collection root. The
+   * caller typically calls `collection.invalidate()` in response
+   * and re-renders.
+   *
+   * Returns a handle with `unsubscribe()`. You can call that
+   * directly, or call `collection.dispose()` / use `await using`
+   * (ES2023) to close every watcher at once.
+   */
+  watch(handler: CollectionWatchHandler): CollectionWatchHandle {
+    const root = this.resolveRoot();
+    if (!fs.existsSync(root)) {
+      // Nothing to watch — return a no-op handle so callers don't
+      // have to branch on "directory exists". If the directory
+      // appears later, they can unsubscribe and re-watch.
+      return { unsubscribe: () => {} };
+    }
+    const extensions = this.options.extensions ?? [...DEFAULT_EXTENSIONS];
+    const extSet = new Set(extensions.map((e) => e.toLowerCase()));
+
+    // Use node's `fs.watch` directly — one handle per collection
+    // root. `recursive: true` is the expensive bit; it is not
+    // supported on Linux before kernel 5.0 but the dev-mode path
+    // targets macOS/Windows/recent Linux where it works. If a
+    // project needs stricter compatibility, they can wrap
+    // `chokidar` in user code and call `invalidate()` themselves.
+    let watcher: fs.FSWatcher;
+    try {
+      watcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
+        if (!filename) return;
+        const normalized = String(filename).replace(/\\/g, "/");
+        // Filter by extension so unrelated files don't fire the
+        // callback. We still let the event propagate for rename
+        // events on directories (no extension) — those can affect
+        // slugs.
+        const lastDot = normalized.lastIndexOf(".");
+        const ext = lastDot >= 0 ? normalized.slice(lastDot).toLowerCase() : "";
+        if (ext && !extSet.has(ext)) return;
+        try {
+          handler({
+            type: eventType === "rename" ? "rename" : "change",
+            filePath: normalized,
+          });
+        } catch (err) {
+          // Swallow user-handler errors so one buggy consumer
+          // does not tear down the watcher for everyone else.
+          console.error(
+            `[content] watch handler threw for ${normalized}:`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      });
+    } catch (err) {
+      // Some platforms (notably older Linux) don't support
+      // `recursive: true`. Log once and return a no-op handle so
+      // the caller's code continues — missing-reload is
+      // degradation, not breakage.
+      console.warn(
+        `[content] fs.watch(${root}) failed — hot reload disabled for this collection:`,
+        err instanceof Error ? err.message : err
+      );
+      return { unsubscribe: () => {} };
+    }
+
+    const entry = { close: () => watcher.close() };
+    this.watchHandles.add(entry);
+
+    return {
+      unsubscribe: () => {
+        if (!this.watchHandles.has(entry)) return;
+        this.watchHandles.delete(entry);
+        try {
+          watcher.close();
+        } catch {
+          // Already closed — ignore.
+        }
+      },
+    };
+  }
+
+  /**
+   * Close every active watcher opened by `.watch()`. Safe to call
+   * repeatedly. After `dispose()` the collection remains usable
+   * — calling `watch()` again creates a fresh handle.
+   */
+  dispose(): void {
+    for (const handle of this.watchHandles) {
+      try {
+        handle.close();
+      } catch {
+        // Handle already closed — ignore.
+      }
+    }
+    this.watchHandles.clear();
+  }
+
+  /**
+   * ES2023 async-dispose support. Enables:
+   *
+   *   ```ts
+   *   await using docs = defineCollection({ path: 'content/docs' });
+   *   const unsubscribe = docs.watch(onChange);
+   *   // ... work ...
+   *   // docs[Symbol.asyncDispose]() runs automatically at scope exit
+   *   ```
+   *
+   * The async variant is used (instead of sync `Symbol.dispose`)
+   * because real watchers in the ecosystem close asynchronously
+   * — we keep the signature future-proof even though `fs.watch`
+   * happens to close synchronously today.
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.dispose();
   }
 }
 
@@ -359,6 +587,14 @@ function walkDir(dir: string, out: string[], extSet: Set<string>): void {
   }
 }
 
+/** Internal result type from `renderMarkdownSafe`. */
+interface RenderedMarkdown {
+  html?: string;
+  Component: () => unknown;
+  mode: CompiledCollectionEntry<unknown>["compilationMode"];
+  error?: Error;
+}
+
 /**
  * Lazy markdown renderer. Attempts to load `unified` + the standard
  * remark/rehype plugin chain; when any piece is missing, falls back
@@ -367,10 +603,17 @@ function walkDir(dir: string, out: string[], extSet: Set<string>): void {
  * We go through `Function("return import(...)")` instead of a direct
  * dynamic `import()` so TS doesn't resolve the optional modules
  * during typecheck — they are NOT in `@mandujs/core` deps by design.
+ *
+ * The `options.remarkPlugins` / `options.rehypePlugins` arrays let
+ * docs sites add `rehype-slug`, `rehype-autolink-headings`, `shiki`,
+ * etc. — the caller is responsible for installing those modules.
  */
 async function renderMarkdownSafe(
-  body: string
-): Promise<{ html?: string; Component: () => unknown }> {
+  body: string,
+  options: CompileOptions = {}
+): Promise<RenderedMarkdown> {
+  const { remarkPlugins = [], rehypePlugins = [], silent = false } = options;
+
   // Passing the module specifier through a Function-wrapped dynamic
   // import keeps TypeScript from erroring on optional peer deps; if
   // any module is missing we fall through to the raw-markdown path.
@@ -381,6 +624,7 @@ async function renderMarkdownSafe(
       return null;
     }
   };
+
   const unified = (await tryImport("unified")) as
     | { unified: () => unknown }
     | null;
@@ -394,36 +638,95 @@ async function renderMarkdownSafe(
     | { default: unknown }
     | null;
 
-  if (unified && remarkParse && remarkRehype && rehypeStringify) {
+  // Collect the names of missing modules so the warning is
+  // actionable — a generic "MDX tooling not installed" is hard to
+  // act on when you DO have some of it installed.
+  const missing: string[] = [];
+  if (!unified) missing.push("unified");
+  if (!remarkParse) missing.push("remark-parse");
+  if (!remarkRehype) missing.push("remark-rehype");
+  if (!rehypeStringify) missing.push("rehype-stringify");
+
+  if (missing.length === 0 && unified && remarkParse && remarkRehype && rehypeStringify) {
     try {
       type Processor = {
-        use: (plugin: unknown) => Processor;
+        use: (plugin: unknown, options?: unknown) => Processor;
         process: (src: string) => Promise<{ toString: () => string }>;
       };
       // Type-punned unified chain — optional peer deps don't carry
       // their own types into our graph, so we route through `unknown`.
-      const chain = unified.unified() as unknown as Processor;
-      const file = await chain
-        .use(remarkParse.default)
-        .use(remarkRehype.default)
-        .use(rehypeStringify.default)
-        .process(body);
+      let chain = unified.unified() as unknown as Processor;
+      chain = chain.use(remarkParse.default);
+      // User-supplied remark plugins run between `remark-parse`
+      // and `remark-rehype` so they can transform the MDAST.
+      for (const plugin of remarkPlugins) {
+        chain = applyPlugin(chain, plugin);
+      }
+      chain = chain.use(remarkRehype.default);
+      // Rehype plugins run AFTER `remark-rehype` so they see the
+      // HAST — this is the hook point for `rehype-slug` etc.
+      for (const plugin of rehypePlugins) {
+        chain = applyPlugin(chain, plugin);
+      }
+      chain = chain.use(rehypeStringify.default);
+      const file = await chain.process(body);
       const html = file.toString();
       return {
         html,
         Component: () => createHtmlElement(html),
+        mode: "unified",
       };
-    } catch {
-      // Fall through to raw fallback
+    } catch (err) {
+      // Pipeline itself threw — report it so the caller sees the
+      // underlying failure instead of a silent `<pre>`.
+      if (!silent) {
+        console.warn(
+          "[content] MDX pipeline failed; falling back to <pre>. Underlying error:",
+          err instanceof Error ? err.message : err
+        );
+      }
+      return {
+        Component: () => createPreElement(body),
+        mode: "fallback-pipeline-error",
+        error: err instanceof Error ? err : new Error(String(err)),
+      };
     }
   }
 
   // Fallback: emit a simple React element wrapping the raw body in a
   // `<pre>` so pages don't 500. Pages that need real MDX should
   // install `unified` + remark/rehype in their project.
+  if (!silent && missing.length > 0) {
+    // One warning per call — if the project is rendering 500 pages
+    // this will be noisy, but that noise is the feedback users
+    // need to know WHY their markdown is not compiling. `silent:
+    // true` mutes this for build scripts that deliberately opt out.
+    console.warn(
+      `[content] MDX tooling missing: ${missing.join(
+        ", "
+      )}. Install these peer deps to enable full rendering — falling back to <pre> shell.`
+    );
+  }
   return {
     Component: () => createPreElement(body),
+    mode: "fallback-missing-deps",
   };
+}
+
+/**
+ * Apply a plugin spec to a unified chain. The unified plugin
+ * ecosystem accepts either a bare function or a `[plugin, options]`
+ * tuple, so we handle both without pulling the unified types in.
+ */
+function applyPlugin<P extends { use: (plugin: unknown, options?: unknown) => P }>(
+  chain: P,
+  plugin: unknown
+): P {
+  if (Array.isArray(plugin)) {
+    const [fn, ...rest] = plugin;
+    return chain.use(fn, ...rest);
+  }
+  return chain.use(plugin);
 }
 
 /**

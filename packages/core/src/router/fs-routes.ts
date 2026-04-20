@@ -86,6 +86,20 @@ export function fsRouteToRouteSpec(fsRoute: FSRouteConfig): RouteSpec {
     return pageRoute;
   }
 
+  // Issue #206: metadata 라우트 (sitemap / robots / llms-txt / manifest).
+  // metadataKind + contentType는 fs-scanner에서 채워진다. 방어적으로
+  // 없는 경우를 떨어뜨리지 않고 빈 값으로 통과시켜 RoutesManifest 검증
+  // 단계에서 명확한 에러가 나오게 한다.
+  if (fsRoute.kind === "metadata") {
+    const metadataRoute: RouteSpec = {
+      ...base,
+      kind: "metadata" as const,
+      metadataKind: fsRoute.metadataKind ?? "sitemap",
+      contentType: fsRoute.contentType ?? "text/plain; charset=utf-8",
+    };
+    return metadataRoute;
+  }
+
   // API 라우트
   const apiRoute: RouteSpec = {
     ...base,
@@ -127,6 +141,12 @@ export async function resolveAutoLinks(
 
   await Promise.all(
     manifest.routes.map(async (route) => {
+      // Metadata routes (sitemap/robots/llms-txt/manifest) have a
+      // strict file-convention contract — no slots, no contracts.
+      // Skipping them here avoids fs.access chatter on every dev
+      // rescan.
+      if (route.kind === "metadata") return;
+
       const contractPath = join(rootDir, "spec", "contracts", `${route.id}.contract.ts`);
 
       // Check all extensions in parallel
@@ -393,7 +413,7 @@ export function formatRoutesForCLI(manifest: RoutesManifest): string {
   lines.push("─".repeat(60));
 
   for (const route of manifest.routes) {
-    const icon = route.kind === "page" ? "📄" : "📡";
+    const icon = route.kind === "page" ? "📄" : route.kind === "api" ? "📡" : "🗺️";
     const hydration = route.clientModule ? " 🏝️" : "";
     lines.push(`${icon} ${route.pattern.padEnd(30)} → ${route.id}${hydration}`);
   }

@@ -21,6 +21,7 @@ import {
   parseSegments,
   segmentsToPattern,
   detectFileType,
+  detectMetadataFileKind,
   isPrivateFolder,
   generateRouteId,
   validateSegments,
@@ -28,6 +29,7 @@ import {
   getPatternShape,
 } from "./fs-patterns";
 import { mark, measure } from "../perf";
+import { METADATA_ROUTES } from "../routes/types";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Scanner Class
@@ -166,6 +168,40 @@ export class FSScanner {
         continue;
       }
 
+      // Issue #206: metadata routes (sitemap/robots/llms.txt/manifest)
+      // must sit at the routesDir root — a nested
+      // `app/foo/sitemap.ts` would be ambiguous (group-scoped
+      // sitemap? route under /foo?) so we report it as an error
+      // instead of silently serving /sitemap.xml from the wrong file.
+      if (fileType === "metadata") {
+        if (relativePath.includes("/")) {
+          errors.push({
+            type: "invalid_segment",
+            message:
+              `Metadata routes must sit directly under "${this.config.routesDir}/". ` +
+              `Found "${relativePath}" — move it to "${this.config.routesDir}/${fileName}".`,
+            filePath: fullPath,
+          });
+          continue;
+        }
+        const metadataKind = detectMetadataFileKind(fileName);
+        if (!metadataKind) {
+          // Defensive: detectFileType returned "metadata" but the
+          // narrower helper can't identify which one. Only reachable
+          // if the two detection paths drift.
+          continue;
+        }
+        files.push({
+          absolutePath: fullPath,
+          relativePath,
+          type: fileType,
+          segments: [],
+          extension: ext,
+          metadataKind,
+        });
+        continue;
+      }
+
       const segments = parseSegments(relativePath);
       const validation = validateSegments(segments);
       if (!validation.valid) {
@@ -207,6 +243,7 @@ export class FSScanner {
     const errorMap = new Map<string, ScannedFile>();
     const islandMap = new Map<string, ScannedFile[]>();
     const routeFiles: ScannedFile[] = [];
+    const metadataFiles: ScannedFile[] = [];
 
     for (const file of files) {
       const dirPath = this.getDirPath(file.relativePath);
@@ -234,9 +271,51 @@ export class FSScanner {
         case "route":
           routeFiles.push(file);
           break;
+        case "metadata":
+          metadataFiles.push(file);
+          break;
         default:
           break;
       }
+    }
+
+    // Issue #206: emit metadata-route entries first so the normal
+    // page/route loop below can surface "duplicate pattern" errors if
+    // a user ever creates e.g. `app/sitemap.xml/page.tsx` alongside
+    // `app/sitemap.ts` (both map to /sitemap.xml).
+    for (const file of metadataFiles) {
+      if (!file.metadataKind) continue;
+      const meta = METADATA_ROUTES[file.metadataKind];
+      const pattern = meta.pattern;
+      const routeId = `metadata-${file.metadataKind}`;
+      const modulePath = join(this.config.routesDir, file.relativePath).replace(/\\/g, "/");
+
+      const existing = patternMap.get(pattern);
+      if (existing) {
+        routeErrors.push({
+          type: "duplicate_route",
+          message: `Duplicate route pattern "${pattern}" — metadata route "${file.relativePath}" conflicts with "${existing.sourceFile}"`,
+          filePath: file.absolutePath,
+          conflictsWith: existing.sourceFile,
+        });
+        continue;
+      }
+
+      const route: FSRouteConfig = {
+        id: routeId,
+        segments: [],
+        pattern,
+        kind: "metadata",
+        module: modulePath,
+        layoutChain: [],
+        sourceFile: file.absolutePath,
+        metadataKind: file.metadataKind,
+        contentType: meta.contentType,
+      };
+
+      routes.push(route);
+      patternMap.set(pattern, route);
+      shapeMap.set(pattern, route);
     }
 
     // 페이지 및 API 라우트 처리
@@ -462,6 +541,7 @@ export class FSScanner {
         apiCount: 0,
         layoutCount: 0,
         islandCount: 0,
+        metadataCount: 0,
         scanTime,
       },
     };
@@ -481,6 +561,7 @@ export class FSScanner {
       apiCount: routes.filter((r) => r.kind === "api").length,
       layoutCount: files.filter((f) => f.type === "layout").length,
       islandCount: files.filter((f) => f.type === "island").length,
+      metadataCount: routes.filter((r) => r.kind === "metadata").length,
       scanTime,
     };
   }

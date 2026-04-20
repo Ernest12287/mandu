@@ -9,7 +9,7 @@ import type { RoutesManifest, RouteSpec } from "../../spec/schema";
 export interface RouteInfo {
   id: string;
   pattern: string;
-  kind: "page" | "api";
+  kind: "page" | "api" | "metadata";
   module: string;
   methods?: string[];
   hasSlot: boolean;
@@ -17,6 +17,10 @@ export interface RouteInfo {
   hasClient: boolean;
   hasLayout: boolean;
   hydration?: string;
+  /** Metadata route sub-kind (issue #206) */
+  metadataKind?: "sitemap" | "robots" | "llms-txt" | "manifest";
+  /** Metadata route response Content-Type (issue #206) */
+  contentType?: string;
 }
 
 function toRouteInfo(route: RouteSpec): RouteInfo {
@@ -31,6 +35,8 @@ function toRouteInfo(route: RouteSpec): RouteInfo {
     hasClient: !!route.clientModule,
     hasLayout: !!(route.kind === "page" && route.layoutChain?.length),
     hydration: route.kind === "page" ? route.hydration?.strategy : undefined,
+    metadataKind: route.kind === "metadata" ? route.metadataKind : undefined,
+    contentType: route.kind === "metadata" ? route.contentType : undefined,
   };
 }
 
@@ -41,6 +47,7 @@ export function handleRoutesRequest(manifest: RoutesManifest): Response {
     total: routes.length,
     pages: routes.filter((r) => r.kind === "page").length,
     apis: routes.filter((r) => r.kind === "api").length,
+    metadata: routes.filter((r) => r.kind === "metadata").length,
     withSlots: routes.filter((r) => r.hasSlot).length,
     withContracts: routes.filter((r) => r.hasContract).length,
     withIslands: routes.filter((r) => r.hasClient).length,

@@ -6,7 +6,7 @@
  * @module router/fs-patterns
  */
 
-import type { RouteSegment, SegmentType, ScannedFileType } from "./fs-types";
+import type { RouteSegment, SegmentType, ScannedFileType, MetadataFileKind } from "./fs-types";
 import { SEGMENT_PATTERNS, FILE_PATTERNS } from "./fs-types";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -193,12 +193,21 @@ export function pathToPattern(relativePath: string): string {
  * detectFileType("page.tsx") // "page"
  * detectFileType("route.ts") // "route"
  * detectFileType("comments.island.tsx") // "island"
+ * detectFileType("sitemap.ts") // "metadata"
  */
 export function detectFileType(filename: string, islandSuffix: string = ".island"): ScannedFileType | null {
   // Island 파일 먼저 체크 (*.island.tsx)
   const islandPattern = new RegExp(`\\${islandSuffix}\\.(tsx?|jsx?)$`);
   if (islandPattern.test(filename)) {
     return "island";
+  }
+
+  // Metadata routes (Issue #206) — matched before `page`/`route` so
+  // a hypothetical `app/manifest/page.tsx` still routes as a page,
+  // while `app/manifest.ts` routes as metadata. Dot-in-filename
+  // (`llms.txt.ts`) is matched by its dedicated regex.
+  if (detectMetadataFileKind(filename)) {
+    return "metadata";
   }
 
   if (FILE_PATTERNS.page.test(filename)) return "page";
@@ -208,6 +217,22 @@ export function detectFileType(filename: string, islandSuffix: string = ".island
   if (FILE_PATTERNS.error.test(filename)) return "error";
   if (FILE_PATTERNS.notFound.test(filename)) return "not-found";
 
+  return null;
+}
+
+/**
+ * If `filename` matches one of the metadata-route file conventions,
+ * return its kind; otherwise return `null`. Exposed so the scanner
+ * can both detect the type AND store the specific kind without
+ * re-matching the regex.
+ */
+export function detectMetadataFileKind(filename: string): MetadataFileKind | null {
+  // llmsTxt MUST come first — its prefix `llms.txt.` also technically
+  // matches nothing else, but the explicit ordering documents intent.
+  if (FILE_PATTERNS.llmsTxt.test(filename)) return "llms-txt";
+  if (FILE_PATTERNS.sitemap.test(filename)) return "sitemap";
+  if (FILE_PATTERNS.robots.test(filename)) return "robots";
+  if (FILE_PATTERNS.manifest.test(filename)) return "manifest";
   return null;
 }
 

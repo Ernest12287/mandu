@@ -51,7 +51,15 @@ export type ScannedFileType =
   | "loading" // loading.tsx - 로딩 UI
   | "error" // error.tsx - 에러 UI
   | "not-found" // not-found.tsx - 404 UI
-  | "island"; // *.island.tsx - Island 컴포넌트
+  | "island" // *.island.tsx - Island 컴포넌트
+  | "metadata"; // sitemap.ts / robots.ts / llms.txt.ts / manifest.ts — file-convention metadata routes
+
+/**
+ * Metadata 라우트 종류 (sitemap / robots / llms-txt / manifest)
+ * Duplicated in `@mandujs/core/routes` → `MetadataRouteKind`; kept
+ * inline here to avoid a cross-module import at the type layer.
+ */
+export type MetadataFileKind = "sitemap" | "robots" | "llms-txt" | "manifest";
 
 /**
  * 스캔된 파일 정보
@@ -71,6 +79,13 @@ export interface ScannedFile {
 
   /** 파일 확장자 */
   extension: string;
+
+  /**
+   * When `type === "metadata"`, discriminates which file-convention
+   * metadata route (sitemap / robots / llms-txt / manifest) was
+   * matched. Undefined for all other types.
+   */
+  metadataKind?: MetadataFileKind;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -119,6 +134,18 @@ export interface FSRouteConfig {
 
   /** 원본 파일 경로 */
   sourceFile: string;
+
+  /**
+   * Metadata 라우트에만 존재하는 필드.
+   * `kind === "metadata"`일 때 어떤 종류의 metadata 파일인지 구분.
+   */
+  metadataKind?: MetadataFileKind;
+
+  /**
+   * Metadata 라우트 응답 Content-Type.
+   * `kind === "metadata"`일 때만 의미가 있다.
+   */
+  contentType?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -216,6 +243,9 @@ export interface ScanStats {
   /** Island 수 */
   islandCount: number;
 
+  /** Metadata 라우트 수 (sitemap/robots/llms-txt/manifest) */
+  metadataCount: number;
+
   /** 스캔 소요 시간 (ms) */
   scanTime: number;
 }
@@ -248,6 +278,27 @@ export const FILE_PATTERNS = {
 
   /** Island 파일 */
   island: /\.island\.(tsx?|jsx?)$/,
+
+  // ── Metadata routes (Issue #206) ──
+  /** sitemap.ts → /sitemap.xml */
+  sitemap: /^sitemap\.(ts|js)$/,
+
+  /** robots.ts → /robots.txt */
+  robots: /^robots\.(ts|js)$/,
+
+  /**
+   * llms.txt.ts → /llms.txt
+   *
+   * Note the double-dot filename — we mirror the served path in the
+   * source filename so users can grep the filesystem for "llms.txt"
+   * and hit the right file. Must be matched BEFORE the generic
+   * extension stripper since "llms.txt" itself looks like a full
+   * filename with extension ".txt".
+   */
+  llmsTxt: /^llms\.txt\.(ts|js)$/,
+
+  /** manifest.ts → /manifest.webmanifest */
+  manifest: /^manifest\.(ts|js)$/,
 } as const;
 
 /**

@@ -522,6 +522,14 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       apiModuleSet.add(normalizeFsPath(absPath));
       watchDirs.add(path.dirname(absPath));
     }
+
+    // Track metadata-route modules so edits to `app/sitemap.ts`
+    // etc. trigger the same hot-reload pipeline as API routes.
+    if (route.kind === "metadata" && route.module) {
+      const absPath = path.resolve(rootDir, route.module);
+      apiModuleSet.add(normalizeFsPath(absPath));
+      watchDirs.add(path.dirname(absPath));
+    }
   }
 
   // spec/slots 디렉토리도 추가
