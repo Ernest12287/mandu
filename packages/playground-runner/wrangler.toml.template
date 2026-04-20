@@ -1,0 +1,90 @@
+# ============================================================================
+# Mandu Playground Runner — Wrangler Config Template
+# ============================================================================
+# Copy this file to `wrangler.toml` and fill in the placeholders. Never
+# commit the real config — it contains your `account_id` and is specific
+# to one CF account.
+#
+# Setup:
+#   1. `cp wrangler.toml.template wrangler.toml`
+#   2. Set `account_id` to your Cloudflare account id (wrangler whoami).
+#   3. Create a KV namespace: `wrangler kv namespace create RATE_LIMIT`
+#      and paste the `id` into the kv_namespaces block below.
+#   4. Push the sandbox image: `wrangler sandbox push -f Dockerfile.sandbox`
+#   5. Deploy: `wrangler deploy`
+#
+# See docs/playground/deployment.md for the full operator runbook.
+# ============================================================================
+
+name = "mandu-playground-runner"
+main = "src/worker.ts"
+compatibility_date = "2026-04-13"
+compatibility_flags = ["nodejs_compat"]
+account_id = "REPLACE_WITH_ACCOUNT_ID"
+
+# Keep the Worker in Observability Logs — critical for abuse response.
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
+# ----------------------------------------------------------------------------
+# Variables — safe to commit
+# ----------------------------------------------------------------------------
+[vars]
+ADAPTER_MODE = "cloudflare"
+# ADAPTER_MODE = "mock"   # ← dev-only: uses in-process Bun.spawn (NO SANDBOX)
+# ADAPTER_MODE = "fly"    # ← fallback: requires FlyMachineAdapter wiring
+
+# ----------------------------------------------------------------------------
+# Secrets — set via `wrangler secret put <NAME>`, NEVER put here
+# ----------------------------------------------------------------------------
+# wrangler secret put TURNSTILE_SECRET   # ← REQUIRED for production
+# wrangler secret put FLY_API_TOKEN      # ← only if ADAPTER_MODE=fly
+
+# ----------------------------------------------------------------------------
+# Durable Object — per-run state (one DO per runId)
+# ----------------------------------------------------------------------------
+[[durable_objects.bindings]]
+name = "PLAYGROUND_DO"
+class_name = "PlaygroundRunner"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PlaygroundRunner"]
+
+# ----------------------------------------------------------------------------
+# KV — rate-limit counters (1-minute buckets, 1h TTL)
+# ----------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# ----------------------------------------------------------------------------
+# Containers / Sandboxes binding — ONLY when ADAPTER_MODE=cloudflare
+# ----------------------------------------------------------------------------
+# Uncomment + fill in after `wrangler sandbox push` succeeds.
+# See Cloudflare docs: https://developers.cloudflare.com/sandbox/
+#
+# [[containers]]
+# name = "SANDBOX"
+# class_name = "PlaygroundSandbox"
+# image = "mandu-playground-sandbox:latest"
+# instance_type = "dev"        # 0.5 vCPU / 512 MiB
+# max_instances = 10           # adjust per cost target (§6.2 R0 doc: $8/mo)
+
+# ----------------------------------------------------------------------------
+# Routes (optional) — bind to a custom domain. Defaults to *.workers.dev.
+# ----------------------------------------------------------------------------
+# [[routes]]
+# pattern = "playground.mandujs.com/api/playground/*"
+# zone_name = "mandujs.com"
+#
+# # Sandbox proxy routes must match `sbx-<id>.*` hostname pattern:
+# [[routes]]
+# pattern = "sbx-*.mandujs.dev/*"
+# zone_name = "mandujs.dev"
+
+# ----------------------------------------------------------------------------
+# Build alerts — set spend-cap alerts in CF dashboard:
+#   Billing → Alerts → Cap at $25/month
+# ----------------------------------------------------------------------------

@@ -1,0 +1,84 @@
+# syntax=docker/dockerfile:1.7
+
+# ----------------------------------------------------------------------------
+# Mandu Playground Sandbox Image
+# ----------------------------------------------------------------------------
+# Used as the base image for Cloudflare Sandboxes instances launched by
+# `@mandujs/playground-runner`. The image vendors Mandu + React + Zod at
+# `/vendor` so user submissions don't incur `npm install` latency on every
+# run (~20-30s cold → ~1s warm).
+#
+# Build locally:
+#   docker build -f Dockerfile.sandbox -t mandu-playground-sandbox:latest .
+#
+# Push to CF registry:
+#   wrangler sandbox push -f Dockerfile.sandbox
+#
+# See docs/playground/deployment.md §3 for the full deployment flow.
+# ----------------------------------------------------------------------------
+
+# `cloudflare/sandbox` is the officially supported base that extends
+# `oven/bun:${BUN_VERSION}` + Node 20 LTS. Pinning to a digest is ideal
+# in production — replace `:latest` with the desired SHA256 after
+# running `wrangler sandbox pull` locally.
+FROM cloudflare/sandbox:latest AS base
+
+# ----------------------------------------------------------------------------
+# Layer 1: vendored npm deps
+# ----------------------------------------------------------------------------
+# Install at global-equivalent scope (`-g` writes to `$BUN_INSTALL/install/global`).
+# The test runner at `/vendor/mandu-test-runner.ts` imports from `@mandujs/core`
+# + `react` + `react-dom` + `zod`. We pin versions to match the
+# framework's peer-dep ranges — bump alongside packages/core releases.
+#
+# NOTE: pin `@mandujs/core@0.25.2` here to match the version deployed on
+# mandujs.com. When Mandu's version bumps, update this line + rebuild.
+
+RUN bun install \
+    @mandujs/core@0.25.2 \
+    react@19 \
+    react-dom@19 \
+    zod@3 \
+    -g \
+ && mkdir -p /vendor \
+ && cp -R $BUN_INSTALL/install/global/node_modules /vendor/node_modules \
+ && ln -s /vendor/node_modules/@mandujs/core /vendor/@mandujs-core
+
+# ----------------------------------------------------------------------------
+# Layer 2: test runner harness
+# ----------------------------------------------------------------------------
+# `mandu-test-runner.ts` is the entry the DO execs. It:
+#   1. Imports /work/page.tsx
+#   2. Spins up a headless server (Bun.serve on port 0)
+#   3. Streams the first render to stdout
+#   4. Exits cleanly (so the DO's `exit` event fires)
+#
+# The file is copied at image-build time (not runtime) so user code can't
+# tamper with it mid-run.
+
+COPY vendor/mandu-test-runner.ts /vendor/mandu-test-runner.ts
+# TODO(phase-16.2-live): Author vendor/mandu-test-runner.ts. Shape sketch:
+#
+#   import { startServer } from "@mandujs/core";
+#   const manifest = { version: 1, routes: [{
+#     id: "index", pattern: "/", kind: "page",
+#     module: "/work/page.tsx"
+#   }] };
+#   const server = await startServer(manifest, { port: 0 });
+#   const res = await fetch(`http://localhost:${server.port}/`);
+#   process.stdout.write(await res.text());
+#   await server.stop();
+
+# ----------------------------------------------------------------------------
+# Layer 3: sandbox filesystem layout
+# ----------------------------------------------------------------------------
+# `/work` is the writable user-code dir. The DO drops `page.tsx` there.
+# `/vendor` is read-only (copied above).
+
+RUN mkdir -p /work \
+ && chmod 0777 /work \
+ && chmod -R 0555 /vendor
+
+# Default entrypoint — overridden by the DO's `sandbox.exec()` call, but
+# useful for `wrangler sandbox test` local debugging.
+CMD ["bun", "run", "/vendor/mandu-test-runner.ts"]

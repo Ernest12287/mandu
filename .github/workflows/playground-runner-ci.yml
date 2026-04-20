@@ -1,0 +1,66 @@
+name: Playground Runner CI
+
+# Runs on PRs touching packages/playground-runner/**. Executes the unit +
+# integration test suite using the MockAdapter (no Cloudflare account
+# required, no network calls). Deployment to CF is out of scope for CI —
+# that requires operator credentials and is documented in
+# `docs/playground/deployment.md`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/playground-runner/**"
+      - ".github/workflows/playground-runner-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/playground-runner/**"
+      - ".github/workflows/playground-runner-ci.yml"
+
+jobs:
+  test:
+    name: Test (MockAdapter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck (playground-runner + peer deps)
+        run: bun run typecheck playground-runner
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+
+      - name: Unit + integration tests
+        run: cd packages/playground-runner && bun test
+        env:
+          # Force the mock adapter — the Cloudflare adapter is never
+          # instantiated in CI. This env var is redundant with the
+          # test files' own harness (which instantiate MockAdapter
+          # directly) but keeps the default explicit.
+          ADAPTER_MODE: "mock"
+
+      # Deployment is explicitly out of scope. A separate workflow
+      # (playground-runner-deploy.yml, TODO) will handle staging +
+      # production deploys once live wiring lands. That workflow will
+      # require `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets
+      # — see docs/playground/deployment.md for setup.
+
+  docs-check:
+    name: Docs freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Verify operator docs exist
+        run: |
+          test -f docs/playground/deployment.md
+          test -f docs/playground/security.md
+          test -f packages/playground-runner/README.md
+          test -f packages/playground-runner/wrangler.toml.template
+          test -f packages/playground-runner/Dockerfile.sandbox
