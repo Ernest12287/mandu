@@ -7,6 +7,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./a11y": "./src/a11y/index.ts",
     "./auth": "./src/auth/index.ts",
     "./auth/login": "./src/auth/login.ts",
     "./auth/password": "./src/auth/password.ts",
@@ -43,6 +44,7 @@
     "./observability": "./src/observability/index.ts",
     "./perf": "./src/perf/index.ts",
     "./perf/hmr-markers": "./src/perf/hmr-markers.ts",
+    "./perf/user-marks": "./src/perf/user-marks.ts",
     "./routes": "./src/routes/index.ts",
     "./scheduler": "./src/scheduler/index.ts",
     "./storage/s3": "./src/storage/s3/index.ts",
@@ -55,6 +57,7 @@
     "./bundler/vendor-cache-types": "./src/bundler/vendor-cache-types.ts",
     "./bundler/manifest-schema": "./src/bundler/manifest-schema.ts",
     "./bundler/analyzer": "./src/bundler/analyzer.ts",
+    "./bundler/budget": "./src/bundler/budget.ts",
     "./bundler/plugins": "./src/bundler/plugins/index.ts",
     "./bundler/plugins/block-generated-imports": "./src/bundler/plugins/block-generated-imports.ts",
     "./bundler/generate-static-params": "./src/bundler/generate-static-params.ts",
@@ -104,7 +107,10 @@
     "react-dom": "^19.0.0",
     "react-refresh": ">=0.18.0",
     "@tailwindcss/cli": ">=4.0.0",
-    "webview-bun": "^2.4.0"
+    "webview-bun": "^2.4.0",
+    "axe-core": ">=4.8.0",
+    "jsdom": ">=24.0.0",
+    "happy-dom": ">=15.0.0"
   },
   "peerDependenciesMeta": {
     "@tailwindcss/cli": {
@@ -114,6 +120,15 @@
       "optional": true
     },
     "webview-bun": {
+      "optional": true
+    },
+    "axe-core": {
+      "optional": true
+    },
+    "jsdom": {
+      "optional": true
+    },
+    "happy-dom": {
       "optional": true
     }
   },

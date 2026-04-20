@@ -213,6 +213,40 @@ export interface ManduConfig {
      * etc.). Use this block to extend or replace the denylist for your
      * project.
      */
+    /**
+     * Phase 18.φ — bundle-size budget. Declaring any field turns on
+     * framework-level size-ceiling enforcement during `mandu build`.
+     *
+     *   - `maxRawBytes`      : per-island raw-byte cap.
+     *   - `maxGzBytes`       : per-island gzip-byte cap.
+     *   - `maxTotalRawBytes` : project-wide raw cap (islands + shared).
+     *   - `maxTotalGzBytes`  : project-wide gzip cap.
+     *   - `perIsland`        : per-island overrides, additive per axis.
+     *                          `{ home: { gz: 50_000 } }` tightens only
+     *                          `home`'s gzip and leaves its raw cap at
+     *                          the global `maxRawBytes`.
+     *   - `mode`             : `'warning'` (default) prints a table and
+     *                          continues; `'error'` exits non-zero.
+     *
+     * Declaring the empty block `budget: {}` is interpreted as "I know
+     * about budgets" and auto-applies a 250 KB gzip per-island ceiling
+     * (matches Next.js `largePageDataBytes` + Astro rules of thumb).
+     * Omitting the block entirely is the zero-overhead opt-out.
+     *
+     * CLI override: `mandu build --no-budget` skips enforcement for a
+     * single run regardless of config.
+     *
+     * @see `docs/architect/bundle-budget.md`
+     * @see `@mandujs/core/bundler/budget`
+     */
+    budget?: {
+      maxRawBytes?: number;
+      maxGzBytes?: number;
+      maxTotalRawBytes?: number;
+      maxTotalGzBytes?: number;
+      perIsland?: Record<string, { raw?: number; gz?: number }>;
+      mode?: "error" | "warning";
+    };
     crawl?: {
       /**
        * Extra pathnames or simple globs (`*`) to exclude when crawling.

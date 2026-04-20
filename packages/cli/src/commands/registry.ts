@@ -165,7 +165,10 @@ registerCommand({
     "    --worker-name=<slug>      Cloudflare Workers project name (target=workers)",
     "    --project-name=<slug>     Project name (target=deno|vercel-edge|netlify-edge)",
     "    --analyze[=json]          Emit .mandu/analyze/report.html + report.json (Phase 18.η)",
+    "    --no-budget               Skip bundle-size budget enforcement for this run (Phase 18.φ)",
     "    --prerender-skip-errors   Downgrade prerender errors to warnings (Issue #216)",
+    "    --audit                   Run axe-core a11y audit over prerendered HTML (Phase 18.χ)",
+    "    --audit-fail-on=<impact>  Fail build when violation ≥ impact (minor|moderate|serious|critical)",
     "",
     "  Outputs:",
     "    .mandu/client/                              Hydration bundles (default target)",
@@ -229,6 +232,29 @@ registerCommand({
       // ships a broken `generateStaticParams` and wants CI green while
       // they fix it).
       prerenderSkipErrors: ctx.options["prerender-skip-errors"] === "true",
+      // Phase 18.φ — `--no-budget` skips bundle-size budget enforcement
+      // for this run. CLI flag arrives normalized as either "true" (the
+      // arg parser sets this when `--no-budget` is present with no value)
+      // or an explicit string — we accept either truthy signal.
+      noBudget:
+        ctx.options["no-budget"] === "true" ||
+        ctx.options["no-budget"] === "",
+      // Phase 18.χ — opt-in axe-core audit of prerendered HTML. Requires
+      // the optional peerDeps `axe-core` + `jsdom` (or HappyDOM fallback);
+      // when absent the runner prints one informational line and exits 0.
+      audit: ctx.options.audit === "true" || ctx.options.audit === "",
+      // Phase 18.χ — gate the exit code on violation severity. Leaving
+      // this undefined runs the audit informationally; specifying a value
+      // causes the build to fail when any violation at or above that
+      // impact level is reported by axe-core.
+      auditFailOn: (function () {
+        const raw = ctx.options["audit-fail-on"];
+        const allowed = ["minor", "moderate", "serious", "critical"] as const;
+        if (typeof raw === "string" && (allowed as readonly string[]).includes(raw)) {
+          return raw as (typeof allowed)[number];
+        }
+        return undefined;
+      })(),
     });
   },
 });

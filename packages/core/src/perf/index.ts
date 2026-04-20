@@ -102,3 +102,32 @@ export function _resetCacheForTesting(): void {
   enabled = process.env.MANDU_PERF === "1";
   marks = null;
 }
+
+// ─── Phase 18.ψ — user-facing performance marks API ─────────────────────
+//
+// Re-export the ergonomic `time()` / `timeAsync()` / `createPerf()` surface
+// (plus the `/_mandu/heap` dashboard snapshot collector) from the adjacent
+// `user-marks.ts` module. Keeps the module-level `mark()` / `measure()` /
+// `withPerf()` signatures untouched for framework-internal callers while
+// giving application code a close-over end-function shape.
+//
+// See `docs/architect/performance-marks.md` for the full rationale.
+
+export {
+  time,
+  timeAsync,
+  createPerf,
+  collectPerfSnapshot,
+  recordFrameworkMeasurement,
+  PERF_BUFFER_LIMIT,
+  _resetUserMarksForTesting,
+  _peekLastMarkForTesting,
+  type PerfCategory,
+  type PerfMarkOptions,
+  type PerfEndFn,
+  type PerfMarkEntry,
+  type PerfHistogramEntry,
+  type PerfDashboardSnapshot,
+  type Perf,
+  type CreatePerfOptions,
+} from "./user-marks";

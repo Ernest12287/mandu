@@ -74,6 +74,44 @@ export interface BuildOptions {
    * summary, just non-fatally.
    */
   prerenderSkipErrors?: boolean;
+  /**
+   * Phase 18.φ — skip bundle-size budget enforcement for this run.
+   *
+   * One-off emergency bypass — CI / `mandu build` output logs the
+   * skip prominently so a reviewer can spot an unexpected use. When
+   * set, the budget section still runs the analyzer (so `--analyze`
+   * output is unaffected) but neither warns nor errors on exceeded
+   * limits.
+   *
+   * Per-project escape hatches: omit `ManduConfig.build.budget` or
+   * set `build.budget.mode = "warning"`. This flag is intentionally
+   * not available as a config field — it is strictly an override
+   * that requires deliberate human intent.
+   */
+  noBudget?: boolean;
+  /**
+   * Phase 18.χ — run `@mandujs/core/a11y` axe-core audit against every
+   * file in `.mandu/prerendered/**\/*.html` after all bundling, budget,
+   * and analyzer steps complete.
+   *
+   *   - `false` / `undefined` → skip audit (default; a11y is opt-in).
+   *   - `true`                → run axe-core on every prerendered HTML file.
+   *
+   * axe-core and a DOM provider (jsdom preferred, HappyDOM accepted)
+   * are optional peer dependencies. When absent, the runner prints a
+   * single informational line and exits 0 — the audit never blocks a
+   * build unless the caller also opted into `--audit-fail-on`.
+   */
+  audit?: boolean;
+  /**
+   * Phase 18.χ — minimum impact severity that should cause `mandu build`
+   * to exit non-zero when `--audit` finds a violation at or above that
+   * threshold. Default `"critical"`. Set to `"minor"` for zero-tolerance
+   * mode or explicitly `undefined` to run the audit informationally.
+   *
+   * Accepts axe-core's impact scale verbatim: `minor | moderate | serious | critical`.
+   */
+  auditFailOn?: "minor" | "moderate" | "serious" | "critical";
 }
 
 export async function build(options: BuildOptions = {}): Promise<boolean> {
@@ -472,46 +510,136 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
     }
   }
 
-  // Phase 18.η — Bundle analyzer (--analyze / build.analyze).
+  // Phase 18.φ + 18.η — Bundle-size budget enforcement + bundle analyzer.
   //
-  // Runs AFTER prerender + edge target emitters so the HTML report reflects
-  // the final set of artefacts on disk. γ's prerender wiring is untouched;
-  // θ's observability wrap is a separate file. Analyzer is additive:
-  // failures are logged and non-fatal — a broken analyzer must never fail
-  // `mandu build`.
+  // Ordering contract (important for CI log legibility):
+  //   1. Bundle stats (above) — the raw "I built X KB of JS" line.
+  //   2. Budget enforcement (this block) — fail fast if ceilings exceeded
+  //      so downstream steps (analyzer HTML emit, prerender) don't run on
+  //      a build that's about to exit non-zero. `--no-budget` skips the
+  //      gate entirely but still logs the skip prominently.
+  //   3. Analyzer HTML/JSON emit (this block) — the heavy artefact write
+  //      that produces `.mandu/analyze/report.html` + `report.json` when
+  //      `--analyze` (bare) or `--analyze=json` is set, or config has
+  //      `build.analyze: true`.
+  //
+  // Implementation note: the analyzer's `analyzeBundle()` is an in-memory
+  // pure function that reads files already on disk. Running it once for
+  // the budget gate is cheap; we reuse the same report for the analyzer
+  // emit below so we don't walk `.mandu/client/` twice. Both steps are
+  // guarded by `bundleManifest` presence — pure-SSR stubs skip both.
   const analyzeFlag = options.analyze ?? buildConfig.analyze ?? false;
-  if (analyzeFlag && bundleManifest) {
+  const budgetConfig = buildConfig.budget;
+  const budgetRequested = budgetConfig !== undefined;
+  let analyzeReport: Awaited<
+    ReturnType<typeof import("@mandujs/core/bundler/analyzer").analyzeBundle>
+  > | null = null;
+  if (bundleManifest && (analyzeFlag || budgetRequested)) {
     try {
-      const { analyzeBundle, writeAnalyzeReport } = await import(
+      const { analyzeBundle } = await import("@mandujs/core/bundler/analyzer");
+      analyzeReport = await analyzeBundle(cwd, bundleManifest);
+    } catch (error) {
+      console.warn(
+        `\n⚠️  Bundle analyzer failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  // ── Budget enforcement ─────────────────────────────────────────────────────
+  let budgetReport: Awaited<
+    ReturnType<typeof import("@mandujs/core/bundler/budget").evaluateBudget>
+  > | null = null;
+  if (analyzeReport && budgetRequested) {
+    if (options.noBudget === true) {
+      // Log the bypass loud enough that a reviewer notices it on the CI
+      // surface, per the spec. Emoji + two-line block to survive
+      // log-line collapse.
+      console.log("");
+      console.log("🚫  --no-budget flag set: bundle-size budget enforcement SKIPPED.");
+      console.log(
+        "    Declared limits in `build.budget` are ignored for this run only."
+      );
+    } else {
+      try {
+        const { evaluateBudget, formatBudgetTable, formatBudgetBytes } =
+          await import("@mandujs/core/bundler/budget");
+        budgetReport = evaluateBudget(analyzeReport, budgetConfig);
+        if (budgetReport) {
+          console.log("");
+          const raw = formatBudgetBytes(analyzeReport.summary.totalRaw);
+          const gz = formatBudgetBytes(analyzeReport.summary.totalGz);
+          const withinAll =
+            budgetReport.withinCount + budgetReport.approachingCount;
+          console.log(
+            `📏 Budget check: ${withinAll}/${budgetReport.islandCount} islands within limits (${raw} total raw, ${gz} gz)`
+          );
+          if (budgetReport.exceededCount > 0 || budgetReport.approachingCount > 0) {
+            console.log(formatBudgetTable(budgetReport));
+          }
+          if (budgetReport.hasExceeded) {
+            if (budgetReport.mode === "error") {
+              console.error(
+                `\n❌ Bundle-size budget exceeded (${budgetReport.exceededCount} island(s) over limit). Build aborted.`
+              );
+              console.error(
+                "   Investigate with `mandu build --analyze` or bypass once with `mandu build --no-budget`."
+              );
+              await runHook("onAfterBuild", plugins, hooks, {
+                success: false,
+                duration: Math.round(performance.now() - buildStartTime),
+              });
+              return false;
+            }
+            console.warn(
+              `\n⚠️  Bundle-size budget exceeded (${budgetReport.exceededCount} island(s) over limit). Build continues in warning mode.`
+            );
+            console.warn(
+              "   Set `build.budget.mode = 'error'` to fail the build, or investigate with `mandu build --analyze`."
+            );
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `\n⚠️  Budget enforcement failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  }
+
+  // ── Analyzer HTML/JSON emit (Phase 18.η) ───────────────────────────────────
+  if (analyzeFlag && analyzeReport) {
+    try {
+      const { writeAnalyzeReport } = await import(
         "@mandujs/core/bundler/analyzer"
       );
-      const report = await analyzeBundle(cwd, bundleManifest);
       const jsonOnly = analyzeFlag === "json";
-      const { jsonPath, htmlPath } = await writeAnalyzeReport(cwd, report, {
-        html: !jsonOnly,
-      });
+      const { jsonPath, htmlPath } = await writeAnalyzeReport(
+        cwd,
+        analyzeReport,
+        { html: !jsonOnly, budget: budgetReport }
+      );
       console.log("\n🔍 Bundle analyzer");
       console.log("=".repeat(50));
       console.log(
-        `   ${report.summary.islandCount} island(s), ${report.summary.sharedCount} shared chunk(s)`
+        `   ${analyzeReport.summary.islandCount} island(s), ${analyzeReport.summary.sharedCount} shared chunk(s)`
       );
       const { formatSize } = await import("@mandujs/core");
       console.log(
-        `   Total: ${formatSize(report.summary.totalRaw)} raw / ${formatSize(report.summary.totalGz)} gzip`
+        `   Total: ${formatSize(analyzeReport.summary.totalRaw)} raw / ${formatSize(analyzeReport.summary.totalGz)} gzip`
       );
-      if (report.summary.largestIsland) {
+      if (analyzeReport.summary.largestIsland) {
         console.log(
-          `   Largest island: ${report.summary.largestIsland.name} (${formatSize(report.summary.largestIsland.totalRaw)})`
+          `   Largest island: ${analyzeReport.summary.largestIsland.name} (${formatSize(analyzeReport.summary.largestIsland.totalRaw)})`
         );
       }
-      if (report.summary.heaviestDep) {
+      if (analyzeReport.summary.heaviestDep) {
         console.log(
-          `   Heaviest module: ${report.summary.heaviestDep.path} (${formatSize(report.summary.heaviestDep.size)})`
+          `   Heaviest module: ${analyzeReport.summary.heaviestDep.path} (${formatSize(analyzeReport.summary.heaviestDep.size)})`
         );
       }
-      if (report.summary.dedupeSavings > 0) {
+      if (analyzeReport.summary.dedupeSavings > 0) {
         console.log(
-          `   Dedupe savings: ${formatSize(report.summary.dedupeSavings)} (shared chunks reused across islands)`
+          `   Dedupe savings: ${formatSize(analyzeReport.summary.dedupeSavings)} (shared chunks reused across islands)`
         );
       }
       console.log(`   JSON: ${path.relative(cwd, jsonPath).replace(/\\/g, "/")}`);
@@ -523,6 +651,95 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
     } catch (error) {
       console.warn(
         `\n⚠️  Bundle analyzer failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  // ── Phase 18.χ — Accessibility audit (opt-in) ──────────────────────────────
+  //
+  // Runs LAST in the build pipeline, after every byte has been emitted and
+  // every prerendered HTML file is on disk. Ordering rationale:
+  //   - Depends on `.mandu/prerendered/**\/*.html`, which only exists after
+  //     the prerender step above completes successfully.
+  //   - Does NOT gate the bundle-size budget or analyzer emit — those belong
+  //     to `φ` / `η` and are independent concerns.
+  //   - May fail the build (exit non-zero) when `auditFailOn` is configured
+  //     and the runner finds a violation at that severity or higher.
+  //
+  // axe-core + jsdom are optional peer deps. When absent the audit is a
+  // graceful no-op that prints one informational line and exits 0 — the
+  // quality-engineering mindset wins over blocking users who haven't
+  // opted in yet. Enable with `bun add -d axe-core jsdom`.
+  if (options.audit === true) {
+    try {
+      const { runAudit, formatAuditReport, impactAtLeast } = await import(
+        "@mandujs/core/a11y"
+      );
+
+      // Discover prerendered HTML. We re-scan (rather than plumbing the
+      // prerender result through the whole function) so `--audit` works
+      // in rebuild scenarios where the user ran a previous build without
+      // it. Missing directory → empty list → axe gets a clean no-op.
+      const prerenderedDir = path.join(cwd, ".mandu", "prerendered");
+      const htmlFiles: string[] = [];
+      async function collect(dir: string, depth = 0): Promise<void> {
+        if (depth > 8) return;
+        let entries: import("fs").Dirent[];
+        try {
+          entries = (await fs.readdir(dir, { withFileTypes: true })) as import("fs").Dirent[];
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (entry.name.startsWith(".")) continue;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await collect(full, depth + 1);
+          } else if (entry.isFile() && entry.name.endsWith(".html")) {
+            htmlFiles.push(full);
+          }
+        }
+      }
+      await collect(prerenderedDir);
+
+      console.log("\n♿ Accessibility audit (Phase 18.χ)");
+      console.log("=".repeat(50));
+
+      if (htmlFiles.length === 0) {
+        console.log("   No prerendered HTML to audit. Skipping.");
+      } else {
+        const report = await runAudit(htmlFiles, { minImpact: "minor" });
+        console.log(formatAuditReport(report));
+
+        // `--audit-fail-on` gates the exit code. Default severity is
+        // `critical` so a bare `--audit` run never fails CI; callers
+        // who want a hard gate add `--audit-fail-on=serious` (or
+        // lower).
+        const failOn = options.auditFailOn ?? "critical";
+        if (options.auditFailOn !== undefined && report.outcome === "violations") {
+          const hasBlocker = report.violations.some((v) =>
+            impactAtLeast(v.impact ?? undefined, failOn)
+          );
+          if (hasBlocker) {
+            console.error(
+              `\n❌ Accessibility audit failed — at least one violation at ${failOn} or higher.`
+            );
+            console.error(
+              "   Fix the violations above or raise --audit-fail-on to a stricter level."
+            );
+            await runHook("onAfterBuild", plugins, hooks, {
+              success: false,
+              duration: Math.round(performance.now() - buildStartTime),
+            });
+            return false;
+          }
+        }
+      }
+    } catch (error) {
+      // Audit must NEVER fail the build via an internal exception —
+      // that would be a worse DX than simply not running the audit.
+      console.warn(
+        `\n⚠️  Accessibility audit failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }

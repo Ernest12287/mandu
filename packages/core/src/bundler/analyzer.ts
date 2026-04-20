@@ -79,6 +79,7 @@ import path from "path";
 import zlib from "zlib";
 
 import type { BundleManifest } from "./types";
+import type { BudgetReport } from "./budget";
 
 // ============================================================================
 // Types
@@ -439,21 +440,26 @@ export async function analyzeBundle(
  *
  * Returns the absolute paths of both files so the CLI can print them.
  * Callers that want JSON only can skip the HTML step via `{ htmlPath: null }`.
+ *
+ * Phase 18.φ — `opts.budget` is an optional pre-computed budget report
+ * that, when present, renders a budget-bar section in the HTML output
+ * and is serialised alongside `report.json` as `report.budget`.
  */
 export async function writeAnalyzeReport(
   rootDir: string,
   report: AnalyzeReport,
-  opts: { html?: boolean } = {}
+  opts: { html?: boolean; budget?: BudgetReport | null } = {}
 ): Promise<{ jsonPath: string; htmlPath: string | null }> {
   const outDir = path.join(rootDir, ".mandu", "analyze");
   await fs.mkdir(outDir, { recursive: true });
   const jsonPath = path.join(outDir, "report.json");
-  await fs.writeFile(jsonPath, JSON.stringify(report, null, 2), "utf8");
+  const jsonPayload = opts.budget ? { ...report, budget: opts.budget } : report;
+  await fs.writeFile(jsonPath, JSON.stringify(jsonPayload, null, 2), "utf8");
 
   let htmlPath: string | null = null;
   if (opts.html !== false) {
     htmlPath = path.join(outDir, "report.html");
-    await fs.writeFile(htmlPath, renderAnalyzeHtml(report), "utf8");
+    await fs.writeFile(htmlPath, renderAnalyzeHtml(report, opts.budget ?? null), "utf8");
   }
   return { jsonPath, htmlPath };
 }
@@ -475,7 +481,10 @@ export async function writeAnalyzeReport(
  *     toggles visibility. This keeps the report working even with JS
  *     disabled (you lose drill-down, but the island treemap still renders).
  */
-export function renderAnalyzeHtml(report: AnalyzeReport): string {
+export function renderAnalyzeHtml(
+  report: AnalyzeReport,
+  budget: BudgetReport | null = null
+): string {
   const { islands, shared, summary } = report;
 
   // ── Island-level treemap ─────────────────────────────────────────────────
@@ -585,6 +594,18 @@ export function renderAnalyzeHtml(report: AnalyzeReport): string {
     <div class="card"><div class="label">Dedupe savings</div><div class="value">${fmtBytes(summary.dedupeSavings)}</div></div>
   `;
 
+  // ── Phase 18.φ — Budget bar section ──────────────────────────────────────
+  //
+  // Renders one horizontal bar per island when a budget was evaluated,
+  // coloured by `BudgetStatus`: green (within), yellow (within 10% of
+  // limit), red (exceeded). The bar width is proportional to
+  // `island.gz / gzLimit` (or `raw / rawLimit` if gzLimit is null).
+  // When every axis is unconstrained the bar is hidden with a muted "—"
+  // placeholder. Matches the "red/yellow/green" spec in Phase 18.φ.
+  const budgetSection = budget
+    ? renderBudgetSection(budget)
+    : "";
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -621,6 +642,25 @@ export function renderAnalyzeHtml(report: AnalyzeReport): string {
   button.close { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-family: inherit; font-size: 11px; }
   button.close:hover { background: #374151; }
   .drill-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  /* Phase 18.φ — budget bars */
+  .budget-row { display: grid; grid-template-columns: 180px 1fr 160px; gap: 10px; align-items: center; padding: 4px 0; border-bottom: 1px solid #1f2937; }
+  .budget-row:last-child { border-bottom: none; }
+  .budget-name { font-size: 12px; color: #e5e7eb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .budget-meta { font-size: 11px; color: #94a3b8; text-align: right; font-variant-numeric: tabular-nums; }
+  .budget-bar-track { position: relative; height: 10px; background: #0f172a; border: 1px solid #1f2937; border-radius: 2px; overflow: hidden; }
+  .budget-bar-fill { height: 100%; border-radius: 2px; }
+  .budget-bar-fill.within { background: linear-gradient(90deg, #16a34a, #22c55e); }
+  .budget-bar-fill.within10 { background: linear-gradient(90deg, #ca8a04, #eab308); }
+  .budget-bar-fill.exceeded { background: linear-gradient(90deg, #b91c1c, #ef4444); }
+  .budget-bar-fill.unbounded { background: repeating-linear-gradient(45deg, #1f2937, #1f2937 4px, #0f172a 4px, #0f172a 8px); }
+  .budget-legend { display: inline-flex; gap: 14px; font-size: 11px; color: #94a3b8; margin-bottom: 10px; }
+  .budget-legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .budget-legend .lg-within::before { background: #22c55e; }
+  .budget-legend .lg-within10::before { background: #eab308; }
+  .budget-legend .lg-exceeded::before { background: #ef4444; }
+  .budget-mode { display: inline-block; font-size: 10px; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; border: 1px solid #374151; color: #cbd5e1; margin-left: 8px; letter-spacing: 0.04em; }
+  .budget-mode.error { background: #7f1d1d; border-color: #991b1b; color: #fecaca; }
+  .budget-mode.warning { background: #713f12; border-color: #854d0e; color: #fde68a; }
 </style>
 </head>
 <body>
@@ -631,6 +671,8 @@ export function renderAnalyzeHtml(report: AnalyzeReport): string {
 <main>
   <h2>Summary</h2>
   <div class="cards">${summaryCards}</div>
+
+  ${budgetSection}
 
   <h2>Islands (click to drill in)</h2>
   <svg class="treemap" viewBox="0 0 ${VIEW_W} ${VIEW_H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Island bundle treemap">
@@ -702,6 +744,79 @@ export function renderAnalyzeHtml(report: AnalyzeReport): string {
 // ============================================================================
 // Helpers — formatting + squarify
 // ============================================================================
+
+/**
+ * Phase 18.φ — render the budget-bar block. Colour-codes each island
+ * by {@link BudgetReport.BudgetStatus} and the project-wide total (when
+ * present). Islands without any applicable limit render a diagonal-
+ * hatched "unbounded" bar so the user sees the row but understands
+ * nothing is enforced. Self-contained: no JS, no external assets.
+ */
+function renderBudgetSection(budget: BudgetReport): string {
+  const modeClass = budget.mode === "error" ? "error" : "warning";
+  const rows = budget.islands
+    .map((i) => renderBudgetRow(i.name, i.raw, i.gz, i.rawLimit, i.gzLimit, i.status))
+    .join("");
+  const totalRow = budget.total
+    ? renderBudgetRow(
+        "<project total>",
+        budget.total.raw,
+        budget.total.gz,
+        budget.total.rawLimit,
+        budget.total.gzLimit,
+        budget.total.status
+      )
+    : "";
+  const exceedHeadline = budget.hasExceeded
+    ? ` · <span style="color:#fca5a5">${budget.exceededCount} over limit</span>`
+    : "";
+  return `
+  <h2>Bundle budget <span class="budget-mode ${modeClass}">${escText(budget.mode)}</span></h2>
+  <div class="budget-legend">
+    <span class="lg-within">within</span>
+    <span class="lg-within10">approaching (≥90%)</span>
+    <span class="lg-exceeded">exceeded</span>
+  </div>
+  <p class="muted" style="margin:0 0 10px">
+    ${budget.withinCount}/${budget.islandCount} islands within limits${exceedHeadline}
+  </p>
+  <div class="card" style="padding:12px 14px">
+    ${rows}
+    ${totalRow}
+  </div>`;
+}
+
+function renderBudgetRow(
+  name: string,
+  raw: number,
+  gz: number,
+  rawLimit: number | null,
+  gzLimit: number | null,
+  status: "within" | "within10" | "exceeded"
+): string {
+  // Prefer gz-axis progress bar when a gz limit exists (the 90%-of-the-
+  // time-useful axis); fall back to raw when only raw is constrained.
+  let pct = 0;
+  let barClass: string = status;
+  let meta: string;
+  if (gzLimit !== null) {
+    pct = Math.min(100, Math.max(0, (gz / Math.max(gzLimit, 1)) * 100));
+    meta = `${fmtBytes(gz)} / ${fmtBytes(gzLimit)} gz`;
+  } else if (rawLimit !== null) {
+    pct = Math.min(100, Math.max(0, (raw / Math.max(rawLimit, 1)) * 100));
+    meta = `${fmtBytes(raw)} / ${fmtBytes(rawLimit)} raw`;
+  } else {
+    barClass = "unbounded";
+    pct = 100;
+    meta = `${fmtBytes(gz)} gz · no limit`;
+  }
+  return `
+    <div class="budget-row">
+      <div class="budget-name" title="${escAttr(name)}">${escText(name)}</div>
+      <div class="budget-bar-track"><div class="budget-bar-fill ${barClass}" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="budget-meta">${meta}</div>
+    </div>`;
+}
 
 /** Human-readable byte formatter. Matches the style used by `printBundleStats`. */
 export function fmtBytes(n: number): string {

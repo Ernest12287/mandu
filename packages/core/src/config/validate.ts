@@ -147,6 +147,38 @@ const BuildCrawlConfigSchema = z
   .strict();
 
 /**
+ * Phase 18.φ — bundle-size budget config (strict).
+ *
+ * Every ceiling field is an optional non-negative integer so "pin this
+ * island to 0 bytes" (an explicit assertion that no code should ship for
+ * a route) stays expressible. `perIsland` keys are arbitrary route / island
+ * ids; Zod can't validate those against the project's actual route set at
+ * config-load time, so we accept any non-empty string and let the evaluator
+ * silently ignore keys that don't match a real island (the doc explains this).
+ *
+ * `mode` defaults to `'warning'` so a first-time user doesn't get a
+ * surprise non-zero exit code. Flip to `'error'` in CI once you've
+ * calibrated your limits.
+ */
+const BuildBudgetPerIslandSchema = z
+  .object({
+    raw: z.number().int().nonnegative().optional(),
+    gz: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const BuildBudgetConfigSchema = z
+  .object({
+    maxRawBytes: z.number().int().nonnegative().optional(),
+    maxGzBytes: z.number().int().nonnegative().optional(),
+    maxTotalRawBytes: z.number().int().nonnegative().optional(),
+    maxTotalGzBytes: z.number().int().nonnegative().optional(),
+    perIsland: z.record(BuildBudgetPerIslandSchema).optional(),
+    mode: z.enum(["error", "warning"]).default("warning"),
+  })
+  .strict();
+
+/**
  * Build 설정 스키마 (strict)
  */
 const BuildConfigSchema = z
@@ -174,6 +206,13 @@ const BuildConfigSchema = z
      * default (strip code regions + built-in placeholder denylist).
      */
     crawl: BuildCrawlConfigSchema.optional(),
+    /**
+     * Phase 18.φ — bundle-size budget. See {@link BuildBudgetConfigSchema}.
+     * Omit the block for zero-overhead passthrough. Declaring the empty
+     * block `{}` turns on the default 250 KB gzip per-island ceiling in
+     * warning mode. See `@mandujs/core/bundler/budget` for the evaluator.
+     */
+    budget: BuildBudgetConfigSchema.optional(),
   })
   .strict();
 

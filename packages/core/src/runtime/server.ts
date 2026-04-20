@@ -57,11 +57,17 @@ import { eventBus } from "../observability/event-bus";
 import {
   HEAP_ENDPOINT,
   METRICS_ENDPOINT,
-  buildHeapResponse,
   buildMetricsResponse,
+  collectHeapSnapshot,
   isObservabilityExposed,
   recordHttpRequest,
 } from "../observability/metrics";
+// Phase 18.ψ — user-facing perf marks dashboard append. We include a
+// `perf` block on the `/_mandu/heap` payload when the feature is active
+// so operators see a unified view (heap + caches + perf histogram).
+// Importing the snapshot collector (rather than the whole module) keeps
+// the tree-shake footprint tight when perf is gated off.
+import { collectPerfSnapshot } from "../perf/user-marks";
 // Phase 18.θ — request tracing. Tracer lifecycle is owned by
 // `startServer()`; `runWithSpan` is used at the absolute TOP of the
 // request handler so every downstream await (middleware, filling
@@ -3807,7 +3813,23 @@ async function handleRequestInternal(
   // `docs/ops/metrics.md` for the operator-facing guide.
   if (pathname === HEAP_ENDPOINT) {
     if (isObservabilityExposed(settings.isDev, settings.heapEndpoint)) {
-      return ok(buildHeapResponse());
+      // Phase 18.ψ — augment the Phase 17 payload with user-perf data.
+      // We append (never restructure) the `perf` key so consumers that
+      // rely on `.process`, `.caches`, `.bun` continue to parse. Keeping
+      // the composition here (not in metrics.ts) avoids a metrics→perf
+      // module dep — metrics stays a pure exposition layer.
+      const base = collectHeapSnapshot();
+      const perf = collectPerfSnapshot();
+      const body = { ...base, perf };
+      return ok(
+        new Response(JSON.stringify(body, null, 2), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        }),
+      );
     }
   }
   if (pathname === METRICS_ENDPOINT) {

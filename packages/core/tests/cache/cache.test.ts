@@ -12,6 +12,9 @@ import {
 } from "../../src/runtime/cache";
 
 function entry(tags: string[] = [], revalidateAfter = Date.now() + 60_000): CacheEntry {
+  // Phase 18.ζ — legacy tests that pass a past `revalidateAfter` expect
+  // STALE semantics. Give every entry a generous SWR window so "past
+  // fresh" still resolves to STALE rather than the new past-SWR MISS.
   return {
     html: "<p>ok</p>",
     loaderData: {},
@@ -19,7 +22,10 @@ function entry(tags: string[] = [], revalidateAfter = Date.now() + 60_000): Cach
     headers: {},
     createdAt: Date.now(),
     revalidateAfter,
+    staleUntil: revalidateAfter + 3_600_000, // 1h SWR window
     tags,
+    maxAgeSeconds: 60,
+    swrSeconds: 3600,
   };
 }
 

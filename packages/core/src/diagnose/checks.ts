@@ -597,3 +597,124 @@ export async function checkPackageExportGaps(rootDir: string): Promise<DiagnoseC
     details: { gapCount: gaps.length, gaps },
   };
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// 6. a11y_hints (Phase 18.χ)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Find the first prerendered HTML leaf under `.mandu/prerendered/` or
+ * `.mandu/static/`. Returns `null` when nothing has been prerendered.
+ * Used as a cheap smoke target — auditing every page would be orders
+ * of magnitude heavier than every other diagnose check.
+ */
+async function findFirstPrerenderedHtml(rootDir: string): Promise<string | null> {
+  const dirs = [
+    path.join(rootDir, ".mandu", "prerendered"),
+    path.join(rootDir, ".mandu", "static"),
+  ];
+  async function walk(dir: string, depth: number): Promise<string | null> {
+    if (depth > 8) return null;
+    let entries: Dirent[];
+    try {
+      entries = (await fs.readdir(dir, { withFileTypes: true })) as Dirent[];
+    } catch {
+      return null;
+    }
+    // Stable sort so the smoke sample is deterministic across runs —
+    // otherwise a flaky a11y hint could bounce on/off depending on
+    // FS iteration order.
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "_manifest.json") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = await walk(full, depth + 1);
+        if (found) return found;
+      } else if (entry.isFile() && entry.name.endsWith(".html")) {
+        return full;
+      }
+    }
+    return null;
+  }
+  for (const dir of dirs) {
+    const found = await walk(dir, 0);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Phase 18.χ — accessibility smoke hint.
+ *
+ * Runs the a11y audit against a single prerendered HTML file — the
+ * first one we can find. This is strictly a smoke test (auditing a
+ * whole build is too expensive for `mandu diagnose`, which is meant to
+ * run in < 1s). The check stays `warning` severity at worst; a11y
+ * failures should surface attention, not block deploys (that's what
+ * `mandu build --audit --audit-fail-on=critical` is for).
+ *
+ * Behaviour matrix:
+ *   - No prerendered HTML on disk       → ok (nothing to audit yet)
+ *   - axe-core / DOM provider missing    → ok (optional deps; informational)
+ *   - Runner succeeds, zero criticals    → ok
+ *   - Runner succeeds with criticals     → warning + suggestion pointing
+ *                                           at the full-build command
+ */
+export async function checkA11yHints(rootDir: string): Promise<DiagnoseCheckResult> {
+  const sample = await findFirstPrerenderedHtml(rootDir);
+  if (!sample) {
+    return {
+      ok: true,
+      rule: "a11y_hints",
+      message: "No prerendered HTML found — nothing to audit.",
+      details: { scanned: 0 },
+    };
+  }
+
+  // Lazy import — keeps the diagnose bundle tree free of the a11y
+  // module unless this specific check is actually invoked.
+  const { runAudit } = await import("../a11y/run-audit");
+  const report = await runAudit([sample], { minImpact: "critical" });
+
+  if (report.outcome === "axe-missing") {
+    return {
+      ok: true,
+      rule: "a11y_hints",
+      message: "axe-core not installed — a11y smoke skipped (optional).",
+      details: {
+        sample: path.relative(rootDir, sample),
+        note: report.note,
+      },
+    };
+  }
+
+  if (report.outcome === "ok") {
+    return {
+      ok: true,
+      rule: "a11y_hints",
+      message: `a11y smoke PASS on ${path.relative(rootDir, sample)} (no critical violations).`,
+      details: {
+        sample: path.relative(rootDir, sample),
+        filesScanned: report.filesScanned,
+      },
+    };
+  }
+
+  const top = report.violations[0];
+  return {
+    ok: false,
+    rule: "a11y_hints",
+    severity: "warning",
+    message:
+      `a11y smoke found ${report.violations.length} critical violation(s) in ` +
+      `${path.relative(rootDir, sample)}. First: ${top.rule} — ${top.help}`,
+    suggestion: "Run `mandu build --audit` to audit every prerendered page.",
+    details: {
+      sample: path.relative(rootDir, sample),
+      violationCount: report.violations.length,
+      firstRule: top.rule,
+      impactCounts: report.impactCounts,
+    },
+  };
+}

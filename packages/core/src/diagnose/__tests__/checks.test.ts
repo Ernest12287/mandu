@@ -328,9 +328,10 @@ describe("runExtendedDiagnose", () => {
   beforeEach(async () => { rootDir = await mkTmpRoot(); });
   afterEach(async () => { await fs.rm(rootDir, { recursive: true, force: true }); });
 
-  it("runs all 5 extended checks and returns a structured report", async () => {
+  it("runs all 6 extended checks and returns a structured report", async () => {
     const report = await runExtendedDiagnose(rootDir);
-    expect(report.summary.total).toBe(5);
+    // Phase 18.χ added `a11y_hints` — total is now 6.
+    expect(report.summary.total).toBe(6);
     // manifest is missing → at least one error
     expect(report.healthy).toBe(false);
     expect(report.errorCount).toBeGreaterThanOrEqual(1);
@@ -340,6 +341,7 @@ describe("runExtendedDiagnose", () => {
     expect(rules).toContain("cloneelement_warnings");
     expect(rules).toContain("dev_artifacts_in_prod");
     expect(rules).toContain("package_export_gaps");
+    expect(rules).toContain("a11y_hints");
   });
 
   it("returns healthy=true when all checks pass (production manifest, no gaps)", async () => {

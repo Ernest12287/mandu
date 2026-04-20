@@ -12,14 +12,17 @@ import {
   checkCloneElementWarnings,
   checkDevArtifactsInProd,
   checkPackageExportGaps,
+  checkA11yHints,
 } from "./checks";
 
 /**
- * Registered extended checks (Issue #215). These are the five checks that
- * supplement the legacy guard/contract/manifest/kitchen validation in MCP.
+ * Registered extended checks (Issue #215 + Phase 18.χ).
  *
  * Order matters for display purposes only — result aggregation is
- * order-independent.
+ * order-independent. The a11y smoke is last because it's the most
+ * expensive check by an order of magnitude (dynamic import + DOM
+ * parse + axe rules) and we prefer failing fast on cheaper structural
+ * checks first.
  */
 export const EXTENDED_CHECKS = [
   { name: "manifest_freshness", run: checkManifestFreshness },
@@ -27,6 +30,7 @@ export const EXTENDED_CHECKS = [
   { name: "cloneelement_warnings", run: checkCloneElementWarnings },
   { name: "dev_artifacts_in_prod", run: checkDevArtifactsInProd },
   { name: "package_export_gaps", run: checkPackageExportGaps },
+  { name: "a11y_hints", run: checkA11yHints },
 ] as const;
 
 /**
