@@ -1,5 +1,40 @@
 # @mandujs/edge
 
+## 0.4.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.33.0
+
+## 0.4.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.32.0
+
+## 0.4.10
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.31.0
+
+## 0.4.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.30.0
+
+## 0.4.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.29.1
+
 ## 0.4.1
 
 ### Patch Changes
