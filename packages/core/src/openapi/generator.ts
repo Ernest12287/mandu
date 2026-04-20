@@ -140,11 +140,14 @@ export interface OpenAPIDocument {
 export function zodToOpenAPISchema(zodSchema: z.ZodTypeAny): OpenAPISchema {
   const typeName = getZodTypeName(zodSchema);
 
-  // Handle ZodOptional
+  // Handle ZodOptional — optionality is expressed by the parent object's
+  // `required[]` array (or by `parameter.required: false`), NOT by the
+  // field's own schema. Emitting `nullable: true` here would conflate
+  // "may be absent" with "may literally be null", which breaks Postman,
+  // codegen, and Swagger UI (they'd all treat the field as nullable).
   if (typeName === "ZodOptional") {
     const inner = getZodInnerType(zodSchema);
-    const innerSchema = inner ? zodToOpenAPISchema(inner) : {};
-    return { ...innerSchema, nullable: true };
+    return inner ? zodToOpenAPISchema(inner) : {};
   }
 
   // Handle ZodDefault

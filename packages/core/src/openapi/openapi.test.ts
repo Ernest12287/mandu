@@ -147,12 +147,14 @@ describe("zodToOpenAPISchema", () => {
   });
 
   describe("modifiers", () => {
-    test("should convert ZodOptional", () => {
+    test("should convert ZodOptional — unwraps without adding nullable (optional != nullable)", () => {
       const schema = z.string().optional();
       const result = zodToOpenAPISchema(schema);
 
       expect(result.type).toBe("string");
-      expect(result.nullable).toBe(true);
+      // Optionality is expressed by the parent object's required[] / parameter.required,
+      // NOT by marking the field nullable. See generator.ts comment.
+      expect(result.nullable).toBeUndefined();
     });
 
     test("should convert ZodNullable", () => {
@@ -161,6 +163,26 @@ describe("zodToOpenAPISchema", () => {
 
       expect(result.type).toBe("string");
       expect(result.nullable).toBe(true);
+    });
+
+    test("should convert ZodOptional(ZodNullable) — inner nullable preserved", () => {
+      const schema = z.string().nullable().optional();
+      const result = zodToOpenAPISchema(schema);
+
+      expect(result.type).toBe("string");
+      expect(result.nullable).toBe(true);
+    });
+
+    test("object with optional field — field omitted from required[] but schema itself is not nullable", () => {
+      const schema = z.object({
+        name: z.string(),
+        age: z.number().optional(),
+      });
+      const result = zodToOpenAPISchema(schema);
+
+      expect(result.type).toBe("object");
+      expect(result.required).toEqual(["name"]);
+      expect(result.properties?.age).toEqual({ type: "number" });
     });
 
     test("should convert ZodDefault", () => {
