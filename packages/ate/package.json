@@ -25,10 +25,15 @@
     "./prompts": "./src/prompts/index.ts",
     "./e2e-codegen": "./src/e2e-codegen.ts",
     "./e2e-runner": "./src/e2e-runner.ts",
-    "./coverage-merger": "./src/coverage-merger.ts"
+    "./coverage-merger": "./src/coverage-merger.ts",
+    "./prompt-loader": "./src/prompt-loader.ts",
+    "./exemplar-scanner": "./src/exemplar-scanner.ts",
+    "./prompt-composer": "./src/prompt-composer.ts",
+    "./spec-linter": "./src/spec-linter.ts"
   },
   "files": [
-    "src/**/*"
+    "src/**/*",
+    "prompts/**/*"
   ],
   "keywords": [
     "mandu",

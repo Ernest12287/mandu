@@ -14,6 +14,7 @@ function jsonPost(url: string, body: Record<string, unknown>, headers?: Record<s
 }
 
 describe("ManduFilling action dispatch", () => {
+  // @ate-exemplar: kind=filling_unit depth=basic tags=post,action,json
   it("dispatches POST with _action in JSON body to action handler", async () => {
     const filling = new ManduFilling()
       .action("create", async (ctx) => ctx.ok({ handler: "create" }))
@@ -65,6 +66,7 @@ describe("ManduFilling action dispatch", () => {
     expect(data.handler).toBe("delete");
   });
 
+  // @ate-exemplar: kind=filling_unit depth=intermediate tags=action,loader,revalidate,ManduAction-header
   it("returns revalidated JSON when action + loader + ManduAction header", async () => {
     const filling = new ManduFilling()
       .loader(async () => ({ items: ["a", "b"] }))
@@ -115,6 +117,7 @@ describe("ManduFilling action dispatch", () => {
     expect(data.handler).toBe("search");
   });
 
+  // @ate-exemplar: kind=filling_unit depth=basic tags=method,405,error-path
   it("returns 405 for unregistered method without actions", async () => {
     const filling = new ManduFilling()
       .get(async (ctx) => ctx.ok({ ok: true }));

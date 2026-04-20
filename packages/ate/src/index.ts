@@ -35,6 +35,93 @@ export type {
   RelatedRouteView,
   BuildContextOptions,
 } from "./context-builder";
+
+// Phase A.3 — prompt catalog v1 (template loader + exemplar scanner + composer)
+export { loadPrompt, listPrompts, PromptLoadError } from "./prompt-loader";
+export type {
+  LoadedPrompt,
+  PromptFrontmatter,
+  PromptIndexEntry,
+  LoadPromptOptions,
+} from "./prompt-loader";
+export {
+  scanExemplars,
+  scanMarkers,
+  scanFileSync,
+  parseMarker,
+} from "./exemplar-scanner";
+export type {
+  Exemplar,
+  ParsedMarker,
+  ScanOptions,
+  MarkerSite,
+} from "./exemplar-scanner";
+export { composePrompt } from "./prompt-composer";
+export type { ComposePromptInput, ComposedPrompt } from "./prompt-composer";
+export { lintSpecContent } from "./spec-linter";
+export type { LintDiagnostic, LintSeverity } from "./spec-linter";
+
+// Phase A.2 — structured diagnostics, sharded runner, flake detector,
+// deterministic selector-drift healer, artifact store + graphVersion.
+export {
+  failure,
+  failureV1Schema,
+  FAILURE_KINDS,
+} from "../schemas/failure.v1";
+export type {
+  FailureV1,
+  FailureKind,
+  Healing,
+  HealAction,
+  TraceArtifacts,
+} from "../schemas/failure.v1";
+export { runSpec } from "./run";
+export type {
+  RunSpecOptions,
+  RunResult,
+  PassResult,
+  ShardSpec,
+  RunnerExec,
+  RunnerExecInput,
+  RunnerExecResult,
+} from "./run";
+export { autoHeal, applyHeal as applyAutoHeal, computeSimilarity } from "./auto-heal";
+export type {
+  AutoHealOptions,
+  ApplyHealOptions,
+  ApplyHealResult as AutoHealApplyResult,
+  SimilarityInput,
+} from "./auto-heal";
+export {
+  appendRunHistory,
+  readRunHistory,
+  computeFlakeScore,
+  lastPassedAt,
+  summarizeFlakes,
+  historyFilePath,
+  pruneHistory,
+} from "./flake-detector";
+export type {
+  RunHistoryEntry,
+  FlakeSummary,
+  FlakeQueryOptions,
+} from "./flake-detector";
+export {
+  resolveArtifactPaths,
+  ensureArtifactDir,
+  listArtifactRuns,
+  pruneArtifacts,
+  stageArtifact,
+  writeTextArtifact,
+  newRunId,
+} from "./artifact-store";
+export type { ArtifactPaths, ArtifactRun } from "./artifact-store";
+export {
+  computeGraphVersion,
+  graphVersionFromGraph,
+  EXTRACTOR_VERSION,
+} from "./graph-version";
+export type { GraphVersionInput } from "./graph-version";
 export { generateAndWriteScenarios } from "./scenario";
 export type { ScenarioKind, GeneratedScenario, ScenarioBundle } from "./scenario";
 export { generatePlaywrightSpecs } from "./codegen";

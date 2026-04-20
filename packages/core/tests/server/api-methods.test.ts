@@ -49,6 +49,7 @@ describe("Server API Methods", () => {
   });
 
   describe("GET 요청", () => {
+    // @ate-exemplar: kind=filling_integration depth=basic tags=server,get,api,list
     it("GET /api/users - 목록 조회", async () => {
       const users = [{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }];
 
@@ -69,6 +70,7 @@ describe("Server API Methods", () => {
       expect(data).toEqual(users);
     });
 
+    // @ate-exemplar: kind=filling_integration depth=intermediate tags=server,get,api,dynamic-param
     it("GET /api/users/:id - 단일 조회", async () => {
       const user = { id: 1, name: "Alice" };
 
@@ -91,6 +93,7 @@ describe("Server API Methods", () => {
   });
 
   describe("POST 요청", () => {
+    // @ate-exemplar: kind=filling_integration depth=basic tags=server,post,api,201,create
     it("POST /api/users - 새 사용자 생성", async () => {
       registry.registerApiHandler("api/users", async (req) => {
         if (req.method === "POST") {
@@ -118,6 +121,7 @@ describe("Server API Methods", () => {
       expect(data.name).toBe("Charlie");
     });
 
+    // @ate-exemplar: kind=filling_integration depth=intermediate tags=server,post,error-path,400,bad-body
     it("POST 빈 body 처리", async () => {
       registry.registerApiHandler("api/users", async (req) => {
         if (req.method === "POST") {

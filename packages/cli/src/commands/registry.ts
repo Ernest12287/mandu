@@ -650,6 +650,20 @@ registerCommand({
 });
 
 registerCommand({
+  id: "ate",
+  description: "ATE agent-native tooling (Phase A.3+): lint-exemplars",
+  subcommands: ["lint-exemplars"],
+  async run(ctx) {
+    const { runAteCommand } = await import("./ate");
+    const ok = await runAteCommand(ctx.args.slice(1), {
+      json: ctx.options.json === "true",
+    });
+    if (!ok) process.exitCode = 1;
+    return ok;
+  },
+});
+
+registerCommand({
   id: "test:auto",
   description: "ATE auto E2E generation/execution",
   async run(ctx) {

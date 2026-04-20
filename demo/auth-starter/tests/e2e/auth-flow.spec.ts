@@ -21,6 +21,7 @@ const STRONG_PASSWORD = "correct-horse-battery";
 const ANOTHER_PASSWORD = "another-correct-horse";
 
 test.describe("auth flow", () => {
+  // @ate-exemplar: kind=e2e_playwright depth=basic tags=signup,happy-path,navigation,data-testid
   test("signup with fresh email lands on /dashboard with the email visible", async ({ page }) => {
     const email = freshEmail("signup-fresh");
 
@@ -36,6 +37,7 @@ test.describe("auth flow", () => {
     await expect(page.getByTestId("dashboard-email")).toHaveText(email);
   });
 
+  // @ate-exemplar: kind=e2e_playwright depth=intermediate tags=logout,redirect,session-expiry,guard
   test("logout returns to / and re-protects /dashboard", async ({ page }) => {
     const email = freshEmail("logout");
 
@@ -57,6 +59,7 @@ test.describe("auth flow", () => {
     await expect(page.getByTestId("login-form")).toBeVisible();
   });
 
+  // @ate-exemplar: kind=e2e_playwright depth=basic tags=login,happy-path,form,navigation
   test("login with correct credentials lands on /dashboard", async ({ page }) => {
     const email = freshEmail("login-ok");
 
@@ -81,6 +84,7 @@ test.describe("auth flow", () => {
     await expect(page.getByTestId("dashboard-email")).toHaveText(email);
   });
 
+  // @ate-exemplar: kind=e2e_playwright depth=intermediate tags=login,error-path,no-session,bad-credentials
   test("login with wrong password shows an error on /login (no session)", async ({ page }) => {
     const email = freshEmail("login-bad");
 
@@ -142,6 +146,7 @@ test.describe("auth flow", () => {
     await expect(page.getByTestId("login-form")).toBeVisible();
   });
 
+  // @ate-exemplar: kind=e2e_playwright depth=advanced tags=csrf,api-request,403,security,apiRequest
   test("direct POST to /api/login without CSRF token returns 403", async ({ baseURL }) => {
     // Uses a fresh request context with NO cookies, so neither the CSRF
     // cookie nor the form field token is present. The csrf() middleware
@@ -213,6 +218,7 @@ test.describe("auth flow", () => {
     expect(res.headers()["content-type"]).toContain("image/png");
   });
 
+  // @ate-exemplar: kind=e2e_playwright depth=advanced tags=csrf,api-request,auth-gate,401,cookie-jar
   test("unauthenticated POST to /api/avatar is rejected (401 / redirect)", async ({ baseURL }) => {
     // Fresh context → no session cookie. We must still obtain a CSRF cookie
     // + token, otherwise csrf() returns 403 before the auth check runs —
@@ -312,6 +318,7 @@ test.describe("auth flow", () => {
     await expect(page.getByTestId("posts-item-title").first()).toHaveText(title);
   });
 
+  // @ate-exemplar-anti: kind=e2e_playwright reason="baseURL fallback uses 'localhost' — prefer http://127.0.0.1:3333 (roadmap §9.2)"
   test("posts form without CSRF token is rejected (403)", async ({ baseURL }) => {
     const ctx = await apiRequest.newContext({ baseURL: baseURL ?? "http://localhost:3333" });
     try {

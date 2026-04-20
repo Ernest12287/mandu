@@ -98,6 +98,7 @@ describe("createCookieSessionStorage", () => {
     expect(session.get("user")).toBeUndefined();
   });
 
+  // @ate-exemplar: kind=filling_unit depth=basic tags=session,cookie,commit
   it("commitSession returns Set-Cookie string with expected parts", async () => {
     const storage = createCookieSessionStorage({ cookie: { secrets: [secret], path: "/" } });
     const session = new Session();
@@ -121,6 +122,7 @@ describe("createCookieSessionStorage", () => {
     expect(s.get("role")).toBe("admin");
   });
 
+  // @ate-exemplar: kind=filling_unit depth=intermediate tags=session,cookie,security,tamper
   it("getSession returns empty session for tampered cookie", async () => {
     const storage = createCookieSessionStorage({ cookie: { secrets: [secret] } });
     const data = JSON.stringify({ id: "123" });
@@ -133,6 +135,7 @@ describe("createCookieSessionStorage", () => {
     expect(s.get("id")).toBeUndefined();
   });
 
+  // @ate-exemplar: kind=filling_unit depth=advanced tags=session,cookie,rotation,secret
   it("secret rotation: old secret still decodes", async () => {
     const secret1 = "old-secret-key-for-rotation";
     const secret2 = "new-secret-key-for-rotation";

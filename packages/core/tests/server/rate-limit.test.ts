@@ -31,6 +31,7 @@ describe("Server Rate Limit", () => {
     }
   });
 
+  // @ate-exemplar: kind=filling_integration depth=basic tags=rate-limit,server,429
   it("설정된 횟수를 초과하면 429를 반환한다", async () => {
     registry.registerApiHandler("api/limited", async () => Response.json({ ok: true }));
 
@@ -57,6 +58,7 @@ describe("Server Rate Limit", () => {
     expect(body.error).toBe("rate_limit_exceeded");
   });
 
+  // @ate-exemplar: kind=filling_integration depth=intermediate tags=rate-limit,route-isolation
   it("라우트별로 독립적으로 카운트한다", async () => {
     registry.registerApiHandler("api/limited", async () => Response.json({ route: "limited" }));
     registry.registerApiHandler("api/other", async () => Response.json({ route: "other" }));
@@ -101,6 +103,7 @@ describe("Server Rate Limit", () => {
     expect(limitedCount).toBe(7);
   });
 
+  // @ate-exemplar-anti: kind=filling_integration reason="uses http://localhost:<port> — prefer http://127.0.0.1 (see roadmap §9.2 / issue #224)"
   it("기본값에서도 IP별로 구분하여 DoS 방지 (spoofing 가능)", async () => {
     registry.registerApiHandler("api/limited", async () => Response.json({ ok: true }));
 

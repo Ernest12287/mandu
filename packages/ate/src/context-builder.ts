@@ -41,6 +41,7 @@ import {
 } from "./contract-parser";
 import { readContractExamples } from "./extractor";
 import { getAtePaths, fileExists } from "./fs";
+import { graphVersionFromGraph } from "./graph-version";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public types — shape returned by `buildRouteContext` etc.
@@ -126,6 +127,8 @@ export interface RelatedRouteView {
 export interface RouteContextBlob {
   scope: "route";
   found: true;
+  /** Phase A.2 — freshness hash stamped by `buildContext`. */
+  graphVersion?: string;
   route: {
     id: string;
     pattern: string;
@@ -157,6 +160,8 @@ export interface RouteContextBlob {
 export interface FillingContextBlob {
   scope: "filling";
   found: true;
+  /** Phase A.2 — freshness hash stamped by `buildContext`. */
+  graphVersion?: string;
   filling: {
     id: string;
     file: string;
@@ -173,12 +178,16 @@ export interface FillingContextBlob {
 export interface ContractContextBlob {
   scope: "contract";
   found: true;
+  /** Phase A.2 — freshness hash stamped by `buildContext`. */
+  graphVersion?: string;
   contract: ContractView;
   usedByRoutes: Array<{ id: string; pattern: string }>;
 }
 
 export interface ProjectContextBlob {
   scope: "project";
+  /** Phase A.2 — freshness hash stamped by `buildContext`. */
+  graphVersion?: string;
   summary: {
     routes: number;
     apiRoutes: number;
@@ -206,6 +215,8 @@ export interface ProjectContextBlob {
 export interface NotFoundBlob {
   scope: ContextScope;
   found: false;
+  /** Phase A.2 — freshness hash stamped by `buildContext`. */
+  graphVersion?: string;
   reason: string;
   /** Suggested alternative ids that the caller might have meant. */
   suggestions: string[];
@@ -274,24 +285,37 @@ export function buildContext(
   }
   const specIndex = options.specIndex ?? indexSpecs(repoRoot);
   const guardPreset = options.guardPreset ?? detectGuardPreset(repoRoot);
+  const graphVersion = graphVersionFromGraph(graph);
 
+  let blob: ContextBlob;
   switch (request.scope) {
     case "project":
-      return buildProjectContext(graph, specIndex);
+      blob = buildProjectContext(graph, specIndex);
+      break;
     case "route":
-      return buildRouteContext(repoRoot, graph, specIndex, guardPreset, request);
+      blob = buildRouteContext(repoRoot, graph, specIndex, guardPreset, request);
+      break;
     case "filling":
-      return buildFillingContext(repoRoot, graph, specIndex, request);
+      blob = buildFillingContext(repoRoot, graph, specIndex, request);
+      break;
     case "contract":
-      return buildContractContext(repoRoot, graph, request);
+      blob = buildContractContext(repoRoot, graph, request);
+      break;
     default:
-      return {
+      blob = {
         scope: request.scope,
         found: false,
         reason: `Unknown scope: ${request.scope}`,
         suggestions: ["project", "route", "filling", "contract"],
       };
   }
+
+  // Phase A.2 — stamp every response with the freshness hash so
+  // downstream agents can invalidate caches when routes/contracts
+  // shift underneath them. This mutates the returned object in place
+  // because the union of blob types all accept `graphVersion`.
+  (blob as { graphVersion?: string }).graphVersion = graphVersion;
+  return blob;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
