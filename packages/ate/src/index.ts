@@ -192,6 +192,55 @@ export type {
 // Phase B.4 — coverage metrics
 export { computeCoverage } from "./coverage/compute";
 export type { CoverageMetrics, ComputeCoverageOptions } from "./coverage/compute";
+// Phase C.2 — mutation testing
+export {
+  ALL_OPERATORS as MUTATION_OPERATORS,
+  OPERATOR_NAMES as MUTATION_OPERATOR_NAMES,
+  runAllOperators as runAllMutationOperators,
+} from "./mutation/operators";
+export type {
+  MutationContext,
+  MutatedSourceFile,
+  MutationOperator,
+  MutationOperatorName,
+} from "./mutation/operators";
+export { runMutations, resolveTestCommand } from "./mutation/runner";
+export type {
+  RunMutationsInput,
+  RunMutationsResult,
+  MutationResult,
+  MutationResultStatus,
+  SpawnFn as MutationSpawnFn,
+} from "./mutation/runner";
+export { computeMutationReport, loadLastMutationRun } from "./mutation/report";
+export type {
+  MutationReport,
+  MutationSurvivor,
+  MutationSeverity,
+  PersistedMutationRun,
+} from "./mutation/report";
+// Phase C.3 — RPC extraction
+export { extractRpcProcedures, buildRpcContext } from "./rpc-extractor";
+export type {
+  RpcProcedureNode,
+  RpcEndpointNode,
+  RpcExtractionResult,
+  RpcContextBlob,
+} from "./rpc-extractor";
+// Phase C.4 — oracle queue
+export {
+  appendOracleEntry,
+  readOracleEntries,
+  findOraclePending,
+  setOracleVerdict,
+  findOracleEntriesForSpec,
+  oracleQueuePath,
+} from "./oracle/queue";
+export type {
+  OracleQueueEntry as OracleEntry,
+  OracleVerdict,
+  OracleStatus,
+} from "./oracle/queue";
 export { generateUnitSpec, generateUnitSpecs, promptForUnitTest } from "./unit-codegen";
 export type { UnitCodegenResult } from "./unit-codegen";
 

@@ -125,6 +125,51 @@ const guardSecurityExemplar: Exemplar = {
 })`,
 };
 
+// Phase C.5 — new prompt kinds.
+const islandHydrationExemplar: Exemplar = {
+  path: "packages/ate/tests/exemplar-sources/island-hydration.examples.ts",
+  startLine: 7,
+  endLine: 11,
+  kind: "island_hydration",
+  depth: "basic",
+  tags: ["visible", "hydrates"],
+  code: `test("Cart island becomes hydrated within budget", async ({ page }) => {
+  await page.goto("/cart");
+  await waitForIsland(page, "Cart", { timeoutMs: 3000 });
+  await expect(page.locator('[data-island="Cart"][data-hydrated="true"]')).toBeVisible();
+})`,
+};
+
+const streamingSsrExemplar: Exemplar = {
+  path: "packages/ate/tests/exemplar-sources/streaming-ssr.examples.ts",
+  startLine: 6,
+  endLine: 11,
+  kind: "streaming_ssr",
+  depth: "basic",
+  tags: ["shell", "doctype"],
+  code: `test("dashboard stream emits a well-formed shell", async () => {
+  const res = await fetch(\`\${BASE_URL}/dashboard\`);
+  await assertStreamBoundary(res, {
+    shellChunkContains: ["<!DOCTYPE", "<html"],
+  });
+})`,
+};
+
+const rpcProcedureExemplar: Exemplar = {
+  path: "packages/ate/tests/exemplar-sources/rpc-procedure.examples.ts",
+  startLine: 6,
+  endLine: 12,
+  kind: "rpc_procedure",
+  depth: "basic",
+  tags: ["happy-path", "typed-client"],
+  code: `test("signup RPC returns typed result", async () => {
+  using server = await createTestServer({ rpc: { users: usersRpc } });
+  const client = createRpcClient<typeof usersRpc>({ baseUrl: server.url, endpoint: "users" });
+  const res = await client.signup({ email: "a@b.com", password: "valid123" });
+  expect(typeof res.userId).toBe("string");
+})`,
+};
+
 const CASES: GoldenCase[] = [
   {
     kind: "filling_unit",
@@ -180,6 +225,32 @@ const CASES: GoldenCase[] = [
       middleware: [{ name: "csrf" }, { name: "session" }],
     },
     exemplars: [guardSecurityExemplar],
+  },
+  // Phase C.5
+  {
+    kind: "island_hydration",
+    context: {
+      route: { id: "cart", pattern: "/cart", kind: "page" },
+      islands: [{ name: "Cart", strategy: "visible" }],
+    },
+    exemplars: [islandHydrationExemplar],
+  },
+  {
+    kind: "streaming_ssr",
+    context: {
+      route: { id: "dashboard", pattern: "/dashboard", kind: "page" },
+      suspenseBoundaryCount: 2,
+    },
+    exemplars: [streamingSsrExemplar],
+  },
+  {
+    kind: "rpc_procedure",
+    context: {
+      procedure: { id: "users.signup", endpoint: "users", procedure: "signup", mountPath: "/api/rpc/users/signup" },
+      inputSchemaSource: "z.object({ email: z.string().email(), password: z.string().min(8) })",
+      outputSchemaSource: "z.object({ userId: z.string().uuid() })",
+    },
+    exemplars: [rpcProcedureExemplar],
   },
 ];
 

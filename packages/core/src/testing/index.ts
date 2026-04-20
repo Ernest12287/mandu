@@ -304,6 +304,37 @@ export {
   type SnapshotResult,
 } from "./snapshot";
 
+// ========== Phase C.1 — Semantic assertion primitives ==========
+
+export {
+  expectContract,
+  expectNavigation,
+  waitForIsland,
+  assertStreamBoundary,
+  expectSemantic,
+  ContractAssertionError,
+  NavigationAssertionError,
+  HydrationTimeoutError,
+  StreamBoundaryError,
+  SemanticDivergenceError,
+  type ZodLikeSchema,
+  type ContractMode,
+  type ContractViolation,
+  type ExpectContractOptions,
+  type ExpectContractResult,
+  type PlaywrightLikePage,
+  type ExpectNavigationInput,
+  type ExpectNavigationResult,
+  type WaitForIslandOptions,
+  type PlaywrightIslandPage,
+  type AssertStreamBoundaryInput,
+  type AssertStreamBoundaryResult,
+  type ExpectSemanticOptions,
+  type ExpectSemanticPage,
+  type OracleQueueEntry,
+  type ExpectSemanticResult,
+} from "./assertions";
+
 // ========== Phase 18.σ — Unified reporter ==========
 
 export {

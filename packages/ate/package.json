@@ -1,6 +1,6 @@
 {
   "name": "@mandujs/ate",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Mandu ATE (Automation Test Engine) - extract/generate/run/report/heal/impact in one package",
   "type": "module",
   "sideEffects": false,
@@ -34,7 +34,12 @@
     "./prompt-loader": "./src/prompt-loader.ts",
     "./exemplar-scanner": "./src/exemplar-scanner.ts",
     "./prompt-composer": "./src/prompt-composer.ts",
-    "./spec-linter": "./src/spec-linter.ts"
+    "./spec-linter": "./src/spec-linter.ts",
+    "./mutation": "./src/mutation/runner.ts",
+    "./mutation-operators": "./src/mutation/operators.ts",
+    "./mutation-report": "./src/mutation/report.ts",
+    "./rpc-extractor": "./src/rpc-extractor.ts",
+    "./oracle-queue": "./src/oracle/queue.ts"
   },
   "files": [
     "src/**/*",

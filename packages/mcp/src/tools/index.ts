@@ -38,6 +38,24 @@ export { ateBoundaryProbeTools, ateBoundaryProbeToolDefinitions } from "./ate-bo
 export { ateRecallTools, ateRecallToolDefinitions } from "./ate-recall.js";
 export { ateRememberTools, ateRememberToolDefinitions } from "./ate-remember.js";
 export { ateCoverageTools, ateCoverageToolDefinitions } from "./ate-coverage.js";
+// Phase C tool suite
+export { ateMutateTools, ateMutateToolDefinitions } from "./ate-mutate.js";
+export {
+  ateMutationReportTools,
+  ateMutationReportToolDefinitions,
+} from "./ate-mutation-report.js";
+export {
+  ateOraclePendingTools,
+  ateOraclePendingToolDefinitions,
+} from "./ate-oracle-pending.js";
+export {
+  ateOracleVerdictTools,
+  ateOracleVerdictToolDefinitions,
+} from "./ate-oracle-verdict.js";
+export {
+  ateOracleReplayTools,
+  ateOracleReplayToolDefinitions,
+} from "./ate-oracle-replay.js";
 export { resourceTools, resourceToolDefinitions } from "./resource.js";
 export { componentTools, componentToolDefinitions } from "./component.js";
 export { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -91,6 +109,24 @@ import {
 import { ateRecallTools, ateRecallToolDefinitions } from "./ate-recall.js";
 import { ateRememberTools, ateRememberToolDefinitions } from "./ate-remember.js";
 import { ateCoverageTools, ateCoverageToolDefinitions } from "./ate-coverage.js";
+// Phase C tool suite
+import { ateMutateTools, ateMutateToolDefinitions } from "./ate-mutate.js";
+import {
+  ateMutationReportTools,
+  ateMutationReportToolDefinitions,
+} from "./ate-mutation-report.js";
+import {
+  ateOraclePendingTools,
+  ateOraclePendingToolDefinitions,
+} from "./ate-oracle-pending.js";
+import {
+  ateOracleVerdictTools,
+  ateOracleVerdictToolDefinitions,
+} from "./ate-oracle-verdict.js";
+import {
+  ateOracleReplayTools,
+  ateOracleReplayToolDefinitions,
+} from "./ate-oracle-replay.js";
 import { resourceTools, resourceToolDefinitions } from "./resource.js";
 import { componentTools, componentToolDefinitions } from "./component.js";
 import { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
@@ -166,6 +202,28 @@ const TOOL_MODULES: ToolModule[] = [
     category: "ate-coverage",
     definitions: ateCoverageToolDefinitions,
     handlers: ateCoverageTools,
+  },
+  // Phase C tool suite
+  { category: "ate-mutate", definitions: ateMutateToolDefinitions, handlers: ateMutateTools },
+  {
+    category: "ate-mutation-report",
+    definitions: ateMutationReportToolDefinitions,
+    handlers: ateMutationReportTools,
+  },
+  {
+    category: "ate-oracle-pending",
+    definitions: ateOraclePendingToolDefinitions,
+    handlers: ateOraclePendingTools,
+  },
+  {
+    category: "ate-oracle-verdict",
+    definitions: ateOracleVerdictToolDefinitions,
+    handlers: ateOracleVerdictTools,
+  },
+  {
+    category: "ate-oracle-replay",
+    definitions: ateOracleReplayToolDefinitions,
+    handlers: ateOracleReplayTools,
   },
   { category: "resource", definitions: resourceToolDefinitions, handlers: resourceTools },
   { category: "component", definitions: componentToolDefinitions, handlers: componentTools },

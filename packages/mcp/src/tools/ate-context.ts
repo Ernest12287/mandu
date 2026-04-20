@@ -26,6 +26,7 @@ import {
   appendMemoryEvent,
   nowTimestamp,
   readMemoryEvents,
+  buildRpcContext,
 } from "@mandujs/ate";
 
 export const ateContextToolDefinitions: Tool[] = [
@@ -56,9 +57,9 @@ export const ateContextToolDefinitions: Tool[] = [
         },
         scope: {
           type: "string",
-          enum: ["project", "route", "filling", "contract"],
+          enum: ["project", "route", "filling", "contract", "rpc"],
           description:
-            "project (summary) | route (single route deep view) | filling (handler view) | contract (contract definition view)",
+            "project (summary) | route (single route deep view) | filling (handler view) | contract (contract definition view) | rpc (typed RPC procedure view — Phase C.3)",
         },
         id: {
           type: "string",
@@ -81,7 +82,7 @@ export function ateContextTools(_projectRoot: string) {
     mandu_ate_context: async (args: Record<string, unknown>) => {
       const { repoRoot, scope, id, route } = args as {
         repoRoot: string;
-        scope: "project" | "route" | "filling" | "contract";
+        scope: "project" | "route" | "filling" | "contract" | "rpc";
         id?: string;
         route?: string;
       };
@@ -94,6 +95,19 @@ export function ateContextTools(_projectRoot: string) {
       if (!scope) {
         return { ok: false, error: "scope is required" };
       }
+
+      // Phase C.3 — `scope: "rpc"` delegates to the RPC extractor + context builder.
+      if (scope === "rpc") {
+        if (!id) {
+          return {
+            ok: false,
+            error: "scope='rpc' requires `id` (e.g. 'users.signup' or 'signup')",
+          };
+        }
+        const blob = await buildRpcContext({ repoRoot, id });
+        return { ok: true, context: blob };
+      }
+
       const blob = await ateContext({ repoRoot, scope, id, route });
 
       // Phase B.2 — first `mandu_ate_context` call of the day writes a
