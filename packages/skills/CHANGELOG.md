@@ -1,5 +1,12 @@
 # @mandujs/skills
 
+## 6.0.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @mandujs/core@0.29.0
+
 ## 5.0.0
 
 ### Patch Changes
