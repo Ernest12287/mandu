@@ -1325,6 +1325,155 @@ function createStaticErrorResponse(status: 400 | 403 | 404 | 500): Response {
   return new Response(body, { status });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Static asset cache policy — Issue #218
+//
+// The `immutable` Cache-Control directive is a *contract* with browsers:
+// "the bytes at this URL will never change." Violating it (by overwriting a
+// stable-name file between builds) means users keep stale CSS/JS until they
+// hard-refresh. Mandu historically emitted `/.mandu/client/globals.css`
+// and `/.mandu/client/runtime*.js` with fixed URLs but stamped the response
+// with `immutable`, which is the exact failure mode.
+//
+// Policy:
+//   - Hashed URL  (e.g. `.../chunk.a1b2c3d4.js`) → `immutable` is safe,
+//     1-year max-age.
+//   - Stable URL  (no hash in filename) → `max-age=0, must-revalidate`.
+//     The client revalidates on every request; a matching `If-None-Match`
+//     short-circuits to 304 with no body, so the cost is one HEAD-sized
+//     round-trip, not a full re-download.
+//
+// Strong ETag (content-hash) is emitted for every `/.mandu/client/*`
+// response so conditional GETs are cheap. We use `Bun.hash` (wyhash, ~5GB/s)
+// for the digest and cache results keyed by `path + size + mtime` to avoid
+// re-hashing on every hit.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Heuristic: does the filename look like it carries a content hash?
+ *
+ * Matches:
+ *   - `name.<hash>.ext`      where hash is >=8 hex chars (e.g. `chunk.a1b2c3d4.js`)
+ *   - `name-<hash>.ext`      (e.g. `vendor-8f3a2b9c.js`)
+ *   - `name.<hash>.chunk.ext` common bundler shape
+ *
+ * A hash segment is 8+ lowercase hex chars. Longer digests (16, 20, 32) also
+ * match. We deliberately avoid matching ALL-hex short names like `abc.js`
+ * (requires min length 8).
+ */
+function hasContentHashInFilename(filename: string): boolean {
+  // `.` or `-` separator, 8+ hex chars, then `.` before extension
+  // Examples that match: chunk.a1b2c3d4.js, vendor-8f3a2b9c.js, app.1234567890abcdef.css
+  // Examples that DON'T match: globals.css, runtime.js, chunk.js
+  return /[.\-][a-f0-9]{8,}\.[a-z0-9]+$/i.test(filename);
+}
+
+/**
+ * Compute Cache-Control for a static asset.
+ *
+ * - Dev: no caching (always refetch).
+ * - Prod, hashed filename: `public, max-age=31536000, immutable` (1 year).
+ * - Prod, stable filename: `public, max-age=0, must-revalidate` (force
+ *   revalidation; 304 via `If-None-Match` keeps it cheap).
+ */
+function computeStaticCacheControl(filename: string, isDev: boolean): string {
+  if (isDev) return "no-cache, no-store, must-revalidate";
+  if (hasContentHashInFilename(filename)) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "public, max-age=0, must-revalidate";
+}
+
+/**
+ * In-process ETag cache keyed by absolute filePath. Entry is invalidated
+ * when `size` or `mtime` changes. Avoids re-hashing hot files on every
+ * request. The hot path is a single lookup + two scalar compares.
+ */
+interface EtagCacheEntry {
+  size: number;
+  mtime: number;
+  etag: string;
+}
+const etagCache = new Map<string, EtagCacheEntry>();
+const ETAG_CACHE_MAX = 2048;
+
+/** Cheap LRU eviction: drop oldest insert when over cap. */
+function evictEtagCacheIfNeeded(): void {
+  if (etagCache.size <= ETAG_CACHE_MAX) return;
+  const oldestKey = etagCache.keys().next().value;
+  if (oldestKey !== undefined) etagCache.delete(oldestKey);
+}
+
+/**
+ * Compute a strong ETag from file bytes (Bun.hash / wyhash). Cached by
+ * `path + size + mtime` so we only re-hash when the file changes.
+ *
+ * Strong (not weak `W/`) because we actually hashed the payload — this
+ * preserves byte-range / delta semantics per RFC 7232.
+ */
+async function computeStrongEtag(
+  filePath: string,
+  file: import("bun").BunFile,
+): Promise<string> {
+  const size = file.size;
+  const mtime = file.lastModified;
+
+  const cached = etagCache.get(filePath);
+  if (cached && cached.size === size && cached.mtime === mtime) {
+    return cached.etag;
+  }
+
+  // Bun.hash returns a number/bigint; stringify in base36 for compact ETag.
+  // Fall back to size+mtime-derived ETag if hashing ever throws (edge-runtime
+  // polyfills etc. — `Bun.hash` is a Bun-native primitive).
+  let digest: string;
+  try {
+    const bytes = await file.arrayBuffer();
+    const h = Bun.hash(bytes);
+    digest = typeof h === "bigint" ? h.toString(36) : Number(h).toString(36);
+  } catch {
+    digest = `${size.toString(36)}-${mtime.toString(36)}`;
+  }
+
+  const etag = `"${digest}"`;
+  etagCache.set(filePath, { size, mtime, etag });
+  evictEtagCacheIfNeeded();
+  return etag;
+}
+
+/** Exposed for tests — allows clearing the ETag cache between cases. */
+export function __clearStaticEtagCacheForTests(): void {
+  etagCache.clear();
+}
+
+/**
+ * RFC 7232 §3.2 — `If-None-Match` comparison.
+ *
+ * Accepts:
+ *   - `*` wildcard (matches any current representation)
+ *   - a single ETag (`"abc"` or `W/"abc"`)
+ *   - a comma-separated list
+ *
+ * Uses weak-comparison semantics (strip leading `W/`) because that is the
+ * RFC-prescribed form for `If-None-Match`; a strong server-side ETag still
+ * matches a weak client token if the opaque-string portion is equal.
+ */
+function matchesEtag(ifNoneMatch: string, currentEtag: string): boolean {
+  const trimmed = ifNoneMatch.trim();
+  if (trimmed === "*") return true;
+
+  const normalize = (tag: string): string => {
+    const t = tag.trim();
+    return t.startsWith("W/") ? t.slice(2) : t;
+  };
+
+  const currentNormalized = normalize(currentEtag);
+  for (const part of trimmed.split(",")) {
+    if (normalize(part) === currentNormalized) return true;
+  }
+  return false;
+}
+
 /**
  * 경로가 허용된 디렉토리 내에 있는지 검증
  * Path traversal 공격 방지
@@ -1441,26 +1590,39 @@ async function serveStaticFile(pathname: string, settings: ServerRegistrySetting
     }
 
     const mimeType = getMimeType(filePath);
+    const filename = path.basename(filePath);
 
-    // Cache-Control 헤더 설정
+    // Cache-Control — Issue #218: `immutable` is only safe when the URL
+    // contains a content hash. Stable-name bundles (globals.css, runtime.js)
+    // must use `max-age=0, must-revalidate` or clients will serve stale
+    // bytes until a hard refresh.
+    //
+    // Bundle files go through the hash-aware policy; non-bundle assets
+    // (public/*, favicon, etc.) keep the conservative 1-day cache they had
+    // before — they're user-controlled and unlikely to change per deploy.
     let cacheControl: string;
     if (settings.isDev) {
-      // 개발 모드: 캐시 없음
       cacheControl = "no-cache, no-store, must-revalidate";
     } else if (isBundleFile) {
-      // 프로덕션 번들: 1년 캐시 (파일명에 해시 포함 가정)
-      cacheControl = "public, max-age=31536000, immutable";
+      cacheControl = computeStaticCacheControl(filename, /* isDev */ false);
     } else {
-      // 프로덕션 일반 정적 파일: 1일 캐시
       cacheControl = "public, max-age=86400";
     }
 
-    // ETag: weak validator (파일 크기 + 최종 수정 시간)
-    const etag = `W/"${file.size.toString(36)}-${file.lastModified.toString(36)}"`;
+    // Strong ETag from content hash for bundle files — enables cheap 304
+    // round-trips when the client revalidates (`If-None-Match`).
+    // Non-bundle static files keep a weak size+mtime validator (same as
+    // pre-#218 behaviour) — we don't pay the hash cost for user-owned
+    // `public/*` content the framework doesn't control.
+    const etag = isBundleFile
+      ? await computeStrongEtag(filePath, file)
+      : `W/"${file.size.toString(36)}-${file.lastModified.toString(36)}"`;
 
-    // 304 Not Modified — 불필요한 전송 방지
+    // 304 Not Modified — unnecessary transfer avoidance. We compare the
+    // full `If-None-Match` string; RFC 7232 also allows a comma-separated
+    // list and `*`, so handle those two forms explicitly.
     const ifNoneMatch = request?.headers.get("If-None-Match");
-    if (ifNoneMatch === etag) {
+    if (ifNoneMatch && matchesEtag(ifNoneMatch, etag)) {
       return {
         handled: true,
         response: new Response(null, {
