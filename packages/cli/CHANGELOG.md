@@ -1,5 +1,36 @@
 # @mandujs/cli
 
+## 0.28.1
+
+### Patch Changes
+
+- fix: #213/#216 prerender + #217 silent + #218 Cache-Control + #219
+  asset crawl + #220 SPA-nav swap.
+
+  - **#213** crawler strips code regions (pre/code/fenced/inline/comment)
+    - DEFAULT_CRAWL_DENYLIST (`/path`, `/example`, `/your-*`)
+  - **#216** PrerenderError distinguishes missing export vs user throw;
+    `--prerender-skip-errors` flag
+  - **#217** `ServerOptions.silent` suppresses transient prerender banner
+    during `mandu build`
+  - **#218** Hash-aware Cache-Control + strong ETag for
+    `/.mandu/client/*` (stable URL → `must-revalidate`, hashed URL →
+    `immutable`)
+  - **#219** `DEFAULT_ASSET_EXTENSIONS` (25 img/font/doc/media/text)
+    filters `/hero.webp`/`/doc.pdf` from crawler + `build.crawl.
+assetExtensions` override
+  - **#220** SPA-nav body swap: logs every failure path with
+    `[mandu-spa-nav]` prefix, selector cascade `main → #root → body`,
+    script re-execution via `document.createElement`,
+    `__MANDU_SPA_NAV__` CustomEvent, hard-nav fallback on all failures
+
+  Quality: 7 packages typecheck clean, +100 regression tests, zero new
+  runtime deps.
+
+- Updated dependencies []:
+  - @mandujs/core@0.33.1
+  - @mandujs/edge@0.4.13
+
 ## 0.28.0
 
 ### Minor Changes
