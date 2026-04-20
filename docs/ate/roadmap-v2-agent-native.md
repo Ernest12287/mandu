@@ -495,6 +495,25 @@ Agent 가 이 gap 리스트 읽고 "이 중 3개만 채워줘" 대화.
 
 ## 7. Phase 로드맵
 
+### 2026-04-21 보강 (CTO / QE / TestEng / AgentDev 관점)
+
+**A.2 확장** (structured diagnostics 기본 + 아래 4 항 추가):
+- **Flake detection** — `.mandu/ate-run-history.jsonl` 기반 rolling 통계. `mandu_ate_flakes()` MCP tool. 실패 JSON 에 `flakeScore`, `lastPassedAt` 필드.
+- **Artifact store** — Playwright trace zip / screenshot / DOM snapshot 을 `.mandu/ate-artifacts/<runId>/` 에 저장. 실패 JSON 에 경로 포함. 최근 10 run 만 유지.
+- **CI 샤딩** — `mandu_ate_run({ shard: "2/4" })` 지원. Playwright 의 shard 옵션 투명 래핑.
+- **Freshness signal** — 모든 context / failure 응답에 `graphVersion: sha256(routeIds + contractIds + extractorVersion)` 포함. Agent 캐시 무효화 기준.
+
+**A.3 확장** (prompt catalog 기본 + 아래 4 항 추가):
+- **Prompt tests** — 각 프롬프트에 "canonical context + expected spec shape" 골든. LLM 없이 drift 감지.
+- **Pre-composed prompts** — `mandu_ate_prompt({ kind, context })` 는 placeholder 치환 완료된 최종 문자열 반환. Agent 추가 작업 불필요.
+- **Anti-exemplars** — `@ate-exemplar-anti: kind=filling_unit reason="mocks DB"` 주석 — "이렇게 하지 마세요" 레퍼런스.
+- **`mandu_ate_save` lint-before-write** — syntax / import / unused 기본 검사 후 write. 명백한 LLM 실수 차단.
+
+**Phase B 선행 설계 (§7 확장)**:
+- Boundary probe 에 **changed-file impact** 통합 — `git diff` 읽고 영향 받은 route 만 re-probe.
+- Memory 에 **usage metrics** 필드 — 어느 kind 가 자주 쓰이는지 추적 → prompt 개선 우선순위.
+- Contract **RPC parity** — 현재 REST route 중심, `contract/rpc.ts` 기반 RPC 도 동등 지원.
+
 ### Phase A — Context + Diagnostics + Prompt v1 (3 주)
 
 **목표**: agent 가 "테스트 짜줘" 라고 했을 때 Mandu-idiomatic spec 이 나오게.
