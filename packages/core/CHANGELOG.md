@@ -1,5 +1,24 @@
 # @mandujs/core
 
+## 0.32.0
+
+### Minor Changes
+
+- Phase 18 Wave E5 + #211/#212 hotfixes.
+
+  **μ i18n framework-level** (`@mandujs/core/i18n`) — `defineI18n({ locales, defaultLocale, strategy })` 4 strategies (path-prefix/domain/header/cookie), 자동 route synthesis, `ctx.locale`/`ctx.t` 타입드 헬퍼, Vary/Content-Language 헤더, 307 redirect.
+
+  **ν defineGuardRule API** (`@mandujs/core/guard/define-rule` + `rule-presets`) — consumer custom guard rule + 3 presets (`forbidImport`, `requireNamedExport`, `requirePrefixForExports`).
+
+  **ξ Streaming SSR + React.use()** — `resolveAsyncElement` streaming 경로 serialize 버그 fix: TTFB 250ms → 10ms (25×). `loading.tsx` Suspense streams 검증. React 19 `use(promise)` 지원.
+
+  **#212** — `cloneElement` array 전달로 인한 spurious "missing key" 경고 fix (spread 로 variadic).
+
+  **#211** — `mandu start` stale/dev/empty manifest silent accept fix.
+
+  Quality: 7 packages typecheck clean, +208 new regression tests, zero
+  new runtime deps.
+
 ## 0.31.0
 
 ### Minor Changes
