@@ -328,6 +328,27 @@ describe("codegen", () => {
     expect(ssrContent).toContain('waitUntil: "networkidle"');
   });
 
+  test("#226 ssr-verify asserts body is non-empty and has semantic anchor", () => {
+    // Setup — a plain page route without redirect / island.
+    const repoRoot = setupProject([{ id: "/", path: "/", file: "app/page.tsx" }]);
+    generateAndWriteScenarios(repoRoot, "L1");
+
+    // Execute
+    const result = generatePlaywrightSpecs(repoRoot);
+    const ssrFile = result.files.find((f) => f.includes("ssr-verify"));
+    expect(ssrFile).toBeDefined();
+    const ssrContent = readFileSync(ssrFile!, "utf8");
+
+    // Assert — body-content non-empty guard (prevents empty <body> from passing).
+    expect(ssrContent).toContain("bodyInner.length");
+    expect(ssrContent).toContain("toBeGreaterThan(0)");
+
+    // Assert — semantic anchor requirement ([data-route-id] OR <main>).
+    expect(ssrContent).toContain("data-route-id=");
+    expect(ssrContent).toContain("<main");
+    expect(ssrContent).toContain("hasRouteAnchor || hasMainLandmark");
+  });
+
   test("should create auto/ directory for generated specs", () => {
     // Setup
     const repoRoot = setupProject([{ id: "/", path: "/", file: "app/page.tsx" }]);

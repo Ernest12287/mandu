@@ -167,10 +167,23 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
             `    expect(page.url(), "final url should differ from origin").not.toBe(url);`,
           );
         } else {
+          // #226 — non-shallow SSR verification. An empty <body> must NOT
+          // pass, so we require (a) a minimum non-whitespace body length,
+          // (b) a semantic anchor Mandu emits (`data-route-id` or <main>),
+          // (c) a <title> that is not the default fallback.
           lines.push(
             `    const html = await page.content();`,
             `    expect(html).toContain("<!DOCTYPE html>");`,
             `    expect(html).toContain("<html");`,
+            `    // Body cannot be empty — a near-empty SSR response is almost always a bug.`,
+            `    const bodyMatch = html.match(/<body[^>]*>([\\s\\S]*?)<\\/body>/i);`,
+            `    const bodyInner = (bodyMatch?.[1] ?? "").replace(/<[^>]+>/g, "").replace(/\\s+/g, " ").trim();`,
+            `    expect(bodyInner.length, "body content should not be empty").toBeGreaterThan(0);`,
+            `    // Semantic anchor — Mandu emits [data-route-id] on the outermost wrapper,`,
+            `    // or the page uses <main>. Either is sufficient evidence that a real page rendered.`,
+            `    const hasRouteAnchor = /data-route-id=/.test(html);`,
+            `    const hasMainLandmark = /<main[\\s>]/.test(html);`,
+            `    expect(hasRouteAnchor || hasMainLandmark, "expected [data-route-id] or <main> landmark in SSR output").toBe(true);`,
           );
           if (!s.hasIsland) {
             lines.push(`    expect(html).not.toContain("data-mandu-island");`);
