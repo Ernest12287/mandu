@@ -331,6 +331,116 @@ bunx mandu guard arch --watch
 
 ---
 
+## 왜 Mandu — 뭐가 진짜 다른가
+
+대부분의 모던 프레임워크는 한두 개 렌더 모드만 잘 지원합니다. Mandu 는 **모든 렌더 모드를 한 프레임워크에 담고**, 그 위에 **contract-driven + agent-native 레이어** 를 올립니다.
+
+### 렌더 모드 매트릭스 (모두 현재 지원)
+
+| 모드 | Mandu | Next.js (App) | Astro | SvelteKit | Remix | Qwik |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Dynamic SSR | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ISR (revalidate) | ✅ | ✅ | ❌ | ⚠️ adapter | ❌ | ❌ |
+| SWR 캐시 | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| PPR (스트리밍 shell + hole) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Static prerender | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| **Island (partial hydration)** | ✅ | ❌ | ✅ | ❌ | ❌ | — |
+| `hydration: "none"` (SSR만, client JS 0) | ✅ | ⚠️ 암묵적 | ✅ | ❌ | ❌ | ✅ |
+| SPA 네비 (client router + view transition + hash 보존) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 라우트별 선택 | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ✅ |
+
+각 행은 서로 독립입니다 — **한 앱에서** 대시보드는 `dynamic`, 상품 페이지는 `isr`, 랜딩은 `static`, 문서는 `hydration:none`, 네비바는 `island` 로 섞어서 쓸 수 있습니다.
+
+```ts
+// app/products/[id]/page.tsx
+export default route().render("isr", { revalidate: 120 }).handle(...);
+
+// app/docs/[[...slug]]/page.tsx
+export default route().render("static").hydration("none").handle(...);
+
+// app/dashboard/page.tsx — PPR: 정적 쉘 + 스트리밍 홀
+export default route().render("ppr").handle(...);
+```
+
+### 다른 프레임워크에 없는 부분
+
+렌더 모드는 table stake 입니다. 진짜 격차는 **그 위 레이어**:
+
+| 기능 | Mandu | Next.js | Astro | SvelteKit | Remix |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Zod contract → 런타임 검증 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract → 자동 OpenAPI 3.1 (`/__mandu/openapi.json`) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract → boundary probe (Zod 타입 18 매핑) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract → property test 자동 파생 | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract-semantic mutation testing (9 operator) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Typed RPC (zero-dep, `createRpcClient<typeof router>()`) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 실시간 아키텍처 Guard (6 preset: FSD / Clean / Hexagonal / Atomic / CQRS / Mandu) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Agent-native MCP (16 tools) — Cursor / Claude Code / Codex** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `mandu info --json` / diagnose — 환경 + 헬스 단일 덤프 | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+### Zod 스키마 하나로 7 가지 일
+
+```ts
+// spec/contracts/signup.contract.ts
+export default defineContract({
+  name: "SignupContract",
+  methods: {
+    POST: {
+      body: z.object({
+        email: z.string().email(),
+        password: z.string().min(8),
+        role: z.enum(["user", "admin"]),
+      }),
+      response: {
+        201: z.object({ userId: z.string().uuid() }),
+        409: z.object({ error: z.literal("EMAIL_TAKEN") }),
+      },
+    },
+  },
+});
+```
+
+이 파일 하나가 구동하는 것:
+
+1. **런타임 검증** — request / response 전부 Zod parse, 위반 시 자동 400.
+2. **Typed RPC 클라이언트** — `createRpcClient<typeof router>()` 로 브라우저까지 완전 추론된 타입.
+3. **OpenAPI 3.1 스펙** — 활성 시 `/__mandu/openapi.json` 서비스, Postman / codegen / Swagger UI 에 투입.
+4. **Boundary probe** — `mandu_ate_boundary_probe` 로 잘못된 이메일 / 빈 비밀번호 / enum 위반 / 타입 불일치 케이스 결정론적 생성.
+5. **Property test 스캐폴드** — `kind: property_based` 프롬프트가 Zod 를 fast-check arbitrary 로 변환.
+6. **Mutation testing** — 9 개 contract-semantic operator (required 필드 제거, 타입 협소화, enum 확대, nullable 반전, 필드 이름 변경, sibling 타입 교환, middleware 우회, early return, validation 우회) 가 **의미 있는** mutant 를 만듭니다. 일반 `a+b → a-b` 노이즈가 아닙니다.
+7. **Coverage oracle** — `mandu_ate_coverage` 가 boundary 테스트 없는 contract 를 `high` severity gap 으로 surface.
+
+Next.js / Astro / SvelteKit 에는 이게 **0 개** 있습니다. "조금 부족한" 게 아니라 **0 개**. 이 조합은 Zod-contract-first 아키텍처 + MCP 서버가 없으면 구조적으로 불가능합니다 — Mandu 는 처음부터 두 개를 중심으로 설계됐습니다.
+
+### Agent-Native 가 구조 레벨에 박혀 있다
+
+Mandu 는 **MCP 도구 16 개** 를 제공합니다 ([`docs/ate/roadmap-v2-agent-native.md`](./docs/ate/roadmap-v2-agent-native.md) 참조). 각 도구는 LLM 이 바로 소비할 수 있도록 설계됐습니다:
+
+- `mandu_ate_context({ scope, id })` — route + contract + middleware + guard + fixtures + 기존 spec 전부가 단일 JSON blob. 이 blob 을 받은 agent 는 첫 시도에 Mandu-idiomatic 테스트를 작성합니다.
+- `mandu_ate_prompt({ kind })` — 큐레이트된 시스템 프롬프트 9 종 (`filling_unit`, `filling_integration`, `e2e_playwright`, `property_based`, `contract_shape`, `guard_security`, `island_hydration`, `streaming_ssr`, `rpc_procedure`). 프롬프트에 Mandu primitive (`testFilling`, `createTestServer`, `createTestSession`, `expectContract`, `waitForIsland` …) 와 anti-pattern 이 명시돼 있어 generic LLM 이 Jest + RTL 스타일로 짜는 걸 선행 차단.
+- `mandu_ate_run({ spec })` — spec 실행 후 **구조화 실패 JSON** 반환 (8 kind: `selector_drift`, `contract_mismatch`, `redirect_unexpected`, `hydration_timeout`, `rate_limit_exceeded`, `csrf_invalid`, `fixture_missing`, `semantic_divergence`). Agent 는 JSON 읽고 heal 제안 → 루프.
+- `mandu_ate_mutate` / `mandu_ate_mutation_report` — "너의 테스트가 실제로 변화를 잡는가?" 질문에 mutation score 로 답.
+- `mandu_ate_oracle_*` — `expectSemantic("사용자가 에러를 명확히 인지한다")` 판정을 local dev session 에서 agent 가 소화하도록 queue. CI 는 결정론적이라 절대 블록 안 됨.
+
+Mandu 를 agent workflow 에 통합하는 게 아닙니다. **Agent 가 자기 workflow 에 Mandu 를 통합**합니다. MCP 프로토콜만 쓰면 Cursor / Claude Code / Codex / 어느 클라이언트든 무료로.
+
+### Bun-Compatible 이 아니라 Bun-Native
+
+다른 프레임워크는 Node-first + Bun 은 나중에 붙입니다. Mandu 는 반대:
+
+- `Bun.serve` — HTTP 서버 (WebSocket upgrade 포함, [`filling/ws.ts`](./packages/core/src/filling/ws.ts)).
+- `Bun.sql` — DB 어댑터 (PostgreSQL / MySQL / SQLite 통합).
+- `Bun.CookieMap` + `Bun.password` (argon2id) — 인증.
+- `Bun.cron` — 스케줄러.
+- `Bun.s3` — 스토리지.
+- `Bun.hash` + `bun:sqlite` — 세션 store.
+- `Bun.CSRF` — 가능한 경우 사용.
+- `bun:test` — 전 영역, 기본 parallel.
+
+콜드 스타트 ~100ms. Warm ISR 라우트 TTFB 한 자릿수 밀리초. Bun 덕분에.
+
+---
+
 ## 주요 기능
 
 ### 🏗️ 아키텍처 & 라우팅

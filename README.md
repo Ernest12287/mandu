@@ -334,6 +334,116 @@ Current AI coding has a fundamental problem: the more agents code, the more arch
 
 ---
 
+## Why Mandu — What's Actually Different
+
+Most modern frameworks cover one or two render modes well. Mandu ships **every render mode** in one framework **and** a contract-driven, agent-native layer on top.
+
+### Render Mode Matrix (all shipped today)
+
+| Mode | Mandu | Next.js (App) | Astro | SvelteKit | Remix | Qwik |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Dynamic SSR | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ISR (revalidate) | ✅ | ✅ | ❌ | ⚠️ adapter | ❌ | ❌ |
+| SWR cache | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| PPR (streaming shell + hole) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Static prerender | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| **Island (partial hydration)** | ✅ | ❌ | ✅ | ❌ | ❌ | — |
+| `hydration: "none"` (SSR, zero client JS) | ✅ | ⚠️ implicit | ✅ | ❌ | ❌ | ✅ |
+| SPA-nav (client router + view transitions + hash preservation) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Per-route choice | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ✅ |
+
+Every row is orthogonal — pick `dynamic` for the dashboard, `isr` for product pages, `static` for marketing, `hydration:none` for docs, and `island` for the navbar — in **one app**.
+
+```ts
+// app/products/[id]/page.tsx
+export default route().render("isr", { revalidate: 120 }).handle(...);
+
+// app/docs/[[...slug]]/page.tsx
+export default route().render("static").hydration("none").handle(...);
+
+// app/dashboard/page.tsx — PPR: static shell, streaming holes
+export default route().render("ppr").handle(...);
+```
+
+### The Part Nobody Else Has
+
+Render modes are table stakes. The real gap is **what sits above them**:
+
+| Capability | Mandu | Next.js | Astro | SvelteKit | Remix |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Zod contract → runtime validation | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract → auto OpenAPI 3.1 (`/__mandu/openapi.json`) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract → boundary probe (18 Zod types) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract → property-based test scaffold | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Contract-semantic mutation testing (9 operators) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Typed RPC (zero-dep, `createRpcClient<typeof router>()`) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Real-time architecture Guard (6 presets: FSD / Clean / Hexagonal / Atomic / CQRS / Mandu) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Agent-native MCP (16 tools) for Cursor / Claude Code / Codex** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `mandu info --json` / diagnose — single-blob env + health dump | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+### One Zod Schema, Seven Jobs
+
+```ts
+// spec/contracts/signup.contract.ts
+export default defineContract({
+  name: "SignupContract",
+  methods: {
+    POST: {
+      body: z.object({
+        email: z.string().email(),
+        password: z.string().min(8),
+        role: z.enum(["user", "admin"]),
+      }),
+      response: {
+        201: z.object({ userId: z.string().uuid() }),
+        409: z.object({ error: z.literal("EMAIL_TAKEN") }),
+      },
+    },
+  },
+});
+```
+
+That single file drives:
+
+1. **Runtime validation** — request / response are Zod-parsed, 400 on violation.
+2. **Typed RPC client** — `createRpcClient<typeof router>()` gives the browser fully inferred types end-to-end.
+3. **OpenAPI 3.1 spec** — served at `/__mandu/openapi.json` when enabled, fed to Postman / codegen / Swagger UI.
+4. **Boundary probes** — `mandu_ate_boundary_probe` generates invalid email / empty password / enum violation / type-mismatch cases deterministically.
+5. **Property test scaffold** — `kind: property_based` prompt wraps Zod into fast-check arbitraries.
+6. **Mutation testing** — 9 contract-semantic operators (remove required field, narrow type, widen enum, flip nullable, rename field, swap sibling type, skip middleware, early return, bypass validation) produce **meaningful** mutants, not random `a+b → a-b` noise.
+7. **Coverage oracle** — `mandu_ate_coverage` flags contracts with no boundary test as `high` severity gaps.
+
+Next.js / Astro / SvelteKit have zero of this. Not "a little less" — **zero**. The combination is structurally impossible without a Zod-contract-first architecture and an MCP server, and Mandu was designed around both from day one.
+
+### Agent-Native by Construction
+
+Mandu ships **16 MCP tools** (see [`docs/ate/roadmap-v2-agent-native.md`](./docs/ate/roadmap-v2-agent-native.md)). Every tool is designed for an LLM to consume:
+
+- `mandu_ate_context({ scope, id })` — serialized route + contract + middleware + guard + fixtures + existing specs in one JSON blob. An agent that has this blob can write idiomatic Mandu tests on the first try.
+- `mandu_ate_prompt({ kind })` — curated system prompts (9 kinds) that teach the LLM Mandu-specific primitives (`testFilling`, `createTestServer`, `createTestSession`, `expectContract`, `waitForIsland`…). Generic LLMs write Jest + React Testing Library style; with Mandu's prompt they write the idiomatic version.
+- `mandu_ate_run({ spec })` — runs the spec and returns **structured failure JSON** (8 discriminated kinds: `selector_drift`, `contract_mismatch`, `redirect_unexpected`, `hydration_timeout`, `rate_limit_exceeded`, `csrf_invalid`, `fixture_missing`, `semantic_divergence`). The agent reads the JSON, proposes a heal, and loops.
+- `mandu_ate_mutate` / `mandu_ate_mutation_report` — contract-semantic mutation testing that asks "does your test suite actually catch the change?"
+- `mandu_ate_oracle_*` — queue `expectSemantic("the user clearly sees the error")` judgments for the agent to resolve in a local session. Deterministic CI is never blocked.
+
+You don't integrate Mandu into your agent workflow. **Your agent integrates Mandu into its workflow**, via MCP, for free, in Cursor / Claude Code / Codex / any client that speaks the protocol.
+
+### Bun-Native, Not Bun-Compatible
+
+Every other framework is Node-first with Bun as an afterthought. Mandu is the other way around:
+
+- `Bun.serve` for the HTTP server (including WebSocket upgrades — see [`filling/ws.ts`](./packages/core/src/filling/ws.ts)).
+- `Bun.sql` for the database adapter (PostgreSQL / MySQL / SQLite unified).
+- `Bun.CookieMap` + `Bun.password` (argon2id) for auth.
+- `Bun.cron` for the scheduler.
+- `Bun.s3` for storage.
+- `Bun.hash` + `bun:sqlite` for session store.
+- `Bun.CSRF` where available.
+- `bun:test` everywhere, parallel by default.
+
+Cold start is ~100ms. TTFB on a warm ISR route is single-digit milliseconds. Because Bun.
+
+---
+
 ## Key Features
 
 ### 🏗️ Architecture & Routing
