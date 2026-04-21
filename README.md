@@ -365,6 +365,8 @@ export default route().render("static").hydration("none").handle(...);
 export default route().render("ppr").handle(...);
 ```
 
+→ **Full render × hydration matrix with 20 practical recipes**: [`docs/rendering.md`](./docs/rendering.md).
+
 ### The Part Nobody Else Has
 
 Render modes are table stakes. The real gap is **what sits above them**:

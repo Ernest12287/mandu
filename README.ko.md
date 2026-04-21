@@ -362,6 +362,8 @@ export default route().render("static").hydration("none").handle(...);
 export default route().render("ppr").handle(...);
 ```
 
+→ **Render × Hydration 전체 매트릭스 + 20 개 실전 레시피**: [`docs/rendering.md`](./docs/rendering.md).
+
 ### 다른 프레임워크에 없는 부분
 
 렌더 모드는 table stake 입니다. 진짜 격차는 **그 위 레이어**:
