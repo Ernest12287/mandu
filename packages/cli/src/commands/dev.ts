@@ -8,6 +8,7 @@ import {
   loadEnv,
   watchFSRoutes,
   clearDefaultRegistry,
+  prewarmPageRoutes,
   createGuardWatcher,
   checkDirectory,
   printReport,
@@ -429,6 +430,11 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
   // Register initial handlers
   await registerHandlers(manifest);
+  // #232 — eager component registration at boot so the first request
+  // after `mandu dev` has routeComponents already populated. Prevents
+  // a race where an HMR-driven full-reload (rare but happens when an
+  // editor autosaves on save-file-open) races against lazy registration.
+  await prewarmPageRoutes();
   console.log("");
 
   const envPort = process.env.PORT ? Number(process.env.PORT) : undefined;
@@ -649,6 +655,9 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         await withPerf(HMR_PERF.SSR_REGISTER_HANDLERS, () =>
           registerHandlers(manifest, true, isWildcard ? undefined : filePath),
         );
+        // #232 — eager page-component registration so HMR-triggered
+        // location.reload() can't race an empty routeComponents map.
+        await prewarmPageRoutes();
 
         // Kitchen Preview에는 파일 경로가 있을 때만 broadcast (wildcard는 파일 경로 없음)
         if (!isWildcard) {
@@ -839,6 +848,9 @@ export async function dev(options: DevOptions = {}): Promise<void> {
       ]);
       // Phase 7.0 B5 wire-up — single-file change, let incremental path hit.
       await registerHandlers(manifest, true, filePath);
+      // #232 — prewarm so the following full-reload can't see empty
+      // routeComponents for any existing page route.
+      await prewarmPageRoutes();
 
       // Broadcast file change for Kitchen Preview
       hmrServer?.broadcast({
@@ -960,6 +972,8 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     const resolved = await resolveManifest(rootDir, { fsRoutes: config.fsRoutes });
     manifest = resolved.manifest;
     await registerHandlers(manifest, true);
+    // #232 follow-up — see onChange above for rationale.
+    await prewarmPageRoutes();
 
     if (hmrServer) {
       devBundler?.close();
@@ -1112,6 +1126,21 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
         // Re-register routes (isReload = true)
         await registerHandlers(manifest, true);
+
+        // #232 follow-up — eager page-component registration. Without this,
+        // `routeComponents` stays empty until the first request drives
+        // `loadPageData` through `ensurePageRouteMetadata`. If the browser
+        // races the server (HMR full-reload fires a request before any
+        // code path that triggers lazy registration), the default
+        // appCreator renders the "404 - Route Not Found" fallback — which
+        // was previously masked by the prerender cache short-circuit
+        // (also removed in #232). Prewarming closes the window.
+        const prewarmResult = await prewarmPageRoutes();
+        if (prewarmResult.failed.length > 0) {
+          for (const f of prewarmResult.failed) {
+            console.warn(`  ⚠️  Prewarm failed for '${f.routeId}': ${f.error}`);
+          }
+        }
 
         // HMR broadcast (full reload)
         if (hmrServer) {

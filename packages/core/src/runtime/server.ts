@@ -1174,6 +1174,72 @@ export function setCreateApp(fn: CreateAppFn): void {
 }
 
 /**
+ * Issue #232 follow-up — eager page-component registration.
+ *
+ * After a dev-mode HMR reload, `registerPageHandler` / `registerPageLoader`
+ * install lazy thunks. The actual component import and
+ * `registerRouteComponent` call is deferred until the first request for
+ * that route. On a brand-new browser reload triggered by HMR the request
+ * normally populates the registry in time, but any code path that renders
+ * without going through `loadPageData` first (or a thrown error that
+ * short-circuits it) leaves `routeComponents` empty, and the default
+ * appCreator renders the "404 - Route Not Found" fallback even though the
+ * route is valid.
+ *
+ * `prewarmPageRoutes()` walks every registered `pageHandler` / `pageLoader`
+ * once and drives it through the same code path the first request would
+ * take, so `routeComponents` is fully populated before the server starts
+ * serving. The cost is a one-time module import per page route — trivial
+ * in dev. Production `mandu start` is unaffected because it already runs
+ * requests through the same lazy path without HMR races.
+ */
+export async function prewarmPageRoutes(
+  registry: ServerRegistry = defaultRegistry,
+): Promise<{ prewarmed: string[]; failed: Array<{ routeId: string; error: string }> }> {
+  const prewarmed: string[] = [];
+  const failed: Array<{ routeId: string; error: string }> = [];
+
+  // pageHandlers path (routes with .slot.ts / filling)
+  for (const routeId of registry.pageHandlers.keys()) {
+    try {
+      await ensurePageRouteMetadata(routeId, registry);
+      prewarmed.push(routeId);
+    } catch (err) {
+      failed.push({
+        routeId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // pageLoaders path (plain page components, no slot)
+  for (const routeId of registry.pageLoaders.keys()) {
+    if (registry.routeComponents.has(routeId)) continue; // already warm
+    try {
+      const loader = registry.pageLoaders.get(routeId);
+      if (!loader) continue;
+      const module = await loader();
+      const exported: unknown = module.default;
+      const exportedObj = exported as Record<string, unknown> | null;
+      const component = typeof exported === "function"
+        ? (exported as RouteComponent)
+        : (exportedObj?.component as RouteComponent | undefined);
+      if (typeof component === "function") {
+        registry.registerRouteComponent(routeId, component);
+        prewarmed.push(routeId);
+      }
+    } catch (err) {
+      failed.push({
+        routeId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return { prewarmed, failed };
+}
+
+/**
  * Layout 로더 등록 (전역)
  */
 export function registerLayoutLoader(modulePath: string, loader: LayoutLoader): void {
