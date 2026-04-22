@@ -1,5 +1,18 @@
 # @mandujs/core
 
+## 0.40.1
+
+### Patch Changes
+
+- [`ad15ebf`](https://github.com/konamgil/mandu/commit/ad15ebf17b88c63d4b4b57addb7ca5a847b37b5e) Thanks [@konamgil](https://github.com/konamgil)! - fix(brain/openai): default model gpt-4o-mini → gpt-5.4
+
+  The original OpenAI adapter shipped with `gpt-4o-mini` as a
+  cost/quality compromise, but the whole point of moving brain off the
+  local `ministral-3:3b` adapter was to get quality-tier suggestions.
+  Current-generation flagship (`gpt-5.4`) is the correct default;
+  `ManduConfig.brain.openai.model` still lets users drop to a cheaper
+  tier for low-stakes automated runs.
+
 ## 0.40.0
 
 ### Minor Changes
