@@ -5,12 +5,15 @@
  * in the real network / keychain / filesystem paths.
  */
 
+import path from "node:path";
+import os from "node:os";
 import {
   CredentialStore,
   type CredentialBackend,
   type StoredToken,
 } from "../../credentials";
 import type { HttpClient, OAuthEndpoints } from "../oauth-flow";
+import { ChatGPTAuth } from "../chatgpt-auth";
 
 /**
  * In-memory credential store that satisfies `CredentialBackend`. We
@@ -60,5 +63,21 @@ export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
+  });
+}
+
+/**
+ * Isolated ChatGPTAuth that always reports no session token — points at
+ * a nonexistent path so it never picks up the developer's real
+ * `~/.codex/auth.json`. Tests that exercise the keychain path must
+ * pass this helper to prevent the ChatGPT code path from short-
+ * circuiting the test's intended flow.
+ */
+export function makeEmptyChatGPTAuth(): ChatGPTAuth {
+  return new ChatGPTAuth({
+    authFilePath: path.join(
+      os.tmpdir(),
+      `mandu-test-no-auth-${process.pid}-${Date.now()}.json`,
+    ),
   });
 }

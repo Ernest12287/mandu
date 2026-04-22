@@ -104,6 +104,61 @@ export async function brainLogin(
   log(`Mandu Brain — ${provider} login`);
   log("-".repeat(40));
 
+  // #235 follow-up — OpenAI login delegates to the official
+  // `@openai/codex` CLI. OpenAI owns the OAuth app; we just read the
+  // auth.json it writes to `~/.codex/auth.json`. This avoids the
+  // chicken-and-egg problem of Mandu needing its own OAuth app
+  // registration before anyone can sign in.
+  if (provider === "openai" && !options.simulateAuthorize) {
+    log("");
+    log("Delegating to the OpenAI official Codex CLI for OAuth:");
+    log("  $ npx @openai/codex login");
+    log("");
+    log("A browser window will open for ChatGPT sign-in. After you");
+    log("approve, the token lands in ~/.codex/auth.json and Mandu");
+    log("reads it automatically (auto-refreshed on expiry).");
+    log("");
+
+    try {
+      const { spawnSync } = await import("node:child_process");
+      const result = spawnSync("npx", ["-y", "@openai/codex", "login"], {
+        stdio: "inherit",
+        shell: process.platform === "win32",
+      });
+      if (result.status !== 0) {
+        (options.error ?? console.error)(
+          `\`npx @openai/codex login\` exited with code ${result.status ?? "(signal)"}. ` +
+            "Install the CLI manually and re-run this command, or use `mandu brain login --provider=anthropic`.",
+        );
+        return false;
+      }
+    } catch (err) {
+      (options.error ?? console.error)(
+        `Failed to spawn \`npx @openai/codex login\`: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
+
+    // Verify the auth.json actually showed up.
+    const { ChatGPTAuth } = await import("@mandujs/core");
+    const auth = new ChatGPTAuth();
+    const located = auth.locateAuthFile();
+    if (!located) {
+      (options.error ?? console.error)(
+        "OAuth finished but no auth.json found in ~/.codex or ~/.chatgpt-local. Aborting.",
+      );
+      return false;
+    }
+    log("");
+    log("Login succeeded.");
+    log(`  Provider   : openai (ChatGPT session)`);
+    log(`  Auth file  : ${located}`);
+    log("  Managed by : @openai/codex (Mandu reads, OpenAI refreshes)");
+    log("");
+    log("Run `mandu brain status` to confirm the resolver picks this tier.");
+    return true;
+  }
+
   // Construct the adapter in strict mode so failures are loud during
   // login (we want to know if the flow aborted without a token).
   const adapter =

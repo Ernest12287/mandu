@@ -119,7 +119,7 @@ describe("mandu brain login — openai happy path", () => {
     expect(stored).not.toBeNull();
     expect(stored!.access_token).toBe("minted-access");
     expect(stored!.refresh_token).toBe("minted-refresh");
-    expect(stored!.default_model).toBe("gpt-4o-mini");
+    expect(stored!.default_model).toBe("gpt-5.4");
   });
 });
 

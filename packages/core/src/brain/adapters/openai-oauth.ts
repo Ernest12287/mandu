@@ -1,11 +1,21 @@
 /**
  * Brain — OpenAI OAuth adapter (Issue #235).
  *
- * Connects to the OpenAI Chat Completions API using a token obtained
- * via OAuth authorization code + PKCE. Mandu never owns an OpenAI API
- * key — the user's OAuth credentials are loaded from the OS keychain
- * (`packages/core/src/brain/credentials.ts`) and forwarded on each
- * request.
+ * Connects to the OpenAI Chat Completions API using a ChatGPT session
+ * token. Mandu NEVER owns an OpenAI OAuth app — we reuse the OpenAI
+ * official `@openai/codex` CLI's login flow. First-time login:
+ *
+ *     npx @openai/codex login          # (or `mandu brain login`)
+ *
+ * OpenAI handles the browser OAuth handshake and writes the token to
+ * `~/.codex/auth.json`. This adapter reads that file via
+ * `ChatGPTAuth`, auto-refreshes the access token on expiry, and
+ * forwards the resulting Bearer to `api.openai.com/v1/chat/completions`.
+ *
+ * Legacy code in this file (`runAuthorizationCodeFlow` + keychain
+ * `CredentialStore`) remains available for `mandu brain login` flows
+ * that opt into a custom OAuth app (e.g. enterprise proxies), but the
+ * default path is now the ChatGPT session token.
  *
  * Failure modes handled here:
  *   - Missing token            → adapter reports `available: false`, the
@@ -50,6 +60,7 @@ import {
   type HttpClient,
   type OAuthEndpoints,
 } from "./oauth-flow";
+import { ChatGPTAuth, type EffectiveAuth } from "./chatgpt-auth";
 
 /* -------------------------------------------------------------------- */
 /* Defaults                                                             */
@@ -98,7 +109,7 @@ export const DEFAULT_OPENAI_CONFIG: AdapterConfig = {
 export interface OpenAIOAuthAdapterOptions extends Partial<AdapterConfig> {
   /** Injection point — tests supply an in-memory fetch stub. */
   httpClient?: HttpClient;
-  /** Injection point — tests swap in a canned endpoint pair. */
+  /** Injection point — tests swap in a canned endpoint pair (legacy flow only). */
   endpoints?: OAuthEndpoints;
   /** OAuth client id override (for enterprise OpenAI proxies). */
   clientId?: string;
@@ -118,6 +129,18 @@ export interface OpenAIOAuthAdapterOptions extends Partial<AdapterConfig> {
    * command to loudly fail if the flow never wrote a token.
    */
   strict?: boolean;
+  /**
+   * ChatGPT session-token auth helper. Default: reads
+   * `~/.codex/auth.json` / `~/.chatgpt-local/auth.json` produced by
+   * `npx @openai/codex login`. Tests inject a helper pointed at a
+   * throwaway fixture path.
+   */
+  chatgptAuth?: ChatGPTAuth;
+  /**
+   * Override: explicit path to the ChatGPT auth.json. Only used when
+   * `chatgptAuth` is not supplied.
+   */
+  chatgptAuthFilePath?: string;
 }
 
 /* -------------------------------------------------------------------- */
@@ -136,6 +159,7 @@ export class OpenAIOAuthAdapter extends BaseLLMAdapter {
   private consentDeps?: ConsentPromptDeps;
   private strict: boolean;
   private refreshInFlight: Promise<StoredToken | null> | null = null;
+  private chatgptAuth: ChatGPTAuth;
 
   constructor(options: OpenAIOAuthAdapterOptions = {}) {
     super({
@@ -152,23 +176,38 @@ export class OpenAIOAuthAdapter extends BaseLLMAdapter {
     this.skipConsent = options.skipConsent ?? false;
     this.consentDeps = options.consentDeps;
     this.strict = options.strict ?? false;
+    this.chatgptAuth =
+      options.chatgptAuth ??
+      new ChatGPTAuth({
+        authFilePath: options.chatgptAuthFilePath,
+        httpClient: this.httpClient,
+      });
   }
 
   /* ----------------------- Status / login ---------------------------- */
 
   async checkStatus(): Promise<AdapterStatus> {
-    const token = await this.credentialStore.load("openai");
-    if (!token) {
+    // Primary path — ChatGPT session token from `@openai/codex login`.
+    if (this.chatgptAuth.isAuthenticated()) {
       return {
-        available: false,
-        model: null,
-        error:
-          "No OpenAI OAuth token stored. Run `mandu brain login --provider=openai` first.",
+        available: true,
+        model: this.config.model,
+      };
+    }
+    // Legacy fallback — custom Mandu OAuth app token stored in keychain.
+    const token = await this.credentialStore.load("openai");
+    if (token) {
+      return {
+        available: true,
+        model: this.config.model,
       };
     }
     return {
-      available: true,
-      model: this.config.model,
+      available: false,
+      model: null,
+      error:
+        "No OpenAI OAuth token found. Run `mandu brain login --provider=openai` " +
+        "(which wraps `npx @openai/codex login`) first.",
     };
   }
 
@@ -219,8 +258,18 @@ export class OpenAIOAuthAdapter extends BaseLLMAdapter {
     messages: ChatMessage[],
     options: CompletionOptions = {},
   ): Promise<CompletionResult> {
-    const token = await this.loadTokenOrReject();
-    if (!token) {
+    // Primary: ChatGPT session token (managed by `@openai/codex login`).
+    let chatgpt: EffectiveAuth | null = null;
+    if (this.chatgptAuth.isAuthenticated()) {
+      try {
+        chatgpt = await this.chatgptAuth.getAuth();
+      } catch {
+        chatgpt = null;
+      }
+    }
+    // Legacy keychain fallback only if ChatGPT auth unavailable.
+    const token = chatgpt ? null : await this.loadTokenOrReject();
+    if (!chatgpt && !token) {
       if (this.strict) {
         throw new Error(
           "OpenAIOAuthAdapter.complete() called without a stored token",
@@ -273,27 +322,48 @@ export class OpenAIOAuthAdapter extends BaseLLMAdapter {
     }
 
     // First attempt — fresh token.
-    let attemptToken = token.access_token;
+    let attemptToken = chatgpt ? chatgpt.accessToken : token!.access_token;
     let result = await this.callChatApi(
       attemptToken,
       redactedMessages,
       options,
     );
-    if (result.status === 401 && token.refresh_token) {
-      const refreshed = await this.trySilentRefresh(token);
-      if (refreshed) {
-        attemptToken = refreshed.access_token;
-        result = await this.callChatApi(
-          attemptToken,
-          redactedMessages,
-          options,
-        );
+    if (result.status === 401) {
+      if (chatgpt) {
+        // ChatGPTAuth auto-refreshes via JWT exp; a 401 here means even
+        // the refreshed token was rejected. Force a re-read (which will
+        // trigger another refresh if needed) and retry once.
+        try {
+          const refreshed = await this.chatgptAuth.getAuth();
+          attemptToken = refreshed.accessToken;
+          result = await this.callChatApi(
+            attemptToken,
+            redactedMessages,
+            options,
+          );
+        } catch {
+          /* fall through to 401 handling */
+        }
+      } else if (token!.refresh_token) {
+        const refreshed = await this.trySilentRefresh(token!);
+        if (refreshed) {
+          attemptToken = refreshed.access_token;
+          result = await this.callChatApi(
+            attemptToken,
+            redactedMessages,
+            options,
+          );
+        }
       }
     }
     if (result.status === 401) {
-      // Persistent auth failure — scrub the token so subsequent runs
-      // skip straight to the next resolver tier.
-      await this.credentialStore.delete("openai");
+      if (!chatgpt) {
+        // Persistent auth failure on the legacy keychain path — scrub so
+        // subsequent runs skip to the next resolver tier. For the
+        // ChatGPTAuth path we leave auth.json alone (the user re-runs
+        // `codex login`; we must not race their session).
+        await this.credentialStore.delete("openai");
+      }
       return emptyCompletion();
     }
     if (!result.ok) {
@@ -301,7 +371,7 @@ export class OpenAIOAuthAdapter extends BaseLLMAdapter {
         `OpenAI request failed (${result.status}): ${result.bodySnippet}`,
       );
     }
-    await this.credentialStore.touch("openai");
+    if (!chatgpt) await this.credentialStore.touch("openai");
     return result.completion;
   }
 

@@ -23,6 +23,7 @@ import {
   makeStubHttpClient,
   FAKE_ENDPOINTS,
   jsonResponse,
+  makeEmptyChatGPTAuth,
 } from "./_helpers";
 import type { StoredToken } from "../../credentials";
 
@@ -49,6 +50,7 @@ describe("OpenAIOAuthAdapter — shape + defaults", () => {
       credentialStore: store,
       projectRoot: tmp,
       endpoints: FAKE_ENDPOINTS,
+      chatgptAuth: makeEmptyChatGPTAuth(),
       httpClient: makeStubHttpClient(() => new Response("ok")),
       skipConsent: true,
     });
@@ -76,6 +78,7 @@ describe("OpenAIOAuthAdapter — redaction invariant", () => {
       credentialStore: store,
       projectRoot: tmp,
       endpoints: FAKE_ENDPOINTS,
+      chatgptAuth: makeEmptyChatGPTAuth(),
       httpClient: http,
       skipConsent: true,
     });
@@ -118,6 +121,7 @@ describe("OpenAIOAuthAdapter — 401 fallback chain", () => {
       credentialStore: store,
       projectRoot: tmp,
       endpoints: FAKE_ENDPOINTS,
+      chatgptAuth: makeEmptyChatGPTAuth(),
       httpClient: http,
       skipConsent: true,
     });
@@ -137,6 +141,7 @@ describe("OpenAIOAuthAdapter — no-token → empty completion (not strict)", ()
       credentialStore: store,
       projectRoot: tmp,
       endpoints: FAKE_ENDPOINTS,
+      chatgptAuth: makeEmptyChatGPTAuth(),
       httpClient: makeStubHttpClient(() =>
         jsonResponse({
           choices: [{ message: { content: "should-not-run" } }],
@@ -164,6 +169,7 @@ describe("OpenAIOAuthAdapter — consent decline short-circuits transmission", (
       credentialStore: store,
       projectRoot: tmp,
       endpoints: FAKE_ENDPOINTS,
+      chatgptAuth: makeEmptyChatGPTAuth(),
       httpClient: http,
       consentDeps: {
         ask: async () => "n",
@@ -192,6 +198,7 @@ describe("OpenAIOAuthAdapter — model override flows through to the wire body",
       credentialStore: store,
       projectRoot: tmp,
       endpoints: FAKE_ENDPOINTS,
+      chatgptAuth: makeEmptyChatGPTAuth(),
       httpClient: http,
       skipConsent: true,
       model: "gpt-4o",
