@@ -53,6 +53,16 @@ export interface SSROptions {
   bundleManifest?: BundleManifest;
   /** 라우트 ID (island 식별용) */
   routeId?: string;
+  /**
+   * Issue #233 — layout chain applied to this render, ordered outer → inner.
+   * Serialized into `data-mandu-layout` on `<div id="root">` so the SPA
+   * navigation helper can detect cross-layout transitions and fall back
+   * to a hard navigation instead of a soft `<main>` swap (which would
+   * leave stale layout chrome like a sidebar from the source layout).
+   * When omitted or empty the attribute is dropped — same-layout nav
+   * remains cheap and visually crossfaded.
+   */
+  layoutChain?: string[];
   /** 추가 head 태그 */
   headTags?: string;
   /** 추가 body 끝 태그 */
@@ -623,7 +633,24 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
     spa,
     devtools,
     devErrorOverlay,
+    layoutChain,
   } = options;
+
+  // Issue #233 — derive a stable short key for the layout chain so the
+  // SPA nav helper can detect cross-layout transitions. Deterministic
+  // per server, stable across the same route/layout combo. Missing /
+  // empty chain → omit the attribute entirely (attribute absence acts
+  // like a wildcard match).
+  let layoutKey = "";
+  if (layoutChain && layoutChain.length > 0) {
+    let hash = 0;
+    const joined = layoutChain.join("|");
+    for (let i = 0; i < joined.length; i++) {
+      hash = ((hash << 5) - hash + joined.charCodeAt(i)) | 0;
+    }
+    layoutKey = (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  const rootAttrs = layoutKey ? ` data-mandu-layout="${layoutKey}"` : "";
 
   // CSS 링크 태그 생성
   // - cssPath가 string이면 해당 경로 사용
@@ -804,7 +831,7 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
   ${devErrorOverlayTag}
 </head>
 <body>
-  <div id="root">${bodyContent}</div>
+  <div id="root"${rootAttrs}>${bodyContent}</div>
   ${dataScript}
   ${routeScript}
   ${hydrationScripts}

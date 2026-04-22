@@ -2848,6 +2848,9 @@ async function renderPageSSR(
         hmrPort: settings.hmrPort,
         routeId: route.id,
         routePattern: route.pattern,
+        // Issue #233 — emit data-mandu-layout so SPA nav can detect
+        // cross-layout transitions and hard-nav instead of half-swapping.
+        layoutChain: route.layoutChain,
         hydration: route.hydration,
         bundleManifest: settings.bundleManifest,
         criticalData: loaderData as Record<string, unknown> | undefined,
@@ -2896,6 +2899,9 @@ async function renderPageSSR(
       prefetch: settings.prefetch,
       spa: settings.spa,
       devtools: settings.devtools,
+      // Issue #233 — SPA nav uses this to detect cross-layout transitions
+      // and fall back to a hard navigation.
+      layoutChain: route.layoutChain,
     });
     return ok(cookies ? cookies.applyToResponse(ssrResponse) : ssrResponse);
   } catch (error) {

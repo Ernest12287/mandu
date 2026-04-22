@@ -99,6 +99,12 @@ export interface StreamingSSROptions {
   routeId?: string;
   /** 라우트 패턴 */
   routePattern?: string;
+  /**
+   * Issue #233 — layout chain (outer → inner). Emitted as
+   * `data-mandu-layout="<hash>"` on `<div id="root">` so the SPA
+   * navigation helper can detect cross-layout transitions.
+   */
+  layoutChain?: string[];
   /** Critical 데이터 (Shell과 함께 즉시 전송) - JSON-serializable object만 허용 */
   criticalData?: Record<string, unknown>;
   // Note: deferredData는 renderWithDeferredData의 deferredPromises로 대체됨
@@ -543,7 +549,23 @@ function generateHTMLShell(options: StreamingSSROptions): string {
     transitions = true,
     prefetch = true,
     spa = true,
+    layoutChain,
   } = options;
+
+  // Issue #233 — layout-key for SPA cross-layout detection. Mirror of the
+  // block in `ssr.ts::renderToHTML`; see that call-site for the full
+  // rationale. Streaming path must stamp the same attribute so the SPA
+  // helper's layout-mismatch heuristic is consistent across modes.
+  let layoutKey = "";
+  if (layoutChain && layoutChain.length > 0) {
+    let hash = 0;
+    const joined = layoutChain.join("|");
+    for (let i = 0; i < joined.length; i++) {
+      hash = ((hash << 5) - hash + joined.charCodeAt(i)) | 0;
+    }
+    layoutKey = (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  const rootAttrs = layoutKey ? ` data-mandu-layout="${layoutKey}"` : "";
 
   // CSS 링크 태그 생성
   // - cssPath가 string이면 해당 경로 사용
@@ -652,7 +674,7 @@ function generateHTMLShell(options: StreamingSSROptions): string {
   ${fastRefreshPreamble}
 </head>
 <body>
-  <div id="root">${islandOpenTag}`;
+  <div id="root"${rootAttrs}>${islandOpenTag}`;
 }
 
 /**

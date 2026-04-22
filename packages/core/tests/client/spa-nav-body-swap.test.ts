@@ -665,3 +665,41 @@ describe("SPA_NAV_HELPER — large body chunk", () => {
     expect(hardNavTo).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #233 — cross-layout transitions must fall back to hardNav.
+//
+// Before the fix: `<main>.innerHTML` swap left the SOURCE layout chrome
+// (e.g. docs `<aside>` sidebar) intact while replacing body content with
+// the DESTINATION layout's main content — DOM logically broken until
+// F5.
+//
+// After the fix: the SSR shell stamps `data-mandu-layout="<hash>"` on
+// `<div id="root">`. The helper compares the current DOM's key against
+// the parsed destination key; if they differ, soft swap is aborted and
+// `location.href = url` runs a full page load. Same-layout transitions
+// (e.g. `/posts/a` → `/posts/b`) keep the cheap soft swap.
+//
+// Regression guard — the critical literal `data-mandu-layout` must
+// appear in the minified helper body, and the helper source must
+// reference the transition-rejection reason. If this test fails the
+// cross-layout detection was lost.
+// ---------------------------------------------------------------------------
+describe("SPA_NAV_HELPER — #233 cross-layout detection", () => {
+  it("19. helper source references data-mandu-layout attribute", () => {
+    expect(SPA_NAV_HELPER_BODY).toContain("data-mandu-layout");
+  });
+
+  it("20. helper emits a distinct hardNav reason on cross-layout transitions", () => {
+    expect(SPA_NAV_HELPER_BODY).toContain("cross-layout transition");
+  });
+
+  it("21. helper compares current vs destination #root layout key in doSwap", () => {
+    // Cheap structural check: the transition-rejection block runs inside
+    // doSwap, before pickContainer, and the literals below cover the
+    // three operations that must stay wired up.
+    expect(SPA_NAV_HELPER_BODY).toMatch(/getElementById\("root"\)/);
+    expect(SPA_NAV_HELPER_BODY).toMatch(/getAttribute\("data-mandu-layout"\)/);
+    expect(SPA_NAV_HELPER_BODY).toMatch(/ck&&nk&&ck!==nk/);
+  });
+});
