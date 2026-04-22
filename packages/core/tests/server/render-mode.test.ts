@@ -96,7 +96,11 @@ describe("render mode integration", () => {
       }
     }
 
-    expect(first.headers.get("X-Mandu-Cache")).toBeNull();
+    // First response is a MISS — Phase 18.ζ now stamps `X-Mandu-Cache: MISS`
+    // on the initial response so downstream CDNs can observe cache state.
+    // Previously this header was null; contract updated after the cache-
+    // control stamping block at runtime/server.ts ~3380 landed.
+    expect(first.headers.get("X-Mandu-Cache")).toBe("MISS");
     expect(second?.headers.get("X-Mandu-Cache")).toBe("HIT");
     expect(firstHtml).toContain("count:1");
     expect(secondHtml).toContain("count:1");
