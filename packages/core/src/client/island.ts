@@ -233,7 +233,7 @@ export interface WrapComponentOptions<TServerData, TProps> {
   loading?: () => ReactNode;
 }
 
-export function wrapComponent<TProps extends Record<string, any>>(
+export function wrapComponent<TProps extends Record<string, unknown>>(
   Component: React.ComponentType<TProps>,
   options?: WrapComponentOptions<TProps, TProps>
 ): CompiledIsland<TProps, TProps>;
@@ -355,7 +355,7 @@ export interface CompiledPartial<TProps> {
  * }
  * ```
  */
-export function partial<TProps extends Record<string, any>>(
+export function partial<TProps extends Record<string, unknown>>(
   definition: PartialDefinition<TProps>
 ): CompiledPartial<TProps> & {
   Render: React.ComponentType<TProps>;
@@ -425,7 +425,7 @@ export interface CompiledSlot<TData, TProps> {
  * });
  * ```
  */
-export function slot<TData, TProps extends Record<string, any>>(
+export function slot<TData, TProps extends Record<string, unknown>>(
   definition: SlotDefinition<TData, TProps>
 ): CompiledSlot<TData, TProps> {
   if (!definition.id) {
@@ -473,7 +473,10 @@ export interface PartialGroup {
  * ```
  */
 export function createPartialGroup(): PartialGroup {
-  // React ComponentType variance requires `any` for heterogeneous component storage
+  // React `ComponentType<P>` is contravariant on `P`, so a heterogeneous
+  // component map genuinely needs `any` here — any narrower bag type would
+  // reject concrete `CompiledPartial<{userId: string}>` entries at `.set()`.
+  // oxlint-disable-next-line no-explicit-any -- heterogeneous React component storage
   const partials = new Map<string, CompiledPartial<any>>();
 
   return {
