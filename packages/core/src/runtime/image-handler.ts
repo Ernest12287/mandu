@@ -162,7 +162,18 @@ async function processImage(
 ): Promise<ProcessedImageResult> {
   // sharp 사용 시도 (선택적 의존성)
   try {
-    const sharp = require("sharp") as any;
+    // sharp is a heavyweight optional native dep. Type it minimally to the
+    // tiny surface we actually call — `resize/webp/avif/jpeg/png/toBuffer`.
+    interface SharpPipeline {
+      resize(width: number): SharpPipeline;
+      webp(opts: { quality: number }): SharpPipeline;
+      avif(opts: { quality: number }): SharpPipeline;
+      jpeg(opts: { quality: number }): SharpPipeline;
+      png(opts: { quality: number }): SharpPipeline;
+      toBuffer(): Promise<Buffer>;
+    }
+    type SharpFn = (input: Buffer) => SharpPipeline;
+    const sharp = require("sharp") as SharpFn;
     let pipeline = sharp(Buffer.from(data)).resize(options.width);
 
     switch (options.format) {

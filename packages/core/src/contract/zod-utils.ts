@@ -28,9 +28,12 @@ interface ZodDef {
 
 /**
  * Zod 스키마의 내부 _def 속성을 안전하게 추출합니다.
+ * `_def` is Zod's documented-but-internal introspection field and is not
+ * part of the public `ZodTypeAny` type. A narrow `{ _def: ZodDef }` cast
+ * keeps the escape hatch localised without relying on `any`.
  */
 function getDef(schema: ZodTypeAny): ZodDef {
-  return (schema as any)._def;
+  return (schema as unknown as { _def: ZodDef })._def;
 }
 
 // ============================================================================

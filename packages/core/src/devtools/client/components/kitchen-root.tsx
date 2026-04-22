@@ -268,14 +268,19 @@ function KitchenApp({ config }: KitchenAppProps): React.ReactElement | null {
       }
 
       // 3. window.__MANDU_* globals 삭제
+      //
+      // Window is an augmented global type; Mandu injects `__MANDU_*` keys
+      // at runtime that aren't declared in lib.dom.d.ts. Cast through a
+      // `Record<string, unknown>` to keep the delete legal without `any`.
+      const winRec = window as unknown as Record<string, unknown>;
       for (const key of Object.keys(window)) {
         if (key.startsWith('__MANDU_')) {
-          delete (window as any)[key];
+          delete winRec[key];
         }
       }
 
       // 4. HMR 서버에 POST /restart
-      const hmrPort = (window as any).__MANDU_HMR_PORT__;
+      const hmrPort = (window as unknown as { __MANDU_HMR_PORT__?: number }).__MANDU_HMR_PORT__;
       if (hmrPort) {
         await fetch(`http://localhost:${hmrPort}/restart`, { method: 'POST' });
       }

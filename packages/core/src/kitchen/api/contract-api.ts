@@ -9,6 +9,8 @@
  */
 
 import type { RoutesManifest, RouteSpec } from "../../spec/schema";
+import type { ContractSchema, ResponseSchemaWithExamples } from "../../contract/schema";
+import type { z } from "zod";
 import {
   generateOpenAPIDocument,
   zodToOpenAPISchema,
@@ -93,13 +95,18 @@ export class ContractPlaygroundAPI {
       schemas[method] = schema;
     }
 
-    // Response schemas
+    // Response schemas. Contract response entries are either a raw Zod
+    // schema or a `ResponseSchemaWithExamples` wrapper; narrow on the
+    // presence of `.schema` rather than widening to `any`.
     const responseSchemas: Record<string, unknown> = {};
     for (const [status, resSchema] of Object.entries(contract.response || {})) {
-      if (resSchema && typeof resSchema === "object" && "schema" in resSchema) {
-        responseSchemas[status] = zodToOpenAPISchema((resSchema as any).schema);
-      } else if (resSchema) {
-        responseSchemas[status] = zodToOpenAPISchema(resSchema as any);
+      if (!resSchema) continue;
+      if (typeof resSchema === "object" && "schema" in resSchema) {
+        responseSchemas[status] = zodToOpenAPISchema(
+          (resSchema as ResponseSchemaWithExamples).schema,
+        );
+      } else {
+        responseSchemas[status] = zodToOpenAPISchema(resSchema as z.ZodTypeAny);
       }
     }
 
@@ -212,12 +219,12 @@ export class ContractPlaygroundAPI {
 
   // ────────────────────────────────────────────────
 
-  private async loadContract(route: RouteSpec): Promise<any | null> {
+  private async loadContract(route: RouteSpec): Promise<ContractSchema | null> {
     if (!route.contractModule) return null;
     try {
       const fullPath = path.join(this.rootDir, route.contractModule);
-      const module = await import(fullPath);
-      return module.default;
+      const module = (await import(fullPath)) as { default?: ContractSchema };
+      return module.default ?? null;
     } catch {
       return null;
     }

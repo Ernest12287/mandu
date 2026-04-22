@@ -343,7 +343,12 @@ export async function navigate(
 
     // View Transitions API — 브라우저 지원 시 URL + DOM 전환을 동기화
     if (!replace && "startViewTransition" in document) {
-      (document as any).startViewTransition(applyUpdate);
+      // `startViewTransition` is part of the View Transitions API which
+      // is not yet in every lib.dom.d.ts. Narrow the cast to the only
+      // method we call rather than widening to `any`.
+      (document as Document & {
+        startViewTransition: (callback: () => void) => unknown;
+      }).startViewTransition(applyUpdate);
     } else {
       applyUpdate();
     }

@@ -16,6 +16,26 @@ import path from "path";
 
 type RouteModule = Record<string, unknown>;
 
+/**
+ * Structural shape of a `ManduFilling` instance as seen by the registrar.
+ * Mirrors the subset of the public API we depend on (handle/hasWS/getWSHandlers)
+ * without importing the concrete class — that would pull in runtime deps
+ * the CLI shouldn't need at import time.
+ */
+interface FillingInstance {
+  handle: (req: Request, params?: Record<string, string>) => Response | Promise<Response>;
+  hasWS?: () => boolean;
+  getWSHandlers?: () => Parameters<typeof registerWSHandler>[1];
+}
+
+function isFillingInstance(value: unknown): value is FillingInstance {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { handle?: unknown }).handle === "function"
+  );
+}
+
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 
 type HttpMethod = (typeof HTTP_METHODS)[number];
@@ -61,7 +81,7 @@ export interface RegisterHandlersOptions {
    * module's import graph, `importFn` returns the cached bundle in ~0.1 ms
    * instead of re-running Bun.build.
    */
-  importFn: (modulePath: string, opts?: { changedFile?: string }) => Promise<any>;
+  importFn: (modulePath: string, opts?: { changedFile?: string }) => Promise<unknown>;
   /** Set for tracking already registered layout paths */
   registeredLayouts: Set<string>;
   /** Clear layout cache on reload */
@@ -115,16 +135,16 @@ export async function registerManifestHandlers(
     if (route.kind === "api") {
       const modulePath = path.resolve(rootDir, route.module);
       try {
-        const module = await importFn(modulePath, importOpts);
-        let handler = module.default || module.handler || module;
+        const module = (await importFn(modulePath, importOpts)) as RouteModule;
+        let handler: unknown = module.default ?? module.handler ?? module;
 
         // 1) ManduFilling instance
-        if (handler && typeof handler.handle === "function") {
+        if (isFillingInstance(handler)) {
           console.log(`  🔄 ManduFilling wrapped: ${route.id}`);
           const filling = handler;
 
           // WebSocket 핸들러 등록
-          if (typeof filling.hasWS === "function" && filling.hasWS()) {
+          if (typeof filling.hasWS === "function" && filling.hasWS() && filling.getWSHandlers) {
             registerWSHandler(route.id, filling.getWSHandlers());
             console.log(`  🔌 WebSocket: ${route.pattern} -> ${route.id}`);
           }
@@ -143,7 +163,7 @@ export async function registerManifestHandlers(
           continue;
         }
 
-        registerApiHandler(route.id, handler);
+        registerApiHandler(route.id, handler as (req: Request, params?: Record<string, string>) => Response | Promise<Response>);
         console.log(`  📡 API: ${route.pattern} -> ${route.id}`);
       } catch (error) {
         console.error(`  ❌ Failed to load API handler: ${route.id}`, error);
@@ -158,9 +178,12 @@ export async function registerManifestHandlers(
         for (const layoutPath of route.layoutChain) {
           if (!registeredLayouts.has(layoutPath)) {
             const absLayoutPath = path.resolve(rootDir, layoutPath);
-            registerLayoutLoader(layoutPath, async () => {
+            registerLayoutLoader(layoutPath, (async () => {
+              // Layout modules must export a default component. Runtime
+              // validation in `renderToHTML` / page-loader asserts this —
+              // so casting the unknown `importFn` result is safe here.
               return importFn(absLayoutPath, importOpts);
-            });
+            }) as Parameters<typeof registerLayoutLoader>[1]);
             registeredLayouts.add(layoutPath);
             console.log(`  🎨 Layout: ${layoutPath}`);
           }
@@ -170,15 +193,14 @@ export async function registerManifestHandlers(
       // Use PageHandler if slotModule exists (filling.loader support)
       if (route.slotModule) {
         registerPageHandler(route.id, async () => {
-          const module = await importFn(componentPath, importOpts);
+          const mod = (await importFn(componentPath, importOpts)) as Record<string, unknown>;
           // Normalize the page module shape. Users write pages in two styles:
           //   (a) `export default function Page() {…}` + `export const filling = …`
           //   (b) `export default { component: …, filling: … }`
           // Spreading a function default drops the component silently (you get
           // the function's own props like `name`/`length`, not the function).
           // Auto-promote form (a) to form (b) so both work without surprises.
-          const rawDefault = module.default as unknown;
-          const mod = module as Record<string, unknown>;
+          const rawDefault = mod.default as unknown;
 
           let registration: PageRegistration;
           if (typeof rawDefault === "function") {
@@ -209,7 +231,7 @@ export async function registerManifestHandlers(
           `  📄 Page: ${route.pattern} -> ${route.id} (with loader)${isIsland ? " 🏝️" : ""}${hasLayout ? " 🎨" : ""}`
         );
       } else {
-        registerPageLoader(route.id, () => importFn(componentPath, importOpts));
+        registerPageLoader(route.id, (() => importFn(componentPath, importOpts)) as Parameters<typeof registerPageLoader>[1]);
         console.log(
           `  📄 Page: ${route.pattern} -> ${route.id}${isIsland ? " 🏝️" : ""}${hasLayout ? " 🎨" : ""}`
         );
