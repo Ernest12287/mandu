@@ -75,10 +75,14 @@ export const OPENAI_OAUTH_CLIENT_ID = "mandu-brain-cli";
 export const OPENAI_OAUTH_SCOPE = "openai.chat";
 
 /**
- * Default model — gpt-4o-mini balances cost and quality for brain
- * doctor triage. Override via `ManduConfig.brain.openai.model`.
+ * Default model — GPT-5.4 (current-generation OpenAI flagship as of
+ * 2026-04). Gives brain doctor triage the quality it needs to produce
+ * actionable patches, which was the whole motivation for moving off
+ * the local ministral-3:3b adapter. Override via
+ * `ManduConfig.brain.openai.model` (e.g. set to a cheaper tier for
+ * low-stakes automated runs).
  */
-export const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
+export const OPENAI_DEFAULT_MODEL = "gpt-5.4";
 export const OPENAI_API_BASE = "https://api.openai.com/v1";
 
 export const DEFAULT_OPENAI_CONFIG: AdapterConfig = {

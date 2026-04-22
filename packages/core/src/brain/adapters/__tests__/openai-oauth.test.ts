@@ -43,7 +43,7 @@ function seedToken(): StoredToken {
 }
 
 describe("OpenAIOAuthAdapter — shape + defaults", () => {
-  it("reports default model gpt-4o-mini and adapter name openai-oauth", async () => {
+  it("reports default model gpt-5.4 and adapter name openai-oauth", async () => {
     const store = makeMemoryStore({ openai: seedToken() });
     const adapter = new OpenAIOAuthAdapter({
       credentialStore: store,
