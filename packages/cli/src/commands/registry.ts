@@ -1155,14 +1155,14 @@ registerCommand({
 registerCommand({
   id: "deploy",
   description:
-    "Prepare deployment artifacts (docker, docker-compose, fly, vercel, railway, netlify, cf-pages)",
+    "Prepare deployment artifacts (docker, docker-compose, fly, vercel, railway, netlify, cf-pages, render)",
   exitOnSuccess: true,
   help: [
     "",
     "  mandu deploy — prepare deployment artifacts",
     "",
     "  Flags:",
-    "    --target=<name>    docker|docker-compose|fly|vercel|railway|netlify|cf-pages (required)",
+    "    --target=<name>    docker|docker-compose|fly|vercel|railway|netlify|cf-pages|render (required)",
     "    --env=<name>       Environment name (default: production)",
     "    --project=<name>   Project name override",
     "    --dry-run          Preview artifacts without touching filesystem",

@@ -15,6 +15,7 @@ import { railwayAdapter } from "./railway";
 import { netlifyAdapter } from "./netlify";
 import { cfPagesAdapter } from "./cf-pages";
 import { dockerComposeAdapter } from "./docker-compose";
+import { renderAdapter } from "./render";
 
 export { dockerAdapter, renderDockerfile } from "./docker";
 export { flyAdapter, createFlyAdapter, renderFlyToml } from "./fly";
@@ -47,9 +48,24 @@ export {
   renderDockerCompose,
   renderEnvExample,
 } from "./docker-compose";
+export {
+  renderAdapter,
+  createRenderAdapter,
+  renderRenderYaml,
+  renderBunDetector,
+  RENDER_PLANS,
+} from "./render";
+export type {
+  RenderAdapterOptions,
+  RenderAddons,
+  RenderConfig,
+  RenderEnvVarSpec,
+  RenderPlan,
+  RenderPostgresAddon,
+} from "./render";
 
 /**
- * Build a registry pre-populated with the seven builtin adapters.
+ * Build a registry pre-populated with the eight builtin adapters.
  * Callers MUST NOT hold on to the returned instance between invocations
  * of `mandu deploy` — the adapter graph is cheap to recreate and making
  * it per-invocation lets tests mutate freely.
@@ -63,5 +79,6 @@ export function createBuiltinRegistry(): DeployAdapterRegistry {
   registry.register(railwayAdapter);
   registry.register(netlifyAdapter);
   registry.register(cfPagesAdapter);
+  registry.register(renderAdapter);
   return registry;
 }

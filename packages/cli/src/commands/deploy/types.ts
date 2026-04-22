@@ -38,6 +38,7 @@ export const DEPLOY_TARGETS = [
   "netlify",
   "cf-pages",
   "docker-compose",
+  "render",
 ] as const;
 
 export type DeployTarget = (typeof DEPLOY_TARGETS)[number];
