@@ -145,7 +145,7 @@ export class OllamaAdapter extends BaseLLMAdapter {
       };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("Ollama request timeout");
+        throw new Error("Ollama request timeout", { cause: error });
       }
       throw error;
     }

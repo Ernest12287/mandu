@@ -100,6 +100,7 @@ export const geminiAdapter: PromptAdapter = {
       if ((err as Error).name === "AbortError") throw err;
       throw new Error(
         `gemini stream failed (key=${maskKey(apiKey)}): ${(err as Error).message}`,
+        { cause: err },
       );
     }
 

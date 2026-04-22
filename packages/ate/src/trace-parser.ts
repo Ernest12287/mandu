@@ -42,7 +42,7 @@ export function parseTrace(tracePath: string): TraceParseResult {
   try {
     content = readFileSync(tracePath);
   } catch (err) {
-    throw new Error(`Failed to read trace file: ${tracePath}`);
+    throw new Error(`Failed to read trace file: ${tracePath}`, { cause: err });
   }
 
   // Playwright trace.zip is a ZIP archive
@@ -60,7 +60,7 @@ export function parseTrace(tracePath: string): TraceParseResult {
       const text = decompressed.toString("utf8");
       traceData = JSON.parse(text);
     } catch (err) {
-      throw new Error(`Failed to parse trace JSON: ${String(err)}`);
+      throw new Error(`Failed to parse trace JSON: ${String(err)}`, { cause: err });
     }
   }
 

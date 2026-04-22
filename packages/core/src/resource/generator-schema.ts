@@ -405,6 +405,7 @@ async function readAppliedSnapshot(schemaStateDir: string): Promise<Snapshot | n
     throw new Error(
       `[computeSchemaGeneration] Failed to parse ${appliedPath}: ${msg}. ` +
         `Either revert the file to its prior state or delete it to force a full re-create.`,
+      { cause: err },
     );
   }
 }

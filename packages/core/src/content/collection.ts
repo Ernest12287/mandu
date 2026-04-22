@@ -300,7 +300,8 @@ export class Collection<T = Record<string, unknown>> {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         throw new Error(
-          `[content] failed to parse frontmatter in ${relPath}: ${msg}`
+          `[content] failed to parse frontmatter in ${relPath}: ${msg}`,
+          { cause: err }
         );
       }
       // Derive slug via the user's override or the built-in kebab-case

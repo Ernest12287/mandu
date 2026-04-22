@@ -383,7 +383,7 @@ function buildDbHandle(bunSql: BunSqlInstance, provider: SqlProvider): Db {
       return Array.from(result) as T[];
     } catch (err) {
       if (isPoolClosedError(err)) {
-        throw new Error(POOL_CLOSED_MESSAGE);
+        throw new Error(POOL_CLOSED_MESSAGE, { cause: err });
       }
       throw err;
     }

@@ -40,13 +40,13 @@ export async function computeImpact(input: ImpactInput): Promise<{ changedFiles:
   try {
     verifyGitRev(repoRoot, base);
   } catch (err: unknown) {
-    throw new Error(`잘못된 base revision: ${base} (${err instanceof Error ? err.message : String(err)})`);
+    throw new Error(`잘못된 base revision: ${base} (${err instanceof Error ? err.message : String(err)})`, { cause: err });
   }
 
   try {
     verifyGitRev(repoRoot, head);
   } catch (err: unknown) {
-    throw new Error(`잘못된 head revision: ${head} (${err instanceof Error ? err.message : String(err)})`);
+    throw new Error(`잘못된 head revision: ${head} (${err instanceof Error ? err.message : String(err)})`, { cause: err });
   }
 
   let out: string;
@@ -56,7 +56,7 @@ export async function computeImpact(input: ImpactInput): Promise<{ changedFiles:
       stdio: ["ignore", "pipe", "pipe"],
     }).toString("utf8");
   } catch (err: unknown) {
-    throw new Error(`Git diff 실행 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Git diff 실행 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   const changedFiles = out.split("\n").map((s) => toPosixPath(s.trim())).filter(Boolean);
@@ -72,7 +72,7 @@ export async function computeImpact(input: ImpactInput): Promise<{ changedFiles:
   try {
     graph = readJson<InteractionGraph>(paths.interactionGraphPath);
   } catch (err: unknown) {
-    throw new Error(`Interaction graph 읽기 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Interaction graph 읽기 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   if (!graph.nodes || graph.nodes.length === 0) {

@@ -128,10 +128,10 @@ export function createResendSender(options: ResendOptions): EmailSender {
       // Network-level failure (DNS, TCP reset, abort, offline). Re-throw
       // with clear context so ops dashboards can distinguish "provider said
       // no" from "we never reached the provider".
-      const cause = err instanceof Error ? err.message : String(err);
+      const causeMsg = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `[@mandujs/core/email/resend] email send failed: ${cause}`,
-        { cause: err instanceof Error ? err : undefined },
+        `[@mandujs/core/email/resend] email send failed: ${causeMsg}`,
+        { cause: err },
       );
     }
 

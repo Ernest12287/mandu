@@ -148,7 +148,8 @@ export function parseSnapshot(raw: string): Snapshot {
     parsed = JSON.parse(raw);
   } catch (err) {
     throw new TypeError(
-      `Invalid snapshot JSON: ${err instanceof Error ? err.message : String(err)}`
+      `Invalid snapshot JSON: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
     );
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

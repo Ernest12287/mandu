@@ -318,7 +318,8 @@ async function readResourceDefinition(
     return parsed.definition;
   } catch (error) {
     throw new Error(
-      `Failed to parse resource schema: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to parse resource schema: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

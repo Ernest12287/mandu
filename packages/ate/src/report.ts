@@ -28,7 +28,7 @@ export function composeSummary(params: {
   try {
     oracle = createDefaultOracle(params.oracleLevel);
   } catch (err: unknown) {
-    throw new Error(`Oracle 생성 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Oracle 생성 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   return {
@@ -75,7 +75,7 @@ export function writeSummary(repoRoot: string, runId: string, summary: SummaryJs
   try {
     ensureDir(runDir);
   } catch (err: unknown) {
-    throw new Error(`Report 디렉토리 생성 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Report 디렉토리 생성 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   const outPath = join(runDir, "summary.json");
@@ -83,7 +83,7 @@ export function writeSummary(repoRoot: string, runId: string, summary: SummaryJs
   try {
     writeJson(outPath, summary);
   } catch (err: unknown) {
-    throw new Error(`Summary 파일 저장 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Summary 파일 저장 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   return outPath;
@@ -121,7 +121,7 @@ export async function generateReport(options: GenerateReportOptions): Promise<{ 
       });
       result.html = htmlResult.path;
     } catch (err: unknown) {
-      throw new Error(`HTML 리포트 생성 실패: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`HTML 리포트 생성 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
   }
 

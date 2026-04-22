@@ -395,7 +395,8 @@ export class DockerSandboxAdapter implements PlaygroundAdapter {
       throw new Error(
         `DockerSandboxAdapter: failed to stage user code at ${filename}: ${
           err instanceof Error ? err.message : String(err)
-        }`
+        }`,
+        { cause: err }
       );
     }
     return filename;

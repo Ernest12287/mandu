@@ -568,6 +568,7 @@ describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")(
       } catch (e) {
         throw new Error(
           `build-runner stdout could not be parsed as JSON: ${String(e)}\nLast line: ${jsonLine}`,
+          { cause: e },
         );
       }
       if (!parsed.success) {

@@ -52,7 +52,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
   try {
     bundle = readJson<ScenarioBundle>(paths.scenariosPath);
   } catch (err: unknown) {
-    throw new Error(`시나리오 번들 읽기 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`시나리오 번들 읽기 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   if (!bundle.scenarios || bundle.scenarios.length === 0) {
@@ -79,7 +79,7 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
   try {
     ensureDir(paths.autoE2eDir);
   } catch (err: unknown) {
-    throw new Error(`E2E 디렉토리 생성 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`E2E 디렉토리 생성 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   const files: string[] = [];

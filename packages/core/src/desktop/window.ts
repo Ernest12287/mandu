@@ -99,7 +99,7 @@ export async function _loadWebviewBun(): Promise<WebviewBunModule> {
         "Then pin the version in package.json. Tested: ^2.4.0 (MIT).",
         "Docs: https://github.com/tr1ckydev/webview-bun",
       ].join("\n"),
-      { cause: cause as Error },
+      { cause },
     );
   }
 }
@@ -353,6 +353,7 @@ export async function createWindow(
           `[@mandujs/core/desktop] Failed to bind handler "${name}": ${
             error instanceof Error ? error.message : String(error)
           }`,
+          { cause: error },
         );
       }
     }
@@ -419,6 +420,7 @@ export async function createWindow(
       `[@mandujs/core/desktop] navigate() failed: ${
         error instanceof Error ? error.message : String(error)
       }`,
+      { cause: error },
     );
   }
 

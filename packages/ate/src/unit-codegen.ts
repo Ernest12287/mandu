@@ -88,6 +88,7 @@ export function generateUnitSpecs(
   } catch (err: unknown) {
     throw new Error(
       `Interaction graph read failed: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     );
   }
 

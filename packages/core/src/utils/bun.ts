@@ -3,6 +3,6 @@ export async function readJsonFile(filePath: string): Promise<unknown> {
     return await Bun.file(filePath).json();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to parse JSON in ${filePath}: ${message}`);
+    throw new Error(`Failed to parse JSON in ${filePath}: ${message}`, { cause: error });
   }
 }

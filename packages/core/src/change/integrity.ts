@@ -20,7 +20,8 @@ export async function computeFileHash(filePath: string): Promise<string> {
       throw error;
     }
     throw new Error(
-      `Failed to compute hash for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to compute hash for ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

@@ -60,7 +60,8 @@ export async function readLockfile(
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new Error(
-        `Failed to parse lockfile at ${lockfilePath}: ${error.message}`
+        `Failed to parse lockfile at ${lockfilePath}: ${error.message}`,
+        { cause: error }
       );
     }
     throw error;
@@ -85,7 +86,7 @@ export async function readMcpConfig(
     return data ?? null;
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new Error(`Failed to parse .mcp.json at ${mcpPath}: ${error.message}`);
+      throw new Error(`Failed to parse .mcp.json at ${mcpPath}: ${error.message}`, { cause: error });
     }
     throw error;
   }

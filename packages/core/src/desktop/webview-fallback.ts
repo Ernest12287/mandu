@@ -322,7 +322,7 @@ export async function loadFFILibwebview(): Promise<LoadedFFI> {
         "",
         `Cause: ${cause instanceof Error ? cause.message : String(cause)}`,
       ].join("\n"),
-      { cause: cause as Error },
+      { cause },
     );
   }
 

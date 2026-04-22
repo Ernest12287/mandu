@@ -68,7 +68,7 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
       ignore: ["**/node_modules/**", "**/.mandu/**"],
     });
   } catch (err: unknown) {
-    throw new Error(`파일 검색 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`파일 검색 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   if (routeFiles.length === 0) {
@@ -86,7 +86,7 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
       skipAddingFilesFromTsConfig: true,
     });
   } catch (err: unknown) {
-    throw new Error(`TypeScript 프로젝트 초기화 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`TypeScript 프로젝트 초기화 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   for (const filePath of routeFiles) {
@@ -394,7 +394,7 @@ export async function extract(input: ExtractInput): Promise<{ ok: true; graphPat
   try {
     writeJson(paths.interactionGraphPath, graph);
   } catch (err: unknown) {
-    throw new Error(`Interaction graph 저장 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Interaction graph 저장 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   return {

@@ -101,7 +101,7 @@ export async function runPlaywright(input: RunInput): Promise<RunResult> {
     ensureDir(runDir);
     ensureDir(latestDir);
   } catch (err: unknown) {
-    throw new Error(`Report 디렉토리 생성 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Report 디렉토리 생성 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   const baseURL = input.baseURL ?? process.env.BASE_URL ?? "http://localhost:3333";
@@ -154,7 +154,7 @@ export async function runPlaywright(input: RunInput): Promise<RunResult> {
       env,
     });
   } catch (err: unknown) {
-    throw new Error(`Playwright 프로세스 시작 실패 (${cmd}): ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Playwright 프로세스 시작 실패 (${cmd}): ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   const exitCode: number = await new Promise((resolve, reject) => {

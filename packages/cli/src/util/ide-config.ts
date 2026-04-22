@@ -233,7 +233,7 @@ export async function readConfigJson(
     return parsed as Record<string, unknown>;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`[${filePath}] invalid JSON: ${msg}`);
+    throw new Error(`[${filePath}] invalid JSON: ${msg}`, { cause: err });
   }
 }
 

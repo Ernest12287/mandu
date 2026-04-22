@@ -65,7 +65,8 @@ export async function parseResourceSchema(filePath: string): Promise<ParsedResou
     throw new Error(
       `Failed to import resource schema "${filePath}": ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
 
@@ -76,7 +77,8 @@ export async function parseResourceSchema(filePath: string): Promise<ParsedResou
     throw new Error(
       `Invalid resource schema in "${filePath}": ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
 

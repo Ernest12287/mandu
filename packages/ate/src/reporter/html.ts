@@ -41,7 +41,7 @@ export async function generateHtmlReport(options: HtmlReportOptions): Promise<Ht
     const content = readFileSync(summaryPath, "utf-8");
     summary = JSON.parse(content);
   } catch (err: unknown) {
-    throw new Error(`Summary 파일 읽기 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Summary 파일 읽기 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   // 2. 스크린샷 URL 수집 (선택)
@@ -71,7 +71,7 @@ export async function generateHtmlReport(options: HtmlReportOptions): Promise<Ht
     ensureDir(join(htmlPath, "..")); // 상위 디렉토리 확인
     writeFileSync(htmlPath, html, "utf-8");
   } catch (err: unknown) {
-    throw new Error(`HTML 파일 저장 실패: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`HTML 파일 저장 실패: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
 
   const size = Buffer.byteLength(html, "utf-8");

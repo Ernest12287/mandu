@@ -95,6 +95,7 @@ export const claudeAdapter: PromptAdapter = {
       if ((err as Error).name === "AbortError") throw err;
       throw new Error(
         `claude stream failed (key=${maskKey(apiKey)}): ${(err as Error).message}`,
+        { cause: err },
       );
     }
 

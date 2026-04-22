@@ -80,6 +80,7 @@ export const openaiAdapter: PromptAdapter = {
       if ((err as Error).name === "AbortError") throw err;
       throw new Error(
         `openai stream failed (key=${maskKey(apiKey)}): ${(err as Error).message}`,
+        { cause: err },
       );
     }
 
