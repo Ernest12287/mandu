@@ -28,7 +28,8 @@ export * from "./oauth-flow";
 export * from "./chatgpt-auth";
 
 import { type LLMAdapter, NoopAdapter } from "./base";
-import { OllamaAdapter, createOllamaAdapter } from "./ollama";
+import type { OllamaAdapter} from "./ollama";
+import { createOllamaAdapter } from "./ollama";
 import {
   OpenAIOAuthAdapter,
   createOpenAIOAuthAdapter,

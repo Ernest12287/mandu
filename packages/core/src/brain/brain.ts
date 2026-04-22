@@ -21,7 +21,8 @@ import type {
 import { DEFAULT_BRAIN_POLICY } from "./types";
 import { type LLMAdapter, NoopAdapter } from "./adapters/base";
 import { createOllamaAdapter } from "./adapters/ollama";
-import { SessionMemory, getSessionMemory } from "./memory";
+import type { SessionMemory} from "./memory";
+import { getSessionMemory } from "./memory";
 import {
   detectEnvironment,
   shouldEnableBrain,

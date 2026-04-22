@@ -20,8 +20,9 @@ import {
   type OAuthProvider,
 } from "../index";
 import { session, saveSession } from "../../session";
+import type {
+  Session} from "../../../filling/session";
 import {
-  Session,
   createCookieSessionStorage,
   type SessionStorage,
 } from "../../../filling/session";

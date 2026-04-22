@@ -9,7 +9,8 @@
  */
 
 import type { AIContextPayload, NormalizedError } from '../types';
-import { AIContextBuilder, getContextBuilder } from './context-builder';
+import type { AIContextBuilder} from './context-builder';
+import { getContextBuilder } from './context-builder';
 
 // ============================================================================
 // Types

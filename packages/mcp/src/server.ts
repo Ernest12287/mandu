@@ -29,7 +29,8 @@ import { registerBuiltinTools, getToolsSummary } from "./tools/index.js";
 
 // DNA-007: 에러 처리
 import { createToolResponse, logToolError } from "./executor/error-handler.js";
-import { ToolExecutor, createToolExecutor } from "./executor/tool-executor.js";
+import type { ToolExecutor} from "./executor/tool-executor.js";
+import { createToolExecutor } from "./executor/tool-executor.js";
 
 // DNA-008: 로깅 통합
 import { setupMcpLogging, teardownMcpLogging } from "./logging/mcp-transport.js";

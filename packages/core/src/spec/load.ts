@@ -1,5 +1,5 @@
 import { RoutesManifest, type RoutesManifest as RoutesManifestType } from "./schema";
-import { ZodError } from "zod";
+import type { ZodError } from "zod";
 
 export interface LoadResult {
   success: boolean;

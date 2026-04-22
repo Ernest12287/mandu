@@ -3,7 +3,7 @@
  * Resource-Centric Architecture의 핵심 스키마 정의
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 
 // ============================================
 // Field Types

@@ -14,8 +14,10 @@ import type {
   RenderedContent,
 } from "./types";
 import { LoaderError } from "./types";
-import { ContentDataStore, createDataStore } from "./data-store";
-import { ContentMetaStore, createMetaStore } from "./meta-store";
+import type { ContentDataStore} from "./data-store";
+import { createDataStore } from "./data-store";
+import type { ContentMetaStore} from "./meta-store";
+import { createMetaStore } from "./meta-store";
 import { createLoaderContext, createSimpleMarkdownRenderer } from "./loader-context";
 import { CONTENT } from "../constants";
 import type { ZodSchema } from "zod";

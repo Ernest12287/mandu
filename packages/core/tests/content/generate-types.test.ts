@@ -7,7 +7,8 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { z } from "zod";
-import { defineCollection, Collection } from "../../src/content/collection";
+import type { Collection } from "../../src/content/collection";
+import { defineCollection } from "../../src/content/collection";
 import {
   generateContentTypes,
   renderContentTypes,

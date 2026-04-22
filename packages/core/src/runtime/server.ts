@@ -77,8 +77,9 @@ import { collectPerfSnapshot } from "../perf/user-marks";
 // `startServer()`; `runWithSpan` is used at the absolute TOP of the
 // request handler so every downstream await (middleware, filling
 // loader, SSR render) inherits the active span via AsyncLocalStorage.
+import type {
+  Tracer} from "../observability/tracing";
 import {
-  Tracer,
   createTracerFromConfig,
   runWithSpan,
   setTracer,

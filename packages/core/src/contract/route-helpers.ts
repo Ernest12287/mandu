@@ -1,4 +1,5 @@
-import { z, type ZodTypeAny } from "zod";
+import type { z} from "zod";
+import { type ZodTypeAny } from "zod";
 
 export type ApiErrorCode = string;
 

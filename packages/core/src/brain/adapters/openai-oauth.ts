@@ -44,8 +44,9 @@ import type {
   CompletionOptions,
   CompletionResult,
 } from "../types";
+import type {
+  CredentialStore} from "../credentials";
 import {
-  CredentialStore,
   getCredentialStore,
   type StoredToken,
 } from "../credentials";

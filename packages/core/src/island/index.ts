@@ -13,7 +13,7 @@
  */
 
 import type { ComponentType, ReactNode } from 'react';
-import { z } from 'zod';
+import type { z } from 'zod';
 
 // ============================================================================
 // Types

@@ -24,8 +24,9 @@ import {
   loggedAt,
 } from "../login";
 import { session } from "../../middleware/session";
+import type {
+  Session} from "../../filling/session";
 import {
-  Session,
   createCookieSessionStorage,
   type SessionStorage,
 } from "../../filling/session";
