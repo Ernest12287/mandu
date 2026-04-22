@@ -367,27 +367,11 @@ describe("Issue #221 — prerendered HTML Cache-Control", () => {
 
   // ── Dev mode ────────────────────────────────────────────────────────
 
-  it("dev mode forces no-cache on prerendered HTML", async () => {
-    await seedPrerenderedProject(
-      TEST_DIR,
-      "/docs/intro",
-      "<!doctype html><title>intro</title>",
-    );
-    server = startServer(emptyManifest, {
-      port: 0,
-      rootDir: TEST_DIR,
-      registry,
-      isDev: true,
-    });
-    const res = await fetch(
-      `http://localhost:${server.server.port}/docs/intro`,
-    );
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Cache-Control")).toBe(
-      "no-cache, no-store, must-revalidate",
-    );
-  });
+  // NOTE: the previous "dev mode forces no-cache on prerendered HTML" test
+  // was removed in #232 — dev mode now BYPASSES the prerender cache entirely,
+  // so a cache-control header on a prerendered response is no longer a
+  // reachable code path in dev. Coverage moved to the #232 describe block
+  // below, which asserts the bypass directly.
 
   // ── HEAD request ────────────────────────────────────────────────────
 
@@ -415,5 +399,71 @@ describe("Issue #221 — prerendered HTML Cache-Control", () => {
     expect(res.headers.get("X-Mandu-Cache")).toBe("PRERENDERED");
     const body = await res.arrayBuffer();
     expect(body.byteLength).toBe(0);
+  });
+});
+
+describe("Issue #232 — dev mode bypasses prerendered cache", () => {
+  let server: ManduServer | null = null;
+  let registry: ServerRegistry;
+  let TEST_DIR: string;
+
+  beforeEach(async () => {
+    __clearStaticEtagCacheForTests();
+    registry = createServerRegistry();
+    TEST_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "mandu-prerender-dev-"));
+  });
+
+  afterEach(async () => {
+    if (server) {
+      server.stop();
+      server = null;
+    }
+    await fs.rm(TEST_DIR, { recursive: true, force: true });
+  });
+
+  it("dev server does NOT serve stale prerendered HTML (route SSR takes over)", async () => {
+    // Seed a stale prerendered HTML file as if `mandu build` had produced it.
+    await seedPrerenderedProject(
+      TEST_DIR,
+      "/",
+      "<!doctype html><title>STALE FROM BUILD</title>",
+    );
+
+    // Start with `isDev: true` — empty manifest means route dispatch produces
+    // a 404, which is FINE for this test: the point is that the PRERENDERED
+    // short-circuit must NOT fire.
+    server = startServer(emptyManifest, {
+      port: 0,
+      rootDir: TEST_DIR,
+      isDev: true,
+      registry,
+    });
+
+    const res = await fetch(`http://localhost:${server.server.port}/`);
+
+    expect(res.headers.get("X-Mandu-Cache")).not.toBe("PRERENDERED");
+    const body = await res.text();
+    expect(body).not.toContain("STALE FROM BUILD");
+  });
+
+  it("production (isDev:false) still serves prerendered cache (regression guard)", async () => {
+    await seedPrerenderedProject(
+      TEST_DIR,
+      "/",
+      "<!doctype html><title>prod cached</title>",
+    );
+
+    server = startServer(emptyManifest, {
+      port: 0,
+      rootDir: TEST_DIR,
+      isDev: false,
+      registry,
+    });
+
+    const res = await fetch(`http://localhost:${server.server.port}/`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Mandu-Cache")).toBe("PRERENDERED");
+    expect(await res.text()).toContain("prod cached");
   });
 });

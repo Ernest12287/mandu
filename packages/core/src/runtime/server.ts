@@ -3785,13 +3785,22 @@ async function handleRequestInternal(
   // Must run BEFORE static-file serving and route dispatch so that
   // `mandu build`-emitted HTML short-circuits SSR. No-op if the
   // feature is disabled or the path wasn't prerendered.
-  const prerendered = await tryServePrerendered(pathname, settings, req.method, req);
-  if (prerendered) {
-    if (settings.cors && isCorsRequest(req)) {
-      const corsOptions: CorsOptions = typeof settings.cors === 'object' ? settings.cors : {};
-      return ok(applyCorsToResponse(prerendered, req, corsOptions));
+  //
+  // #232 — In dev mode we SKIP the prerender cache entirely. The cache is
+  // populated by `mandu build` and never invalidated during `mandu dev`, so
+  // keeping it in the dev path causes the browser to see stale HTML after
+  // HMR signals "full reload" — user saves a file, reloads, and the old
+  // prerendered output wins. Production `mandu start` always runs with
+  // `isDev: false`, so prod behavior is unchanged.
+  if (!settings.isDev) {
+    const prerendered = await tryServePrerendered(pathname, settings, req.method, req);
+    if (prerendered) {
+      if (settings.cors && isCorsRequest(req)) {
+        const corsOptions: CorsOptions = typeof settings.cors === 'object' ? settings.cors : {};
+        return ok(applyCorsToResponse(prerendered, req, corsOptions));
+      }
+      return ok(prerendered);
     }
-    return ok(prerendered);
   }
 
   // ─── Phase 18.μ — i18n dispatch ─────────────────────────────────────────
