@@ -77,6 +77,55 @@ export async function runManifestGuardWithAutoHeal(
   };
 }
 
+/**
+ * Detect whether `oxlint` is reachable from the project — either via a
+ * local devDependency (`node_modules/.bin/oxlint`) or the host's PATH.
+ * Deliberately cheap: a single `stat()` on the local bin + a `bun x
+ * oxlint --version` fallback. Returns `true` on first hit.
+ */
+async function isOxlintAvailable(rootDir: string): Promise<boolean> {
+  const binName = process.platform === "win32" ? "oxlint.exe" : "oxlint";
+  const localBin = path.resolve(rootDir, "node_modules", ".bin", binName);
+  if (await Bun.file(localBin).exists()) return true;
+  try {
+    const proc = Bun.spawn({
+      cmd: ["bun", "x", "oxlint", "--version"],
+      cwd: rootDir,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    const code = await proc.exited;
+    return code === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Run oxlint once and parse the `Found N warnings and M errors` tail
+ * from stderr. Returns `null` when the parser miss — we don't guess.
+ */
+async function runOxlintOnce(rootDir: string): Promise<{ errors: number; warnings: number } | null> {
+  try {
+    const proc = Bun.spawn({
+      cmd: ["bun", "x", "oxlint", "."],
+      cwd: rootDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stderr] = await Promise.all([
+      new Response(proc.stderr).text(),
+      new Response(proc.stdout).text(),
+    ]);
+    await proc.exited;
+    const match = stderr.match(/Found (\d+) warnings? and (\d+) errors?/);
+    if (!match) return null;
+    return { warnings: Number(match[1]), errors: Number(match[2]) };
+  } catch {
+    return null;
+  }
+}
+
 export async function check(): Promise<boolean> {
   const rootDir = resolveFromCwd(".");
   const config = await validateAndReport(rootDir);
@@ -285,7 +334,59 @@ export async function check(): Promise<boolean> {
     }
   }
 
-  // 5) React Compiler bailout diagnostics (#240 Phase 2)
+  // 5) Lint (oxlint) — default guardrail
+  //
+  // If the project has oxlint installed (as a local devDep or on
+  // PATH), run it and surface the error/warning counts. Lint errors
+  // flip `success = false`; warnings are reported but don't fail.
+  // Missing oxlint → skip with a one-line hint so the message channel
+  // stays unambiguous.
+  let lintSummary: { enabled: boolean; errors: number; warnings: number; skipped: boolean } = {
+    enabled: false,
+    errors: 0,
+    warnings: 0,
+    skipped: false,
+  };
+  {
+    const available = await isOxlintAvailable(rootDir);
+    if (available) {
+      lintSummary.enabled = true;
+      const result = await runOxlintOnce(rootDir);
+      if (result) {
+        lintSummary.errors = result.errors;
+        lintSummary.warnings = result.warnings;
+        if (result.errors > 0) {
+          success = false;
+        }
+        if (format === "console" && !quiet) {
+          if (result.errors === 0 && result.warnings === 0) {
+            log("✅ Lint: clean (oxlint, 0/0)");
+          } else {
+            log(
+              `${result.errors === 0 ? "⚠️ " : "❌ "} Lint: ${result.errors} error(s) / ${result.warnings} warning(s) (oxlint)`,
+            );
+          }
+          log("");
+        } else if (quiet) {
+          print(`📊 Lint: ${result.errors}/${result.warnings} (oxlint)`);
+        }
+      } else {
+        lintSummary.skipped = true;
+        if (format === "console" && !quiet) {
+          log("⚠️  Lint: oxlint ran but output could not be parsed — skipped");
+          log("");
+        }
+      }
+    } else {
+      lintSummary.skipped = true;
+      if (format === "console" && !quiet) {
+        log("ℹ️  Lint: oxlint not installed — skipping. Run `mandu lint --setup` to enable.");
+        log("");
+      }
+    }
+  }
+
+  // 6) React Compiler bailout diagnostics (#240 Phase 2)
   //
   // Only runs when:
   //   - `experimental.reactCompiler.enabled: true` in mandu.config.ts

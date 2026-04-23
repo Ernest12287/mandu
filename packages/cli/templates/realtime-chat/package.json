@@ -14,7 +14,8 @@
     "guard": "mandu guard",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
-    "test": "bun test"
+    "test": "bun test",
+    "prepare": "lefthook install"
   },
   "dependencies": {
     "@mandujs/core": "{{CORE_VERSION}}",
@@ -35,6 +36,7 @@
     "tailwindcss": "^4.1.0",
     "typescript": ">=6.0.0",
     "@typescript/native-preview": "beta",
-    "oxlint": "^1.61.0"
+    "oxlint": "^1.61.0",
+    "lefthook": "^1.14.0"
   }
 }

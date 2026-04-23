@@ -25,6 +25,7 @@ import skill_mandu_create_api from "../../skills/skills/mandu-create-api/SKILL.m
 import skill_mandu_debug from "../../skills/skills/mandu-debug/SKILL.md" with { type: "text" };
 import skill_mandu_explain from "../../skills/skills/mandu-explain/SKILL.md" with { type: "text" };
 import skill_mandu_guard_guide from "../../skills/skills/mandu-guard-guide/SKILL.md" with { type: "text" };
+import skill_mandu_lint from "../../skills/skills/mandu-lint/SKILL.md" with { type: "text" };
 import skill_mandu_deploy from "../../skills/skills/mandu-deploy/SKILL.md" with { type: "text" };
 import skill_mandu_slot from "../../skills/skills/mandu-slot/SKILL.md" with { type: "text" };
 import skill_mandu_fs_routes from "../../skills/skills/mandu-fs-routes/SKILL.md" with { type: "text" };
@@ -54,6 +55,7 @@ export const SKILLS_MANIFEST = new Map([
   ["mandu-debug", skill_mandu_debug],
   ["mandu-explain", skill_mandu_explain],
   ["mandu-guard-guide", skill_mandu_guard_guide],
+  ["mandu-lint", skill_mandu_lint],
   ["mandu-deploy", skill_mandu_deploy],
   ["mandu-slot", skill_mandu_slot],
   ["mandu-fs-routes", skill_mandu_fs_routes],
@@ -78,6 +80,7 @@ export const EMBEDDED_SKILL_IDS = [
   "mandu-debug",
   "mandu-explain",
   "mandu-guard-guide",
+  "mandu-lint",
   "mandu-deploy",
   "mandu-slot",
   "mandu-fs-routes",
@@ -91,4 +94,4 @@ export const EMBEDDED_SKILL_IDS = [
 ];
 
 /** Sanity check: expected total count (9 SKILL.md + 1 settings.json). */
-export const SKILLS_PAYLOAD_COUNT = 16;
+export const SKILLS_PAYLOAD_COUNT = 17;

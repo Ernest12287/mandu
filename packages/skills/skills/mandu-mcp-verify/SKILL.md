@@ -22,7 +22,7 @@ description: |
 
 ## Fast Path (병렬, 기본값)
 
-세 도구는 서로 독립. 병렬 호출.
+네 도구는 서로 독립. 병렬 호출.
 
 ```
 ┌─────────────────────────────┐
@@ -30,9 +30,11 @@ description: |
 ├─────────────────────────────┤
 │ mandu_guard_check           │  ← Tier-1: 아키텍처 규칙 위반 스캔
 ├─────────────────────────────┤
+│ mandu.lint                  │  ← 가드레일-lint: 코드 품질 스캔 (oxlint)
+├─────────────────────────────┤
 │ mandu_doctor                │  ← Tier-0: 구조/import/location 진단
 └─────────────────────────────┘
-       세 개를 parallel 호출
+       네 개를 parallel 호출
 ```
 
 인자 예:
@@ -46,18 +48,21 @@ mandu.ate.auto_pipeline({
 
 mandu_guard_check({ repoRoot: "." })
 
+mandu.lint({ typeAware: false })   // oxlint 미설치 시 조용히 skip
+
 mandu_doctor({ repoRoot: "." })
 ```
 
-세 응답을 수집하고 pass/fail 매트릭스를 만든다:
+네 응답을 수집하고 pass/fail 매트릭스를 만든다:
 
 | 도구 | pass | fail 의 의미 |
 |------|------|------------|
 | `ate.auto_pipeline` | 테스트 통과 + 계약 일치 | 테스트 실패 또는 impact 드리프트 |
 | `guard_check` | 레이어/금지 import 위반 없음 | 아키텍처 규칙 위반 |
+| `lint` | oxlint error 0 | error 1+ (warning 은 informational) |
 | `doctor` | 파일 위치 / import 정상 | 구조 결함 |
 
-**세 개 모두 green** → verify 종료. 사용자에게 압축 요약 제시.
+**네 개 모두 green** → verify 종료. 사용자에게 압축 요약 제시.
 
 ## Drill-Down (실패 시에만)
 
@@ -82,6 +87,20 @@ mandu.ate.feedback({ runId })           ← 힐 후보의 카테고리/우선순
 
 중요: `mandu.ate.heal` + `mandu.ate.apply_heal` 을 수동으로 엮지 않는다.
 `ate.auto_pipeline` 이 이미 heal 후보를 계산했고, 우리는 **적용 여부**만 결정.
+
+### Lint 실패 (oxlint error 1+)
+
+```
+mandu.lint({ typeAware: false })    ← 이미 fast path 에서 뜬 상태
+  → 반환 payload 의 error 목록에서 rule id 확인
+  → site-level 수정 (절대 전역 off 로 회피 금지 — `mandu-lint` §AP-1)
+  → fast path 재실행
+```
+
+`oxlint` 가 설치되어 있지 않으면 fast path 의 lint 응답은 `installed: false` 로
+돌아온다. 그 경우 `mandu.lint.setup({})` 로 설치하도록 사용자에게 안내 — 기존
+프로젝트는 opt-in 이 필요함. 신규 프로젝트는 `mandu init` 이 이미 배선했으므로
+이 경로는 드물다.
 
 ### Doctor 실패 (구조 / import)
 
@@ -160,3 +179,4 @@ mandu_kitchen_errors({ limit: 20 })
 - `mandu-mcp-safe-change` — drill-down 이 대규모 수정으로 번질 때
 - `mandu-debug` — 에러 카테고리별 도메인 지식
 - `mandu-guard-guide` — guard 위반 유형별 수정 방법
+- `mandu-lint` — 가드레일-lint 축 상세 (setup / type-aware / 자동수정 안전 절차)

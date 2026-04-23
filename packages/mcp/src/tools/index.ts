@@ -67,6 +67,8 @@ export { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
 export { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 // #243 — docs search/get for agents grounding answers in real framework docs
 export { docsTools, docsToolDefinitions } from "./docs.js";
+// #240 guardrail-default — lint run + setup for existing projects
+export { lintTools, lintToolDefinitions } from "./lint.js";
 // Phase 18.ι — AI refactor MCP tools
 export {
   rewriteGeneratedBarrelTools,
@@ -138,6 +140,7 @@ import { deployPreviewTools, deployPreviewToolDefinitions } from "./deploy-previ
 import { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
 import { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 import { docsTools, docsToolDefinitions } from "./docs.js";
+import { lintTools, lintToolDefinitions } from "./lint.js";
 // Phase 18.ι — AI refactor MCP tools
 import {
   rewriteGeneratedBarrelTools,
@@ -254,6 +257,7 @@ const TOOL_MODULES: ToolModule[] = [
   { category: "ai-brief", definitions: aiBriefToolDefinitions, handlers: aiBriefTools },
   { category: "loop-close", definitions: loopCloseToolDefinitions, handlers: loopCloseTools },
   { category: "docs", definitions: docsToolDefinitions, handlers: docsTools },
+  { category: "lint", definitions: lintToolDefinitions, handlers: lintTools },
   // Phase 18.ι — AI refactor tools (destructive writes; dry-run by default)
   {
     category: "refactor-barrel",

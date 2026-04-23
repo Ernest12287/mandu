@@ -69,7 +69,7 @@ mandu.refactor.migrateRouteConventions({ dryRun: false, ... })
 
 ### Step 4 — `mandu-mcp-verify` fast path
 
-변경 후 검증. `mandu-mcp-verify` 의 병렬 3 콜 (`ate.auto_pipeline`, `guard_check`, `doctor`).
+변경 후 검증. `mandu-mcp-verify` 의 병렬 4 콜 (`ate.auto_pipeline`, `guard_check`, `lint`, `doctor`). 특히 대규모 refactor 는 lint 에러를 쉽게 새로 만들기 때문에 lint 축을 반드시 포함한다 — 하나라도 빨간 상태로 `tx_commit` 하지 않는다.
 
 ### Step 5a — 모두 green 이면 Commit
 

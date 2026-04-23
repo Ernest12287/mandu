@@ -121,6 +121,55 @@ export interface BuildOptions {
     enabled?: boolean;
     compilerConfig?: Record<string, unknown>;
   };
+  /**
+   * Pre-build lint gate. Default: lint errors block the build.
+   * Pass `noLint: true` (CLI `--no-lint`) to skip. Warnings never
+   * block. oxlint not installed → gate is a no-op + advisory log.
+   */
+  noLint?: boolean;
+}
+
+type PreBuildLintResult =
+  | { errors: number; warnings: number }
+  | "skip"
+  | "parse-failed";
+
+async function runPreBuildLint(rootDir: string): Promise<PreBuildLintResult> {
+  const binName = process.platform === "win32" ? "oxlint.exe" : "oxlint";
+  const localBin = path.resolve(rootDir, "node_modules", ".bin", binName);
+  const hasLocal = await Bun.file(localBin).exists();
+  if (!hasLocal) {
+    try {
+      const probe = Bun.spawn({
+        cmd: ["bun", "x", "oxlint", "--version"],
+        cwd: rootDir,
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      const code = await probe.exited;
+      if (code !== 0) return "skip";
+    } catch {
+      return "skip";
+    }
+  }
+  try {
+    const proc = Bun.spawn({
+      cmd: ["bun", "x", "oxlint", "."],
+      cwd: rootDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stderr] = await Promise.all([
+      new Response(proc.stderr).text(),
+      new Response(proc.stdout).text(),
+    ]);
+    await proc.exited;
+    const match = stderr.match(/Found (\d+) warnings? and (\d+) errors?/);
+    if (!match) return "parse-failed";
+    return { warnings: Number(match[1]), errors: Number(match[2]) };
+  } catch {
+    return "parse-failed";
+  }
 }
 
 export async function build(options: BuildOptions = {}): Promise<boolean> {
@@ -139,6 +188,38 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
   const hooks = config.hooks;
 
   await runHook("onBeforeBuild", plugins, hooks);
+
+  // Pre-build lint gate (#240 guardrail-default).
+  //
+  // Run oxlint once before the bundler touches disk. Errors abort the
+  // build; warnings are printed and we continue. `--no-lint` skips
+  // the gate entirely — opt-out for emergency deploys. Missing
+  // oxlint logs a one-liner and moves on (not everyone has migrated
+  // from ESLint yet).
+  if (options.noLint !== true) {
+    const lintResult = await runPreBuildLint(cwd);
+    if (lintResult === "skip") {
+      console.log(
+        "ℹ️  Lint: oxlint not installed — skipping pre-build gate. Run `mandu lint --setup` to enable.",
+      );
+    } else if (lintResult === "parse-failed") {
+      console.warn("⚠️  Lint: oxlint output could not be parsed — skipping gate.");
+    } else if (lintResult.errors > 0) {
+      console.error(
+        `\n❌ Lint gate: ${lintResult.errors} error(s) / ${lintResult.warnings} warning(s)`,
+      );
+      console.error(
+        "   Fix the errors above or pass `--no-lint` to bypass. Run `bun run lint` for details.",
+      );
+      return false;
+    } else if (lintResult.warnings > 0) {
+      console.log(
+        `⚠️  Lint: ${lintResult.warnings} warning(s) — build continues.`,
+      );
+    } else {
+      console.log("✅ Lint: clean (oxlint)");
+    }
+  }
 
   const buildStartTime = performance.now();
 

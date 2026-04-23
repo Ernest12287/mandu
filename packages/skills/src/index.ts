@@ -36,6 +36,7 @@ export const SKILL_IDS = [
   "mandu-debug",
   "mandu-explain",
   "mandu-guard-guide",
+  "mandu-lint",
   "mandu-deploy",
   "mandu-slot",
   "mandu-fs-routes",

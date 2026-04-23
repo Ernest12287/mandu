@@ -26,6 +26,7 @@ import tpl_default_app_api_health_route_ts from "../templates/default/app/api/he
 import tpl_default_app_globals_css from "../templates/default/app/globals.css" with { type: "file" };
 import tpl_default_app_layout_tsx from "../templates/default/app/layout.tsx" with { type: "file" };
 import tpl_default_app_page_tsx from "../templates/default/app/page.tsx" with { type: "file" };
+import tpl_default_lefthook_yml from "../templates/default/lefthook.yml" with { type: "file" };
 import tpl_default_package_json from "../templates/default/package.json" with { type: "file" };
 import tpl_default_scripts_analyze_impact_ts from "../templates/default/scripts/analyze-impact.ts" with { type: "file" };
 import tpl_default_spec_seeds_example_seed_ts from "../templates/default/spec/seeds/example.seed.ts" with { type: "file" };
@@ -67,6 +68,7 @@ import tpl_realtime_chat_app_api_health_route_ts from "../templates/realtime-cha
 import tpl_realtime_chat_app_globals_css from "../templates/realtime-chat/app/globals.css" with { type: "file" };
 import tpl_realtime_chat_app_layout_tsx from "../templates/realtime-chat/app/layout.tsx" with { type: "file" };
 import tpl_realtime_chat_app_page_tsx from "../templates/realtime-chat/app/page.tsx" with { type: "file" };
+import tpl_realtime_chat_lefthook_yml from "../templates/realtime-chat/lefthook.yml" with { type: "file" };
 import tpl_realtime_chat_package_json from "../templates/realtime-chat/package.json" with { type: "file" };
 import tpl_realtime_chat_scripts_analyze_impact_ts from "../templates/realtime-chat/scripts/analyze-impact.ts" with { type: "file" };
 import tpl_realtime_chat_src_client_app_index_ts from "../templates/realtime-chat/src/client/app/index.ts" with { type: "file" };
@@ -121,6 +123,7 @@ import tpl_auth_starter_app_login_page_tsx from "../templates/auth-starter/app/l
 import tpl_auth_starter_app_not_found_tsx from "../templates/auth-starter/app/not-found.tsx" with { type: "file" };
 import tpl_auth_starter_app_page_tsx from "../templates/auth-starter/app/page.tsx" with { type: "file" };
 import tpl_auth_starter_app_signup_page_tsx from "../templates/auth-starter/app/signup/page.tsx" with { type: "file" };
+import tpl_auth_starter_lefthook_yml from "../templates/auth-starter/lefthook.yml" with { type: "file" };
 import tpl_auth_starter_mandu_config_ts from "../templates/auth-starter/mandu.config.ts" with { type: "file" };
 import tpl_auth_starter_package_json from "../templates/auth-starter/package.json" with { type: "file" };
 import tpl_auth_starter_server_domain_uploads_ts from "../templates/auth-starter/server/domain/uploads.ts" with { type: "file" };
@@ -148,6 +151,7 @@ export const TEMPLATE_MANIFEST = new Map([
     ["app/globals.css", tpl_default_app_globals_css],
     ["app/layout.tsx", tpl_default_app_layout_tsx],
     ["app/page.tsx", tpl_default_app_page_tsx],
+    ["lefthook.yml", tpl_default_lefthook_yml],
     ["package.json", tpl_default_package_json],
     ["scripts/analyze-impact.ts", tpl_default_scripts_analyze_impact_ts],
     ["spec/seeds/example.seed.ts", tpl_default_spec_seeds_example_seed_ts],
@@ -191,6 +195,7 @@ export const TEMPLATE_MANIFEST = new Map([
     ["app/globals.css", tpl_realtime_chat_app_globals_css],
     ["app/layout.tsx", tpl_realtime_chat_app_layout_tsx],
     ["app/page.tsx", tpl_realtime_chat_app_page_tsx],
+    ["lefthook.yml", tpl_realtime_chat_lefthook_yml],
     ["package.json", tpl_realtime_chat_package_json],
     ["scripts/analyze-impact.ts", tpl_realtime_chat_scripts_analyze_impact_ts],
     ["src/client/app/index.ts", tpl_realtime_chat_src_client_app_index_ts],
@@ -247,6 +252,7 @@ export const TEMPLATE_MANIFEST = new Map([
     ["app/not-found.tsx", tpl_auth_starter_app_not_found_tsx],
     ["app/page.tsx", tpl_auth_starter_app_page_tsx],
     ["app/signup/page.tsx", tpl_auth_starter_app_signup_page_tsx],
+    ["lefthook.yml", tpl_auth_starter_lefthook_yml],
     ["mandu.config.ts", tpl_auth_starter_mandu_config_ts],
     ["package.json", tpl_auth_starter_package_json],
     ["server/domain/uploads.ts", tpl_auth_starter_server_domain_uploads_ts],
@@ -260,4 +266,4 @@ export const TEMPLATE_MANIFEST = new Map([
 ]);
 
 /** Total number of embedded template files (sanity check). */
-export const EMBEDDED_FILE_COUNT = 114;
+export const EMBEDDED_FILE_COUNT = 117;

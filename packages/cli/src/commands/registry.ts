@@ -255,6 +255,11 @@ registerCommand({
         }
         return undefined;
       })(),
+      // Pre-build lint gate (#240 guardrail-default). Pass --no-lint to
+      // skip when you need to ship despite known lint errors.
+      noLint:
+        ctx.options["no-lint"] === "true" ||
+        ctx.options["no-lint"] === "",
     });
   },
 });

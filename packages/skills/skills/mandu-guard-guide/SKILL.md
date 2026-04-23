@@ -9,6 +9,18 @@ description: |
 Mandu Guard 아키텍처 강제 시스템의 상세 가이드.
 6개 프리셋, 위반 유형별 수정 방법, 레이어 규칙을 다룹니다.
 
+## 가드레일 3축 (중요)
+
+Mandu 의 품질 가드레일은 단일 도구가 아니라 **3축 병렬**:
+
+| 축 | 무엇을 잡나 | 도구 | 이 skill |
+|----|-----------|------|---------|
+| **Guard** | 아키텍처 / 레이어 / import 규칙 | `mandu guard` | 여기 (지금) |
+| **Typecheck** | 타입 에러 | `tsgo` / `mandu check` | `mandu-mcp-verify` |
+| **Lint** | 코드 품질 (any / unused / promise-leak 등) | `oxlint` | `mandu-lint` |
+
+세 축은 **서로 겹치지 않고 상호보완**. Guard 는 "B 레이어가 A 를 import 해도 되나?" 를 보고, lint 는 "이 함수 파라미터가 `any` 인가?" 를 보고, typecheck 는 "이 `unknown` 을 진짜로 `string` 으로 좁혔나?" 를 본다. 어느 하나를 꺼두면 다른 축이 잡지 못하는 구멍이 열림. `mandu check` 가 셋 모두를 한 번에 실행한다.
+
 ## 6 Presets
 
 ### mandu (default)
@@ -153,4 +165,5 @@ export default {
 
 - `mandu-mcp-verify` — guard 위반 drill-down (`guard_explain` → `guard_heal`) 순서
 - `mandu-mcp-safe-change` — 대규모 guard 수정은 snapshot + tx 안에서
+- `mandu-lint` — 가드레일의 lint 축 (oxlint, 세팅, type-aware, 자동수정 안전 절차)
 

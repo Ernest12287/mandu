@@ -224,6 +224,14 @@ const KNOWN_MCP_TOOLS = new Set<string>([
   "mandu.refactor.rewriteGeneratedBarrel",
   "mandu.refactor.migrateRouteConventions",
   "mandu.refactor.extractContract",
+
+  // Docs search (#243)
+  "mandu.docs.search",
+  "mandu.docs.get",
+
+  // Lint (#240 guardrail-default)
+  "mandu.lint",
+  "mandu.lint.setup",
 ]);
 
 interface Frontmatter {
