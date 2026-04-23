@@ -22,6 +22,11 @@ export {
   type BlockGeneratedImportsOptions,
 } from "./block-generated-imports";
 
+export {
+  reactCompiler,
+  type ReactCompilerPluginOptions,
+} from "./react-compiler";
+
 /**
  * Subset of `ManduConfig.guard` consumed by `defaultBundlerPlugins()`.
  * We deliberately don't import the full `ManduConfig` type to keep the

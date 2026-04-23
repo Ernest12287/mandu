@@ -166,6 +166,18 @@ export interface BundlerOptions {
   blockGeneratedImport?: boolean;
 
   /**
+   * Issue #240 — React Compiler opt-in. When `enabled: true` the
+   * bundler's client-path invocations install
+   * `mandu:react-compiler` (Babel + `babel-plugin-react-compiler`)
+   * on every `.jsx`/`.tsx` file. SSR-only builds ignore this —
+   * memoization has no effect on a one-shot HTML render.
+   */
+  reactCompiler?: {
+    enabled?: boolean;
+    compilerConfig?: Record<string, unknown>;
+  };
+
+  /**
    * Phase 18.τ — consumer-supplied `BunPlugin`s contributed via plugin
    * `defineBundlerPlugin()` hook. Composed AFTER Mandu's defaults so
    * user transforms see already-resolved imports. Omitted / empty

@@ -112,6 +112,15 @@ export interface BuildOptions {
    * Accepts axe-core's impact scale verbatim: `minor | moderate | serious | critical`.
    */
   auditFailOn?: "minor" | "moderate" | "serious" | "critical";
+  /**
+   * Issue #240 — forward `ManduConfig.experimental.reactCompiler` into
+   * the bundler. Client-bundle paths use `babel-plugin-react-compiler`
+   * when enabled.
+   */
+  reactCompiler?: {
+    enabled?: boolean;
+    compilerConfig?: Record<string, unknown>;
+  };
 }
 
 export async function build(options: BuildOptions = {}): Promise<boolean> {
@@ -179,6 +188,10 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
     minify: options.minify ?? buildConfig.minify,
     sourcemap: options.sourcemap ?? buildConfig.sourcemap,
     outDir: options.outDir ?? buildConfig.outDir,
+    // #240 — forward experimental.reactCompiler from mandu.config.ts
+    // to the bundler's client-bundle path. Omitted / disabled → plugin
+    // is not installed; SSR paths are never affected either way.
+    reactCompiler: config.experimental?.reactCompiler,
   };
 
   if (hydratedRoutes.length === 0) {

@@ -59,6 +59,26 @@ function manduDefaultPlugins(options: BundlerOptions): BunPlugin[] {
 }
 
 /**
+ * Client-path plugin composition — defaults + (optionally) React
+ * Compiler. Only the islands / `"use client"` / partial builds call
+ * this; SSR builds use `manduDefaultPlugins()` directly because React
+ * Compiler offers zero benefit for one-shot HTML rendering.
+ */
+function manduClientPlugins(options: BundlerOptions): BunPlugin[] {
+  const base = manduDefaultPlugins(options);
+  if (options.reactCompiler?.enabled !== true) return base;
+  // Lazy import to avoid pulling the react-compiler module into every
+  // build graph — SSR / non-client paths never touch this branch.
+  const { reactCompiler } = require("./plugins/react-compiler") as typeof import("./plugins/react-compiler");
+  return [
+    ...base,
+    reactCompiler({
+      reactCompilerConfig: options.reactCompiler.compilerConfig,
+    }),
+  ];
+}
+
+/**
  * Scan for *.island.tsx / *.island.ts files across hydrated route directories.
  *
  * Phase 7.1 R1 Agent C — per-island conditional skip defence.
@@ -164,7 +184,7 @@ async function buildPerIslandBundle(
       sourcemap: options.sourcemap ? "external" : "none",
       target: "browser",
       ...(isDev ? { reactFastRefresh: true } : {}),
-      plugins: [...manduDefaultPlugins(options), ...(isDev ? [fastRefreshPlugin()] : [])],
+      plugins: [...manduClientPlugins(options), ...(isDev ? [fastRefreshPlugin()] : [])],
       external: ["react", "react-dom", "react-dom/client", ...(options.external || [])],
       define: { "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"), ...options.define },
     });
@@ -1637,7 +1657,7 @@ async function buildIsland(
       target: "browser",
       splitting: options.splitting ?? (process.env.NODE_ENV === "production"),
       ...(isDev ? { reactFastRefresh: true } : {}),
-      plugins: [...manduDefaultPlugins(options), ...(isDev ? [fastRefreshPlugin()] : [])],
+      plugins: [...manduClientPlugins(options), ...(isDev ? [fastRefreshPlugin()] : [])],
       external: ["react", "react-dom", "react-dom/client", ...(options.external || [])],
       define: {
         "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),

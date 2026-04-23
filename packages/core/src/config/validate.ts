@@ -709,6 +709,24 @@ export const ManduConfigSchema = z
      * ollama → template.
      */
     brain: BrainConfigSchema.optional(),
+    /**
+     * Issue #240 — experimental feature flags. All fields are opt-in
+     * and may change shape between minor releases. Kept permissive
+     * (`passthrough` on the reactCompiler block) so forward-compat
+     * `compilerConfig` keys flow through without bumping this schema.
+     */
+    experimental: z
+      .object({
+        reactCompiler: z
+          .object({
+            enabled: z.boolean().optional(),
+            compilerConfig: z.record(z.unknown()).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

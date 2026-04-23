@@ -104,14 +104,16 @@
     "bun": ">=1.3.12"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "react-refresh": ">=0.18.0",
     "@tailwindcss/cli": ">=4.0.0",
     "webview-bun": "^2.4.0",
     "axe-core": ">=4.8.0",
     "jsdom": ">=24.0.0",
-    "happy-dom": ">=15.0.0"
+    "happy-dom": ">=15.0.0",
+    "@babel/core": "^7.29.0",
+    "babel-plugin-react-compiler": "^1.0.0"
   },
   "peerDependenciesMeta": {
     "@tailwindcss/cli": {
@@ -130,6 +132,12 @@
       "optional": true
     },
     "happy-dom": {
+      "optional": true
+    },
+    "@babel/core": {
+      "optional": true
+    },
+    "babel-plugin-react-compiler": {
       "optional": true
     }
   },

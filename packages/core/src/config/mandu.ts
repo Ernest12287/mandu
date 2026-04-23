@@ -671,6 +671,42 @@ export interface ManduConfig {
     ollama?: { model?: string; baseUrl?: string };
     telemetryOptOut?: boolean;
   };
+  /**
+   * Issue #240 — Experimental feature flags. Every field under here is
+   * opt-in and may change shape between minor releases. Stable features
+   * graduate out into top-level config keys.
+   */
+  experimental?: {
+    /**
+     * React Compiler (`babel-plugin-react-compiler`) integration. When
+     * `enabled: true` the bundler runs every `.jsx`/`.tsx` source on
+     * the **client build path** (islands, `"use client"` pages,
+     * partials) through Babel + react-compiler to auto-memoize
+     * components and values.
+     *
+     * SSR-only files (server `page.tsx` / `layout.tsx`) are NOT
+     * transformed — React Compiler memoizes re-renders and SSR only
+     * renders once before serializing to HTML, so the transform would
+     * add build time with zero runtime benefit.
+     *
+     * Requires peer dependencies: `@babel/core` + `babel-plugin-react-
+     * compiler`. Missing deps degrade gracefully — the plugin logs a
+     * warning and returns sources unchanged so the build still
+     * succeeds.
+     *
+     * @see packages/core/src/bundler/plugins/react-compiler.ts
+     */
+    reactCompiler?: {
+      /** Master switch. Default: `false`. */
+      enabled?: boolean;
+      /**
+       * Options forwarded verbatim to `babel-plugin-react-compiler`.
+       * Useful keys: `compilationMode`, `target`, `panicThreshold`.
+       * Omit to use react-compiler defaults.
+       */
+      compilerConfig?: Record<string, unknown>;
+    };
+  };
 }
 
 export const CONFIG_FILES = [
