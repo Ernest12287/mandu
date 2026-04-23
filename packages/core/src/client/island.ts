@@ -51,16 +51,27 @@ export interface IslandMetadata {
 }
 
 /**
- * 컴파일된 Island 컴포넌트 타입
+ * 컴파일된 Island 컴포넌트 타입.
+ *
+ * An island is a **page-level client bundle**, not an inline JSX element.
+ * The runtime representation is a React component **whose body unconditionally
+ * throws**, decorated with the `definition` + `__mandu_island` marker so the
+ * build pipeline can still recognise it.
+ *
+ * Why callable? A plain `{ definition, __mandu_island }` object rendered as
+ * `<MyIsland />` produced React's opaque *"Element type is invalid... got:
+ * object"* error. Making it a function lets React invoke it like any other
+ * component, which triggers our clear diagnostic below — users immediately
+ * learn to switch to `partial()` for embedded client regions.
  */
-export interface CompiledIsland<TServerData, TSetupResult> {
+export type CompiledIsland<TServerData, TSetupResult> = (() => never) & {
   /** Island 정의 */
   definition: IslandDefinition<TServerData, TSetupResult>;
   /** Island 메타데이터 (빌드 시 주입) */
   __mandu_island: true;
   /** Island ID (빌드 시 주입) */
   __mandu_island_id?: string;
-}
+};
 
 /**
  * Island 컴포넌트 생성
@@ -104,10 +115,23 @@ export function island<TServerData, TSetupResult = TServerData>(
     throw new Error("[Mandu Island] render must be a function");
   }
 
-  return {
-    definition,
-    __mandu_island: true,
-  };
+  // Function body: reached only when a server page (or any caller) tries to
+  // render the island as an inline React element — `<MyIsland />`. Islands
+  // are not inline elements; they are page-level client bundles. Throw a
+  // clear message pointing at `partial()` (the right API for embedded
+  // client regions) instead of React's generic "Element type is invalid".
+  const IslandElement = (() => {
+    throw new Error(
+      "[Mandu Island] Islands are page-level client bundles — they cannot " +
+      "be rendered as inline JSX elements. For an embedded client region " +
+      "inside a server page, use `partial()` instead (it returns a " +
+      "renderable component). See " +
+      "https://mandujs.com/docs/architect/client-rendering",
+    );
+  }) as CompiledIsland<TServerData, TSetupResult>;
+  IslandElement.definition = definition;
+  IslandElement.__mandu_island = true;
+  return IslandElement;
 }
 
 /**

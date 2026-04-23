@@ -232,3 +232,13 @@ export const ManduClient = {
    */
   createPartialGroup,
 };
+
+/**
+ * `Mandu` — README-facing alias of `ManduClient`. Kept so
+ * `import { Mandu } from "@mandujs/core/client"` — the form shown in
+ * `packages/core/README.md` — resolves to the same namespace object at
+ * runtime. `ManduClient` is the canonical export; this re-export exists
+ * because the README (and third-party docs scaffolded from it) uses the
+ * shorter `Mandu.island(...)` / `Mandu.filling(...)` shape.
+ */
+export const Mandu = ManduClient;

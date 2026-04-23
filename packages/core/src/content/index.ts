@@ -179,7 +179,12 @@ export function defineContentConfig<T extends ContentConfigType>(config: T): T {
 // `./collection.ts` — it detects the shape at runtime via the presence
 // of the `loader` property.
 
-export { defineCollection, Collection } from "./collection";
+export {
+  defineCollection,
+  Collection,
+  getRegisteredCollections,
+  invalidateAllCollections,
+} from "./collection";
 export type {
   CollectionEntry,
   CompiledCollectionEntry,

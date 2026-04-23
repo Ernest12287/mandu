@@ -83,6 +83,31 @@ async function scanIslandFiles(routes: RouteSpec[], rootDir: string): Promise<Is
   const entries: IslandFileEntry[] = [];
   const seenDirs = new Set<string>();
 
+  // Sub-folders under a route directory that the scanner also descends into,
+  // one level only. Convention-driven (not configurable) so the scan cost
+  // stays predictable. `_components` is the Mandu equivalent of the widely
+  // used Next.js "private folder" convention — leading underscore signals
+  // "not a route", which is exactly the place users drop page-local island
+  // sources. Keep this list short; every name adds one `readdir` per route.
+  const ISLAND_SUBDIRS = ["_components", "_islands"] as const;
+
+  const collectIslandsInDir = async (dir: string, routeId: string, priority: IslandFileEntry["priority"]) => {
+    if (seenDirs.has(dir)) return;
+    seenDirs.add(dir);
+    let files: string[];
+    try { files = await fs.readdir(dir); } catch { return; }
+    for (const file of files) {
+      if (/\.island\.tsx?$/.test(file)) {
+        entries.push({
+          name: file.replace(/\.island\.tsx?$/, ""),
+          filePath: path.join(dir, file),
+          routeId,
+          priority,
+        });
+      }
+    }
+  };
+
   for (const route of routes) {
     // Defensive guard — see the block comment above for rationale. Without
     // this, a hypothetical caller passing `manifest.routes` directly would
@@ -90,22 +115,11 @@ async function scanIslandFiles(routes: RouteSpec[], rootDir: string): Promise<Is
     if (!needsHydration(route)) continue;
 
     const dir = path.dirname(path.join(rootDir, route.componentModule ?? route.module));
-    if (seenDirs.has(dir)) continue;
-    seenDirs.add(dir);
-
-    let files: string[];
-    try { files = await fs.readdir(dir); } catch { continue; }
-
     const priority = getRouteHydration(route)?.priority || HYDRATION.DEFAULT_PRIORITY;
-    for (const file of files) {
-      if (/\.island\.tsx?$/.test(file)) {
-        entries.push({
-          name: file.replace(/\.island\.tsx?$/, ""),
-          filePath: path.join(dir, file),
-          routeId: route.id,
-          priority,
-        });
-      }
+
+    await collectIslandsInDir(dir, route.id, priority);
+    for (const sub of ISLAND_SUBDIRS) {
+      await collectIslandsInDir(path.join(dir, sub), route.id, priority);
     }
   }
   return entries;

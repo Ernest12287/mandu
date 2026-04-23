@@ -247,6 +247,12 @@ export class Collection<T = Record<string, unknown>> {
 
   constructor(options: DefineCollectionOptions<T>) {
     this.options = options;
+    // Register so dev-mode tooling (`getRegisteredCollections()` + the
+    // bundler's content watcher) can invalidate every collection on a
+    // filesystem add/unlink without each project wiring `.watch()` by
+    // hand. The set is module-scoped; every Collection constructed in
+    // this process joins automatically.
+    collectionRegistry.add(this as Collection<unknown>);
   }
 
   /** Resolve the collection root directory. */
@@ -807,4 +813,32 @@ function isLegacyConfig(
   cfg: LegacyCollectionConfig | DefineCollectionOptions<unknown>
 ): cfg is LegacyCollectionConfig {
   return typeof cfg === "object" && cfg !== null && "loader" in cfg;
+}
+
+/**
+ * Module-scoped registry of every `Collection` instance ever constructed
+ * in this process. Consumed by the dev bundler's content-change handler
+ * to invalidate in-memory entries after a filesystem add/remove so the
+ * next SSR request rescans disk. Readers must treat the set as read-only.
+ */
+const collectionRegistry = new Set<Collection<unknown>>();
+
+/**
+ * Return the live registry of Collections. The returned set is live —
+ * a Collection constructed after the call still shows up on the next
+ * iteration. Intended for dev tooling; production code should go
+ * through the typed `getCollection()` / `defineCollection()` APIs.
+ */
+export function getRegisteredCollections(): ReadonlySet<Collection<unknown>> {
+  return collectionRegistry;
+}
+
+/**
+ * Invalidate every registered collection's in-memory cache. Called by
+ * the dev bundler when a file under a collection root is added or
+ * removed. Cheap (walks the registry and nulls each `entries` cache);
+ * the next `.all()` / `.get()` call rescans disk.
+ */
+export function invalidateAllCollections(): void {
+  for (const c of collectionRegistry) c.invalidate();
 }

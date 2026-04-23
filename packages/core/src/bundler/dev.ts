@@ -81,6 +81,21 @@ export interface DevBundlerOptions {
    */
   onResourceChange?: (filePath: string) => void | Promise<void>;
   /**
+   * Issue #242 — content collection change callback.
+   *
+   * Fires when an MDX/MD/YAML/JSON file under `content/` is added,
+   * edited, or removed. Before invoking the callback the bundler has
+   * already called `invalidateAllCollections()` so the Collection API's
+   * in-memory cache is clear; the next `.all()` / `.get()` call will
+   * rescan disk.
+   *
+   * The CLI typically wires this to the HMR server's `broadcast` to
+   * trigger a full browser reload so sidebars / route trees pick up the
+   * added file. Without a callback the invalidation still happens —
+   * a manual refresh will surface the change.
+   */
+  onContentChange?: (filePath: string) => void | Promise<void>;
+  /**
    * Phase 7.0 R2 Agent D — package.json change notification.
    *
    * We intentionally do NOT auto-restart on `package.json` — dependency
@@ -375,6 +390,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     onAPIChange,
     onConfigReload,
     onResourceChange,
+    onContentChange,
     onPackageJsonChange,
     watchDirs: customWatchDirs = [],
     disableDefaultWatchDirs = false,
@@ -564,6 +580,21 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
   } catch {
     // Resources directory is optional — projects without Resource-Centric
     // layer simply never hit this path.
+  }
+
+  // Issue #242 — content collections (MDX/MD/YAML/JSON) directory. The
+  // Collection API caches scan results in-process, so adding a new
+  // `content/docs/**/foo.mdx` at runtime is invisible until we invalidate
+  // the cache. The `content/` directory is the conventional root used by
+  // `defineCollection({ path: "content/..." })`; projects that put
+  // collection roots elsewhere simply won't match and fall back to a full
+  // manual restart, which is the prior behaviour.
+  const contentDir = path.join(rootDir, "content");
+  try {
+    await fs.promises.access(contentDir);
+    watchDirs.add(contentDir);
+  } catch {
+    // No content/ directory — most projects without docs / blogs.
   }
 
   // 공통 컴포넌트 디렉토리 추가 (기본 + 커스텀)
@@ -761,6 +792,11 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     // anyway).
     let hasConfigReload = false;
     let hasResourceRegen = false;
+    // Issue #242 — content collection edits (MDX/MD/YAML/JSON under
+    // `content/`). Caught here so a new file triggers `invalidateAll` +
+    // full-reload instead of falling through to "unknown" and never
+    // reaching the Collection cache.
+    let hasContent = false;
 
     for (const file of files) {
       const normalized = normalizeFsPath(file);
@@ -778,6 +814,18 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       // routed through `resource-regen`.
       if (isResourceOrContractFile(normalized)) {
         hasResourceRegen = true;
+        continue;
+      }
+
+      // Issue #242 — content-collection sources. Anything under the
+      // project's `content/` directory that's plausibly an entry file.
+      // The Collection API accepts `.md`/`.mdx` for MDX entries and
+      // `.json`/`.yaml`/`.yml` for data collections — cover all four.
+      if (
+        normalized.includes("/content/") &&
+        /\.(mdx?|ya?ml|json)$/.test(normalized)
+      ) {
+        hasContent = true;
         continue;
       }
 
@@ -831,6 +879,12 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     //      would cause a stale rebuild.
     if (hasConfigReload) return "config-reload";
     if (hasResourceRegen) return "resource-regen";
+    // Issue #242 — content changes are a leaf category: they never
+    // produce code changes, only cache invalidation + a browser refresh.
+    // Rank them above common-dir so a mixed batch that touches both
+    // still reaches the content path (otherwise common-dir would
+    // rebuild but the collection cache would stay stale).
+    if (hasContent) return "content-change";
 
     // Common-dir dominates — it already fans out to every island + SSR
     // registry. No point in double-classifying "mixed" when a fan-out fix
@@ -882,6 +936,17 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
         isResourceOrContractFile(normalizeFsPath(f)),
       );
       await handleResourceRegenBatch(resourceFiles);
+      return;
+    }
+
+    // Issue #242 — content collection changes. Invalidate the shared
+    // Collection cache and notify the optional callback; no rebuild
+    // required. One invocation per debounce window.
+    if (kind === "content-change") {
+      const contentFiles = files.filter((f) =>
+        /\.(mdx?|ya?ml|json)$/.test(normalizeFsPath(f)),
+      );
+      await handleContentChange(contentFiles);
       return;
     }
 
@@ -996,6 +1061,44 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     }
   };
 
+  /**
+   * Issue #242 — dispatch a batch of content collection changes.
+   *
+   * Clears every registered `Collection`'s in-memory cache via
+   * `invalidateAllCollections()` and then invokes `onContentChange` once
+   * per file so the CLI can broadcast a full browser reload. Dynamic
+   * import keeps the bundler module tree free of a hard content-layer
+   * dependency (projects without `@mandujs/core/content` in the import
+   * closure simply get a no-op).
+   */
+  const handleContentChange = async (files: readonly string[]): Promise<void> => {
+    if (files.length === 0) return;
+    try {
+      const mod: typeof import("../content/collection") = await import("../content/collection");
+      if (typeof mod.invalidateAllCollections === "function") {
+        mod.invalidateAllCollections();
+      }
+    } catch {
+      // Content layer not in the closure — harmless.
+    }
+    if (onContentChange) {
+      for (const file of files) {
+        try {
+          await Promise.resolve(onContentChange(file));
+        } catch (err) {
+          console.error(
+            `[Mandu HMR] content-change callback threw for ${path.basename(file)}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    } else {
+      console.log(
+        `[Mandu HMR] ${files.length} content file(s) changed — collection cache invalidated`,
+      );
+    }
+  };
+
   const handleFileChange = async (changedFile: string): Promise<void> => {
     // 동시 빌드 방지 (#121) — B2 강화: 빌드 중이면 Set에 추가 (drop 방지).
     if (isBuilding) {
@@ -1018,6 +1121,13 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     }
     if (isResourceOrContractFile(normalized)) {
       await handleResourceRegenBatch([changedFile]);
+      return;
+    }
+    if (
+      normalized.includes("/content/") &&
+      /\.(mdx?|ya?ml|json)$/.test(normalized)
+    ) {
+      await handleContentChange([changedFile]);
       return;
     }
     if (isPackageJsonFile(normalized)) {

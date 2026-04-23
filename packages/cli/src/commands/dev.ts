@@ -950,6 +950,25 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     });
   };
 
+  // Issue #242 — content collection add/edit/remove dispatcher.
+  //
+  // The bundler has already invalidated every Collection's in-memory cache
+  // before this fires; our job is to broadcast a browser full-reload so
+  // sidebars / route trees pick up the new file. We intentionally do not
+  // re-register server handlers — the Collection API resolves entries
+  // lazily on the next request, so invalidation + refresh is sufficient.
+  const handleContentChange = (filePath: string) => {
+    const rel = path.relative(rootDir, filePath);
+    logDevEvent("Content collection changed", [
+      `File: ${rel}`,
+      "Action: invalidated collection cache + broadcast full-reload",
+    ]);
+    hmrServer?.broadcast({
+      type: "full-reload",
+      data: { timestamp: Date.now(), path: rel },
+    });
+  };
+
   // Phase 7.0 R2 Agent D — package.json change → advisory only.
   //
   // We intentionally do NOT auto-restart. `bun install` and friends write
@@ -987,6 +1006,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         onAPIChange: handleAPIChange,
         onConfigReload: handleConfigReload,
         onResourceChange: handleResourceChange,
+        onContentChange: handleContentChange,
         onPackageJsonChange: handlePackageJsonChange,
       });
 

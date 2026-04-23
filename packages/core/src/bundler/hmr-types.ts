@@ -237,6 +237,7 @@ export interface CoalescedChange {
     | "api-only"                // route.ts (API)
     | "config-reload"           // mandu.config.ts / .env — server restart
     | "resource-regen"          // *.resource.ts / *.contract.ts — code-gen
+    | "content-change"          // content/**/*.{mdx,md,json,yaml} — collection invalidate + full-reload
     | "mixed";                  // more than one category
 }
 
