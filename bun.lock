@@ -6,8 +6,8 @@
       "name": "mandujs",
       "dependencies": {
         "chokidar": "^5.0.0",
-        "react": "^19.0.0",
-        "react-dom": "^19.0.0",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
         "react-refresh": "^0.18.0",
         "zod": "^3.22.0",
       },
@@ -48,7 +48,7 @@
     },
     "demo/auth-starter": {
       "name": "mandu-auth-starter",
-      "version": "0.1.34",
+      "version": "0.1.35",
       "dependencies": {
         "@mandujs/core": "workspace:*",
         "react": "^19.2.0",
@@ -67,7 +67,7 @@
     },
     "demo/desktop-starter": {
       "name": "mandu-desktop-starter",
-      "version": "0.1.33",
+      "version": "0.1.34",
       "dependencies": {
         "@mandujs/core": "workspace:*",
         "react": "^19.2.0",
@@ -83,7 +83,7 @@
     },
     "demo/edge-workers-starter": {
       "name": "mandu-edge-workers-starter",
-      "version": "0.1.34",
+      "version": "0.1.35",
       "dependencies": {
         "@mandujs/core": "workspace:*",
         "@mandujs/edge": "workspace:*",
@@ -117,13 +117,13 @@
       "name": "mandu-todo-app",
       "version": "0.1.0",
       "dependencies": {
-        "@mandujs/core": "^0.19.2",
+        "@mandujs/core": "workspace:*",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
       },
       "devDependencies": {
-        "@mandujs/cli": "^0.20.0",
-        "@mandujs/mcp": "^0.18.10",
+        "@mandujs/cli": "workspace:*",
+        "@mandujs/mcp": "workspace:*",
         "@playwright/test": "^1.59.1",
         "@tailwindcss/cli": "^4.1.0",
         "@types/react": "^19.2.0",
@@ -147,22 +147,22 @@
     },
     "packages/cli": {
       "name": "@mandujs/cli",
-      "version": "0.31.0",
+      "version": "0.32.0",
       "bin": {
         "mandu": "src/main.ts",
       },
       "dependencies": {
-        "@mandujs/ate": "^0.19.1",
-        "@mandujs/core": "^0.30.0",
-        "@mandujs/edge": "^0.4.9",
-        "@mandujs/mcp": "^0.20.7",
-        "@mandujs/skills": "^9.0.0",
+        "@mandujs/ate": "^0.25.1",
+        "@mandujs/core": "^0.43.0",
+        "@mandujs/edge": "^0.4.31",
+        "@mandujs/mcp": "^0.31.0",
+        "@mandujs/skills": "^0.18.0",
         "cfonts": "^3.3.0",
       },
     },
     "packages/core": {
       "name": "@mandujs/core",
-      "version": "0.42.0",
+      "version": "0.43.0",
       "dependencies": {
         "chokidar": "^5.0.0",
         "fast-glob": "catalog:",
@@ -175,18 +175,26 @@
         "@happy-dom/global-registrator": "^15.0.0",
       },
       "peerDependencies": {
+        "@babel/core": "^7.29.0",
         "@tailwindcss/cli": ">=4.0.0",
         "axe-core": ">=4.8.0",
+        "babel-plugin-react-compiler": "^1.0.0",
+        "eslint": "^9.0.0",
+        "eslint-plugin-react-compiler": "^19.0.0 || ^1.0.0",
         "happy-dom": ">=15.0.0",
         "jsdom": ">=24.0.0",
-        "react": "^19.0.0",
-        "react-dom": "^19.0.0",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
         "react-refresh": ">=0.18.0",
         "webview-bun": "^2.4.0",
       },
       "optionalPeers": [
+        "@babel/core",
         "@tailwindcss/cli",
         "axe-core",
+        "babel-plugin-react-compiler",
+        "eslint",
+        "eslint-plugin-react-compiler",
         "happy-dom",
         "jsdom",
         "react-refresh",
@@ -195,7 +203,7 @@
     },
     "packages/edge": {
       "name": "@mandujs/edge",
-      "version": "0.4.30",
+      "version": "0.4.31",
       "dependencies": {
         "@mandujs/core": "workspace:*",
       },
@@ -210,22 +218,22 @@
     },
     "packages/mcp": {
       "name": "@mandujs/mcp",
-      "version": "0.30.0",
+      "version": "0.31.0",
       "bin": {
         "mandu-mcp": "./src/index.ts",
         "mandujs-mcp": "./src/index.ts",
         "mcp": "./src/index.ts",
       },
       "dependencies": {
-        "@mandujs/ate": "^0.19.1",
-        "@mandujs/core": "^0.30.0",
+        "@mandujs/ate": "^0.25.1",
+        "@mandujs/core": "^0.43.0",
         "@mandujs/skills": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.25.3",
       },
     },
     "packages/playground-runner": {
       "name": "@mandujs/playground-runner",
-      "version": "13.0.0",
+      "version": "14.0.0",
       "devDependencies": {
         "@cloudflare/sandbox": "^0.1.0",
         "@cloudflare/workers-types": "^4.20250101.0",
@@ -242,7 +250,7 @@
         "mandu-skills": "./src/cli.ts",
       },
       "peerDependencies": {
-        "@mandujs/core": ">=0.30.0",
+        "@mandujs/core": ">=0.1.0",
       },
       "optionalPeers": [
         "@mandujs/core",
@@ -419,7 +427,7 @@
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
-    "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+    "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
 
     "@mandujs/ate": ["@mandujs/ate@workspace:packages/ate"],
 
@@ -1137,7 +1145,9 @@
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
-    "@cspotcode/source-map-support/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
+    "@jridgewell/gen-mapping/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@jridgewell/remapping/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@manypkg/find-root/@types/node": ["@types/node@12.20.55", "", {}, "sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ=="],
 
@@ -1171,12 +1181,6 @@
 
     "mandu-starter/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
-    "mandu-todo-app/@mandujs/cli": ["@mandujs/cli@0.20.0", "", { "dependencies": { "@mandujs/ate": "^0.17.2", "@mandujs/core": "^0.19.0", "cfonts": "^3.3.0" }, "bin": { "mandu": "src/main.ts" } }, "sha512-JMaWgXmp+cdmbXbd2je3T0W7AlCxb1HkxOvRjACVm2nK3uAfkWuwq6v2hIUS082dLx3yJA2b85CJwM7cxUvlnw=="],
-
-    "mandu-todo-app/@mandujs/core": ["@mandujs/core@0.19.2", "", { "dependencies": { "chokidar": "^5.0.0", "fast-glob": "^3.3.2", "glob": "^13.0.0", "minimatch": "^10.1.1", "ollama": "^0.6.3", "zod": "^3.23.8" }, "peerDependencies": { "@tailwindcss/cli": ">=4.0.0", "react": "^19.0.0", "react-dom": "^19.0.0" }, "optionalPeers": ["@tailwindcss/cli"] }, "sha512-BnsBaeVrDX5DujfKGUXm/wo5fYB1wUMKPEIjEfTTLnZ9WQKiHG1JrZW9MfkI/la2zW2/YA7cyFdXtIyGSFhB3g=="],
-
-    "mandu-todo-app/@mandujs/mcp": ["@mandujs/mcp@0.18.10", "", { "dependencies": { "@mandujs/ate": "^0.17.2", "@mandujs/core": "^0.19.1", "@modelcontextprotocol/sdk": "^1.25.3" }, "bin": { "mandu-mcp": "src/index.ts" } }, "sha512-zF9MFd6TxQQm+qDDH8jVjFqcGcnLIGjBUwHZEH4DqDG0XJRDP9MXMfHI4PypBeQVHip0ZS/+GLJNw1G+s3bNlg=="],
-
     "mandu-todo-app/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "miniflare/zod": ["zod@3.22.3", "", {}, "sha512-EjIevzuJRiRPbVH4mGc8nApb/lVLKVpmUhAaR5R5doKGfAnGJ6Gr3CViAVjP+4FWSxCsybeWQdcgCtbX+7oZug=="],
@@ -1190,10 +1194,6 @@
     "to-regex-range/is-number": ["is-number@7.0.0", "", {}, "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng=="],
 
     "whatwg-url/webidl-conversions": ["webidl-conversions@3.0.1", "", {}, "sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ=="],
-
-    "mandu-todo-app/@mandujs/cli/@mandujs/ate": ["@mandujs/ate@0.17.3", "", { "dependencies": { "fast-glob": "^3.3.2", "ts-morph": "^26.0.0" }, "peerDependencies": { "@playwright/test": ">=1.40.0", "playwright": ">=1.40.0" } }, "sha512-tHpDx6uZF+wZto3JD5HCRjwlLRe3IPYH1Udfbya8qP4q1LcCRYi3JEsAgDgBKw5rbyav/YnzIS+HV8uFUolSMw=="],
-
-    "mandu-todo-app/@mandujs/mcp/@mandujs/ate": ["@mandujs/ate@0.17.3", "", { "dependencies": { "fast-glob": "^3.3.2", "ts-morph": "^26.0.0" }, "peerDependencies": { "@playwright/test": ">=1.40.0", "playwright": ">=1.40.0" } }, "sha512-tHpDx6uZF+wZto3JD5HCRjwlLRe3IPYH1Udfbya8qP4q1LcCRYi3JEsAgDgBKw5rbyav/YnzIS+HV8uFUolSMw=="],
 
     "read-yaml-file/js-yaml/argparse": ["argparse@1.0.10", "", { "dependencies": { "sprintf-js": "~1.0.2" } }, "sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg=="],
   }
