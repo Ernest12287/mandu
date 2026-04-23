@@ -316,6 +316,22 @@ export {
 } from "./graph";
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Type-aware Lint Bridge (oxlint --type-aware / tsgolint)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  runTsgolint,
+  resolveOxlintBinary,
+  extractRuleId,
+  mapOxlintSeverity,
+  translateDiagnostic,
+  type TsgolintBridgeOptions,
+  type TsgolintBridgeResult,
+  type TsgolintBridgeSummary,
+  type TsgolintBridgeSkipReason,
+} from "./tsgolint-bridge";
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Architecture Negotiation - AI-Framework 협상
 // ═══════════════════════════════════════════════════════════════════════════
 

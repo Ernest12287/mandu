@@ -94,6 +94,19 @@ const CustomGuardRuleSchema = z.custom<CustomGuardRule>(
 );
 
 /**
+ * Follow-up E — type-aware lint sub-block (strict).
+ *
+ * Keys map 1:1 to `TsgolintBridgeOptions` in `guard/tsgolint-bridge.ts`.
+ */
+const GuardTypeAwareConfigSchema = z
+  .object({
+    rules: z.array(z.string().min(1)).optional(),
+    severity: z.enum(["off", "warn", "error"]).optional(),
+    configPath: z.string().min(1).optional(),
+  })
+  .strict();
+
+/**
  * Guard 설정 스키마 (strict)
  *
  * `guard.rules` is a discriminated union of two shapes:
@@ -119,6 +132,10 @@ const GuardConfigSchema = z
      * `mandu:block-generated-imports` Bun plugin.
      */
     blockGeneratedImport: z.boolean().default(true),
+    /**
+     * Follow-up E — `oxlint --type-aware` bridge. Optional.
+     */
+    typeAware: GuardTypeAwareConfigSchema.optional(),
   })
   .strict();
 

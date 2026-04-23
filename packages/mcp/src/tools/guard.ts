@@ -10,6 +10,8 @@ import {
   applyHealing,
   healAll,
   explainRule,
+  // Follow-up E — type-aware lint bridge
+  runTsgolint,
   type GuardConfig,
   type ViolationType,
   type GuardPreset,
@@ -20,7 +22,7 @@ export const guardToolDefinitions: Tool[] = [
   {
     name: "mandu.guard.check",
     description:
-      "Run guard checks to validate spec integrity, generated files, and slot files",
+      "Run guard checks to validate spec integrity, generated files, and slot files. Set typeAware=true to additionally run `oxlint --type-aware` (tsgolint) and merge its results.",
     annotations: {
       readOnlyHint: true,
     },
@@ -30,6 +32,11 @@ export const guardToolDefinitions: Tool[] = [
         autoCorrect: {
           type: "boolean",
           description: "If true, attempt to automatically fix violations",
+        },
+        typeAware: {
+          type: "boolean",
+          description:
+            "If true, invoke `oxlint --type-aware` after the architecture check and include its violations in the response under `typeAware`. When the config has `guard.typeAware` set, this defaults to true; set false to opt out for a single call.",
         },
       },
       required: [],
@@ -119,7 +126,10 @@ export function guardTools(projectRoot: string) {
 
   const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
     "mandu.guard.check": async (args: Record<string, unknown>) => {
-      const { autoCorrect = false } = args as { autoCorrect?: boolean };
+      const { autoCorrect = false, typeAware: typeAwareArg } = args as {
+        autoCorrect?: boolean;
+        typeAware?: boolean;
+      };
 
       // Load manifest
       const manifestResult = await loadManifest(paths.manifestPath);
@@ -133,12 +143,53 @@ export function guardTools(projectRoot: string) {
       // Run guard check
       const checkResult = await runGuardCheck(manifestResult.data, projectRoot);
 
+      // Follow-up E — resolve type-aware defaulting from config, then
+      // run the bridge when enabled. Result envelope is always included
+      // in the tool response so MCP clients have a single stable shape.
+      let projectConfig: Awaited<ReturnType<typeof readConfig>> | undefined;
+      try {
+        projectConfig = await readConfig(projectRoot);
+      } catch {
+        projectConfig = undefined;
+      }
+      const typeAwareCfg = (
+        projectConfig?.guard as
+          | { typeAware?: Record<string, unknown> }
+          | undefined
+      )?.typeAware;
+      const typeAwareEnabled =
+        typeAwareArg !== undefined ? typeAwareArg : typeAwareCfg !== undefined;
+
+      let typeAwareResponse: Record<string, unknown> | undefined;
+      if (typeAwareEnabled) {
+        const bridge = await runTsgolint({
+          projectRoot,
+          rules: typeAwareCfg?.rules as string[] | undefined,
+          severity: typeAwareCfg?.severity as
+            | "off"
+            | "warn"
+            | "error"
+            | undefined,
+          configPath: typeAwareCfg?.configPath as string | undefined,
+        });
+        typeAwareResponse = {
+          skipped: bridge.skipped,
+          summary: bridge.summary,
+          violations: bridge.violations,
+        };
+      }
+
       if (checkResult.passed) {
         return {
-          passed: true,
+          passed: typeAwareResponse
+            ? (typeAwareResponse.violations as Array<{ severity: string }>).filter(
+                (v) => v.severity === "error",
+              ).length === 0
+            : true,
           violations: [],
           message: "All guard checks passed",
           relatedSkills: ["mandu-guard-guide", "mandu-debug"],
+          ...(typeAwareResponse ? { typeAware: typeAwareResponse } : {}),
         };
       }
 
@@ -161,6 +212,7 @@ export function guardTools(projectRoot: string) {
             rolledBack: autoCorrectResult.rolledBack,
             changeId: autoCorrectResult.changeId,
           },
+          ...(typeAwareResponse ? { typeAware: typeAwareResponse } : {}),
         };
       }
 
@@ -175,6 +227,7 @@ export function guardTools(projectRoot: string) {
         message: `Found ${checkResult.violations.length} violation(s)`,
         tip: "Use autoCorrect: true to attempt automatic fixes",
         relatedSkills: ["mandu-guard-guide", "mandu-debug"],
+        ...(typeAwareResponse ? { typeAware: typeAwareResponse } : {}),
       };
     },
 

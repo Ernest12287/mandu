@@ -22,8 +22,10 @@ import {
   validateAndReport,
   analyzeDependencyGraph,
   renderGraphHtml,
+  runTsgolint,
   type GuardConfig,
   type GuardPreset,
+  type TsgolintBridgeResult,
 } from "@mandujs/core";
 import { writeFile, mkdir } from "fs/promises";
 import { isDirectory, resolveFromCwd } from "../util/fs";
@@ -61,6 +63,17 @@ export interface GuardArchOptions {
    * - `"json"` → JSON only (for CI consumption; skips HTML render)
    */
   graph?: boolean | "html" | "json";
+  /**
+   * Follow-up E — invoke the `oxlint --type-aware` bridge after the
+   * architecture check.
+   *
+   * - `true`  → run the bridge; merge its violations into the exit code.
+   * - `false` → hard-skip even when `guard.typeAware` is configured.
+   * - `undefined` (default) → inherit from config: run iff
+   *   `guard.typeAware` is set. Users can still force the flag from
+   *   the command line with `--type-aware` / `--no-type-aware`.
+   */
+  typeAware?: boolean;
 }
 
 function inferReportFormat(output?: string): "json" | "markdown" | "html" | undefined {
@@ -260,6 +273,83 @@ export async function guardArch(options: GuardArchOptions = {}): Promise<boolean
     }
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Follow-up E — type-aware lint pass (`oxlint --type-aware`).
+  //
+  // Precedence: explicit CLI flag > config. When the CLI flag is omitted
+  // entirely we infer "on" from the presence of `guard.typeAware` in
+  // the config. A `--no-type-aware` CLI flag always wins.
+  // ──────────────────────────────────────────────────────────────────────
+  const typeAwareCfg = guardConfigFromFile.typeAware;
+  const typeAwareEnabled =
+    options.typeAware !== undefined
+      ? options.typeAware
+      : typeAwareCfg !== undefined;
+
+  let typeAwareResult: TsgolintBridgeResult | undefined;
+  if (typeAwareEnabled) {
+    if (resolvedFormat === "console" && !quiet) {
+      console.log("\n🔬 Running type-aware lint (oxlint --type-aware)...");
+    }
+    typeAwareResult = await runTsgolint({
+      projectRoot: rootDir,
+      rules: typeAwareCfg?.rules,
+      severity: typeAwareCfg?.severity,
+      configPath: typeAwareCfg?.configPath,
+    });
+
+    if (resolvedFormat === "console" && !quiet) {
+      if (typeAwareResult.skipped === "oxlint-not-installed") {
+        console.log(
+          "   ⚠️  oxlint not installed at node_modules/.bin/oxlint — type-aware pass skipped.\n" +
+            "   Install with: bun add -D oxlint oxlint-tsgolint"
+        );
+      } else if (typeAwareResult.skipped === "severity-off") {
+        console.log("   ⏭️  severity=off in config — skipped.");
+      } else {
+        const { violations, summary } = typeAwareResult;
+        const errorCount = violations.filter((v) => v.severity === "error").length;
+        const warnCount = violations.filter((v) => v.severity === "warn").length;
+        const infoCount = violations.filter((v) => v.severity === "info").length;
+        console.log(
+          `   ${violations.length === 0 ? "✅" : "⚠️"} ${violations.length} type-aware violation(s) ` +
+            `(${errorCount} error, ${warnCount} warn, ${infoCount} info) ` +
+            `across ${summary.filesAnalyzed} file(s) in ${summary.elapsedMs}ms`
+        );
+        if (violations.length > 0) {
+          // Show the first 5 hits; the JSON / file output carries the rest.
+          for (const v of violations.slice(0, 5)) {
+            const rel = path.relative(rootDir, v.filePath) || v.filePath;
+            console.log(
+              `     ${v.severity === "error" ? "🚨" : v.severity === "warn" ? "⚠️ " : "ℹ️ "} ` +
+                `${rel}:${v.line}:${v.column}  [${v.ruleName}] ${v.ruleDescription}`
+            );
+          }
+          if (violations.length > 5) {
+            console.log(`     … and ${violations.length - 5} more (see report file).`);
+          }
+        }
+      }
+    } else if (resolvedFormat === "json") {
+      // Surface type-aware results in JSON output too — as a secondary
+      // JSON document so downstream consumers can pipe `head -1` for the
+      // architecture block or `tail -1` for the type-aware block.
+      console.log(
+        JSON.stringify(
+          {
+            typeAware: {
+              skipped: typeAwareResult.skipped,
+              summary: typeAwareResult.summary,
+              violations: typeAwareResult.violations,
+            },
+          },
+          null,
+          2
+        )
+      );
+    }
+  }
+
   // Write report file
   if (output) {
     let reportContent: string;
@@ -285,19 +375,44 @@ export async function guardArch(options: GuardArchOptions = {}): Promise<boolean
   const hasErrors = report.bySeverity.error > 0;
   const hasWarnings = report.bySeverity.warn > 0;
 
-  if (report.totalViolations === 0) {
+  // Follow-up E — type-aware errors flip the exit code just like
+  // architecture errors. Warnings alone keep the build green (same
+  // policy as the architecture pass — `ci` flag escalates warnings).
+  const typeAwareErrors = typeAwareResult
+    ? typeAwareResult.violations.filter((v) => v.severity === "error").length
+    : 0;
+  const typeAwareWarnings = typeAwareResult
+    ? typeAwareResult.violations.filter((v) => v.severity === "warn").length
+    : 0;
+
+  if (
+    report.totalViolations === 0 &&
+    typeAwareErrors === 0 &&
+    typeAwareWarnings === 0
+  ) {
     console.log("\n✅ Architecture check passed");
     return true;
   }
 
-  if (hasErrors || (ci && hasWarnings)) {
-    const reason = hasErrors
-      ? `${report.bySeverity.error} error(s)`
-      : `${report.bySeverity.warn} warning(s)`;
-    console.log(`\n❌ Architecture check failed: ${reason}`);
+  if (
+    hasErrors ||
+    typeAwareErrors > 0 ||
+    (ci && (hasWarnings || typeAwareWarnings > 0))
+  ) {
+    const parts: string[] = [];
+    if (hasErrors) parts.push(`${report.bySeverity.error} architecture error(s)`);
+    if (typeAwareErrors > 0) parts.push(`${typeAwareErrors} type-aware error(s)`);
+    if (parts.length === 0) {
+      parts.push(
+        `${report.bySeverity.warn + typeAwareWarnings} warning(s) (CI mode)`
+      );
+    }
+    console.log(`\n❌ Guard failed: ${parts.join(", ")}`);
     return false;
   }
 
-  console.log(`\n⚠️  ${report.totalViolations} issue(s) found`);
+  console.log(
+    `\n⚠️  ${report.totalViolations + (typeAwareResult?.violations.length ?? 0)} issue(s) found`
+  );
   return true;
 }

@@ -50,6 +50,7 @@
     "./storage/s3": "./src/storage/s3/index.ts",
     "./guard/define-rule": "./src/guard/define-rule.ts",
     "./guard/rule-presets": "./src/guard/rule-presets.ts",
+    "./guard/tsgolint-bridge": "./src/guard/tsgolint-bridge.ts",
     "./bundler/prerender": "./src/bundler/prerender.ts",
     "./bundler/safe-build": "./src/bundler/safe-build.ts",
     "./bundler/hmr-types": "./src/bundler/hmr-types.ts",

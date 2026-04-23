@@ -204,6 +204,20 @@ export interface ManduConfig {
      * Default: `true`.
      */
     blockGeneratedImport?: boolean;
+    /**
+     * Follow-up E — opt-in type-aware lint layer backed by
+     * `oxlint --type-aware` (tsgolint). Declaring this block makes
+     * `mandu guard` invoke oxlint after the architecture check and
+     * merge the results into the final report; MCP's
+     * `mandu_guard_check` surface gains a `typeAware` field.
+     *
+     * @see `@mandujs/core/guard/tsgolint-bridge`
+     */
+    typeAware?: {
+      rules?: string[];
+      severity?: "off" | "warn" | "error";
+      configPath?: string;
+    };
   };
   build?: {
     outDir?: string;

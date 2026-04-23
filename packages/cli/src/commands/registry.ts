@@ -392,6 +392,13 @@ registerCommand({
     const hasSubCommand = subCommand && !subCommand.startsWith("--");
 
     const graphOpt = ctx.options.graph;
+    // Follow-up E — `--type-aware` / `--no-type-aware` resolution.
+    // `--no-X` always beats `--X`. Undefined on both sides means
+    // "inherit from config" (guard-arch infers from `guard.typeAware`).
+    let typeAware: boolean | undefined;
+    if (ctx.options["no-type-aware"] === "true") typeAware = false;
+    else if (ctx.options["type-aware"] === "true") typeAware = true;
+
     const guardOptions = {
       watch: ctx.options.watch === "true",
       output: ctx.options.output,
@@ -404,6 +411,7 @@ registerCommand({
             : graphOpt === "html"
               ? ("html" as const)
               : true,
+      typeAware,
     };
 
     switch (subCommand) {
