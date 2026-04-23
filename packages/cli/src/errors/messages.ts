@@ -388,7 +388,23 @@ export function handleCLIError(error: unknown): never {
     process.exit(1);
   }
 
-  console.error("\n❌ Unknown error occurred (non-Error thrown)\n");
+  // Issue #244 — always surface *something* useful. Previously the
+  // handler printed only "Unknown error occurred (non-Error thrown)"
+  // which gave bug reporters zero to work with. Non-Error throws are
+  // usually Bun `ResolveMessage` objects (missing embedded file) or
+  // plain strings from legacy callers; either way, print a stringified
+  // summary so the user can file an actionable bug.
+  let summary: string;
+  try {
+    if (typeof error === "string") summary = error;
+    else if (error && typeof error === "object")
+      summary = JSON.stringify(error, Object.getOwnPropertyNames(error), 2);
+    else summary = String(error);
+  } catch {
+    summary = String(error);
+  }
+  console.error("\n❌ Unknown error occurred (non-Error thrown)");
+  console.error("   " + summary.split("\n").join("\n   ") + "\n");
   if (process.env.DEBUG) {
     // eslint-disable-next-line no-console
     console.error("Thrown value:", error);

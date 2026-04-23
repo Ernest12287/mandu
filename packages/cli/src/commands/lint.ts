@@ -87,14 +87,31 @@ interface SetupReport {
 }
 
 export async function lint(options: LintOptions = {}): Promise<boolean> {
-  const rootDir = options.rootDir ?? process.cwd();
-  if (options.setup) {
-    return runSetup(rootDir, {
-      dryRun: options.dryRun === true,
-      yes: options.yes === true,
-    });
+  // Issue #244 — a top-level try/catch keeps non-Error throws (rejected
+  // `Bun.spawn` promises, `readTemplateFile()` resolution failures in a
+  // consumer-installed CLI binary, etc.) from bubbling past the CLI
+  // boundary as raw strings or `ResolveMessage` objects. Coerce every
+  // failure into an Error with the original value attached as `cause`
+  // so `errors/messages.ts::formatCLIError` can render something useful.
+  try {
+    const rootDir = options.rootDir ?? process.cwd();
+    if (options.setup) {
+      return await runSetup(rootDir, {
+        dryRun: options.dryRun === true,
+        yes: options.yes === true,
+      });
+    }
+    return await runLint(rootDir);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("\n❌ mandu lint failed: " + message);
+    if (process.env.DEBUG) {
+      console.error("   Thrown value:", err);
+    } else {
+      console.error("   Set DEBUG=1 for the full thrown value.");
+    }
+    return false;
   }
-  return runLint(rootDir);
 }
 
 /**

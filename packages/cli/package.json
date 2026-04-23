@@ -10,6 +10,7 @@
   "files": [
     "src/**/*",
     "templates/**/*",
+    "templates/**/.*",
     "generated/**/*",
     "scripts/generate-template-manifest.ts",
     "scripts/build-binary.ts"
