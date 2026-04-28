@@ -1,5 +1,17 @@
 # @mandujs/cli
 
+## 0.34.3
+
+### Patch Changes
+
+- [`6f82f0c`](https://github.com/konamgil/mandu/commit/6f82f0c8dc105518af57ff4cb9896475e6ac7e3c) Thanks [@konamgil](https://github.com/konamgil)! - fix(#246): Vercel adapter emits valid `vercel.json` and Bun-compatible SSR entry
+
+  - Drop invalid `functions[*].runtime: "nodejs20.x"` (Vercel rejects bare identifiers)
+  - Default to `@vercel/bun@1.0.0` community runtime — Mandu core uses Bun-only APIs
+  - Drop deprecated top-level `name` field (owned by Vercel project settings)
+  - Rewrite `api/_mandu.ts` entry to export Bun-style `{ fetch }` instead of Node `IncomingMessage`/`ServerResponse`
+  - Validate `runtime` as npm package spec; reject bare identifiers with a clear error
+
 ## 0.34.2
 
 ### Patch Changes
