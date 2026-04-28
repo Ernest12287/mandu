@@ -1,3 +1,17 @@
+/**
+ * Manifest → runtime registry wiring.
+ *
+ * Lives in `@mandujs/core/runtime` (not in `@mandujs/cli`) because it
+ * runs at *server* boot, not at build time. Deploy adapters generate
+ * SSR entry files that need to call this — having it here means the
+ * generated entry imports a single, public package (`@mandujs/core`)
+ * instead of reaching into a CLI subpath that has no `exports` map.
+ *
+ * @module core/runtime/handlers
+ */
+import fs from "node:fs/promises";
+import path from "node:path";
+
 import {
   registerApiHandler,
   registerPageLoader,
@@ -6,13 +20,10 @@ import {
   registerNotFoundHandler,
   registerMetadataHandler,
   registerWSHandler,
-  registerManifest,
-  needsHydration,
-  type RoutesManifest,
   type PageRegistration,
-} from "@mandujs/core";
-import fs from "fs/promises";
-import path from "path";
+} from "./server";
+import { registerManifest } from "./registry";
+import { needsHydration, type RoutesManifest } from "../spec/schema";
 
 type RouteModule = Record<string, unknown>;
 
@@ -96,8 +107,8 @@ export interface RegisterHandlersOptions {
 }
 
 /**
- * Register manifest routes as server handlers
- * Shared between dev.ts and start.ts
+ * Register manifest routes as server handlers.
+ * Shared between dev/build/start commands and deploy-target SSR entries.
  */
 export async function registerManifestHandlers(
   manifest: RoutesManifest,

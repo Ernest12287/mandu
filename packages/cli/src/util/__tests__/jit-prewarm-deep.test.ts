@@ -204,7 +204,7 @@ describe("JIT prewarm — Phase 11 C deep-import layer", () => {
     //   - `@mandujs/core/bundler/safe-build` export is still in the
     //     core package.json `exports` map.
     //   - `../util/bun` was not moved/renamed.
-    //   - `./handlers` was not moved.
+    //   - `@mandujs/core/runtime` still re-exports `registerManifestHandlers`.
     expect(result.deep?.loaded).toBeGreaterThanOrEqual(3);
     expect(result.deep?.failed).toBe(0);
   });

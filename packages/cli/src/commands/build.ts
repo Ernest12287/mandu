@@ -21,7 +21,7 @@ import { prerenderRoutes } from "@mandujs/core/bundler/prerender";
 import path from "path";
 import fs from "fs/promises";
 import { resolveManifest } from "../util/manifest";
-import { registerManifestHandlers } from "../util/handlers";
+import { registerManifestHandlers } from "@mandujs/core";
 import { createBuildSummaryRows, renderBuildSummaryTable } from "../util/build-summary";
 
 export interface BuildOptions {

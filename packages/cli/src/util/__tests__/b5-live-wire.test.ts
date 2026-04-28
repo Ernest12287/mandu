@@ -37,9 +37,9 @@ import path from "path";
 import {
   registerManifestHandlers,
   type RegisterHandlersOptions,
-} from "../handlers";
-import type { RoutesManifest } from "@mandujs/core";
-import { clearDefaultRegistry } from "@mandujs/core";
+  type RoutesManifest,
+  clearDefaultRegistry,
+} from "@mandujs/core";
 
 // ============================================
 // Helpers

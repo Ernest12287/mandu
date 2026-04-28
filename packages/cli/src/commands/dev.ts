@@ -38,7 +38,7 @@ import {
   handleBlockedLockfile,
   printRuntimeLockfileStatus,
 } from "../util/lockfile";
-import { registerManifestHandlers } from "../util/handlers";
+import { registerManifestHandlers } from "@mandujs/core";
 import { getFsRoutesGuardPolicy } from "../util/guard-policy";
 import { openBrowser } from "../util/browser";
 import { resolveDisplayHost } from "../util/host";

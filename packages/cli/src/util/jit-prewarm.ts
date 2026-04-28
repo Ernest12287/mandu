@@ -19,8 +19,8 @@
  *   - `@mandujs/cli/src/util/bun` — `createBundledImporter` + `ImportGraph`
  *     factory + first `Bun.build` execution with the framework's external
  *     allowlist.
- *   - `@mandujs/cli/src/util/handlers` — `registerManifestHandlers`
- *     (layout-loader setup, page registration, API method dispatch).
+ *   - `@mandujs/core/runtime` (`registerManifestHandlers`) — layout-loader
+ *     setup, page registration, API method dispatch.
  *
  * Phase 11 C adds a **deep-import** layer to close this last gap. Target:
  * first-iter ≤ 15 ms (hard) / ≤ 20 ms (soft).
@@ -44,12 +44,12 @@
  * The **deep** set (Phase 11 C — lazy, kicks off after shallow settles):
  *   - `@mandujs/core/bundler/safe-build` — semaphore around `Bun.build`
  *   - `../util/bun`                       — `createBundledImporter` + graph
- *   - `./handlers`                        — `registerManifestHandlers`
+ *   - `@mandujs/core/runtime`             — `registerManifestHandlers`
  *
  * The deep specifiers are intentionally loaded AFTER the shallow set because
  * (a) shallow covers the 90% case — a web-only project that never triggers
  * bundled import on the critical path, and (b) resolving the deep set
- * cascades through `cli/src/util/handlers` which drags in `@mandujs/core`'s
+ * cascades through `@mandujs/core/runtime` which contains the manifest
  * registrar exports. Sequencing keeps the marker-level timing interpretable.
  *
  * # Non-goals
@@ -123,7 +123,10 @@ const PREWARM_SPECIFIERS = [
 const PREWARM_DEEP_SPECIFIERS = [
   "@mandujs/core/bundler/safe-build",
   "../util/bun",
-  "./handlers",
+  // `registerManifestHandlers` lives in `@mandujs/core/runtime` (formerly
+  // `cli/util/handlers`). Pulling it through the runtime barrel still
+  // tier-warms the registrar code path before the first SSR call.
+  "@mandujs/core/runtime",
 ] as const;
 
 export interface PrewarmResult {

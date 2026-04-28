@@ -102,9 +102,13 @@ describe("template renderers", () => {
     const content = renderVercelJson({ projectName: "acme" });
     const parsed = JSON.parse(content);
     expect(parsed.rewrites[0].source).toBe("/assets/(.*)");
-    expect(parsed.rewrites[1].destination).toBe("/api/_mandu");
+    // Function file must NOT start with `_` — Vercel hides leading-underscore
+    // files in /api (Next.js convention). Regression: #247 Bug 4.
+    expect(parsed.rewrites[1].destination).toBe("/api/mandu");
+    expect(parsed.functions["api/mandu.ts"]).toBeDefined();
+    expect(parsed.functions["api/_mandu.ts"]).toBeUndefined();
     // Defaults to @vercel/bun community runtime — Mandu core uses Bun APIs.
-    expect(parsed.functions["api/_mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
+    expect(parsed.functions["api/mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
     // Deprecated `name` must not appear; project naming is owned by Vercel
     // project settings.
     expect(parsed.name).toBeUndefined();
@@ -179,6 +183,10 @@ describe("template renderers", () => {
     // path crashes at cold start because @mandujs/core uses Bun globals.
     expect(entry).not.toContain("IncomingMessage");
     expect(entry).not.toContain("ServerResponse");
+    // Bug 5 (#247): SSR entry must not reach into a CLI subpath that has
+    // no `exports` map. registerManifestHandlers now lives in @mandujs/core.
+    expect(entry).not.toContain("@mandujs/cli/util/handlers");
+    expect(entry).toContain("registerManifestHandlers");
   });
 });
 
@@ -271,17 +279,19 @@ describe("vercelAdapter", () => {
     await cleanup(p);
   });
 
-  it("prepare() emits vercel.json + api/_mandu.ts", async () => {
+  it("prepare() emits vercel.json + api/mandu.ts", async () => {
     const p = await makeProject("vercel-prepare");
     const artifacts = await vercelAdapter.prepare(p, { target: "vercel" });
     const rels = artifacts
       .map((a) => path.relative(p.root, a.path).replace(/\\/g, "/"))
       .sort();
-    expect(rels).toEqual(["api/_mandu.ts", "vercel.json"]);
+    // Function file is `api/mandu.ts`, not `api/_mandu.ts` — Vercel
+    // ignores leading-underscore files in /api. Regression: #247 Bug 4.
+    expect(rels).toEqual(["api/mandu.ts", "vercel.json"]);
     const parsed = JSON.parse(
       await fs.readFile(path.join(p.root, "vercel.json"), "utf8")
     );
-    expect(parsed.functions["api/_mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
+    expect(parsed.functions["api/mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
     expect(parsed.name).toBeUndefined();
     await cleanup(p);
   });

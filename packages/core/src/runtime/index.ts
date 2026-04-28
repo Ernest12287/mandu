@@ -3,6 +3,10 @@ export * from "./streaming-ssr";
 export { extractShellHtml, createPPRResponse, PPR_SHELL_MARKER } from "./ppr";
 export * from "./router";
 export * from "./server";
+export {
+  registerManifestHandlers,
+  type RegisterHandlersOptions,
+} from "./handlers";
 export { redirect, isManduRedirect, isRedirectResponse, REDIRECT_BRAND } from "./redirect";
 export type { RedirectStatus, RedirectOptions } from "./redirect";
 export { notFound, isNotFoundResponse, NOT_FOUND_BRAND } from "./not-found";

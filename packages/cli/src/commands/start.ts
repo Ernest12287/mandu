@@ -23,7 +23,7 @@ import {
   handleBlockedLockfile,
   printRuntimeLockfileStatus,
 } from "../util/lockfile";
-import { registerManifestHandlers } from "../util/handlers";
+import { registerManifestHandlers } from "@mandujs/core";
 import { removeRuntimeControl, writeRuntimeControl } from "../util/runtime-control";
 import { resolveDisplayHost } from "../util/host";
 import path from "path";

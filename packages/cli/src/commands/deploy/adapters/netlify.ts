@@ -119,8 +119,7 @@ export function renderNetlifySsrFunction(): string {
 // request lands here via the catch-all redirect in netlify.toml.
 
 import type { Context } from "@netlify/functions";
-import { generateManifest, startServer } from "@mandujs/core";
-import { registerManifestHandlers } from "@mandujs/cli/util/handlers";
+import { generateManifest, startServer, registerManifestHandlers } from "@mandujs/core";
 
 let cachedFetch: ((req: Request) => Promise<Response>) | null = null;
 
