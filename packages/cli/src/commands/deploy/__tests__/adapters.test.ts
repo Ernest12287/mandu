@@ -31,7 +31,6 @@ import {
   renderNetlifyToml,
   renderNixpacksToml,
   renderRailwayJson,
-  renderVercelFunctionEntry,
   renderVercelJson,
   vercelAdapter,
 } from "../adapters";
@@ -98,26 +97,21 @@ describe("template renderers", () => {
     ).toThrow(/secret/i);
   });
 
-  it("vercel.json routes static assets first, SSR otherwise", () => {
+  it("vercel.json scaffolds a static-only deploy (Issue #248)", () => {
     const content = renderVercelJson({ projectName: "acme" });
     const parsed = JSON.parse(content);
-    expect(parsed.rewrites[0].source).toBe("/assets/(.*)");
-    // Function file must NOT start with `_` — Vercel hides leading-underscore
-    // files in /api (Next.js convention). Regression: #247 Bug 4.
-    expect(parsed.rewrites[1].destination).toBe("/api/mandu");
-    expect(parsed.functions["api/mandu.ts"]).toBeDefined();
-    expect(parsed.functions["api/_mandu.ts"]).toBeUndefined();
-    // Defaults to @vercel/bun community runtime — Mandu core uses Bun APIs.
-    expect(parsed.functions["api/mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
+    // Static deploy → no `functions` block, no SSR rewrite. The flat
+    // `dist/` tree from `mandu build --static` is served directly.
+    expect(parsed.functions).toBeUndefined();
+    expect(parsed.rewrites).toBeUndefined();
+    expect(parsed.outputDirectory).toBe("dist");
+    expect(parsed.buildCommand).toBe("bun run mandu build --static");
+    // Long-lived cache for hashed bundles preserved at /.mandu/client/...
+    expect(parsed.headers[0].source).toBe("/.mandu/client/(.*)");
+    expect(parsed.headers[0].headers[0].value).toMatch(/immutable/);
     // Deprecated `name` must not appear; project naming is owned by Vercel
     // project settings.
     expect(parsed.name).toBeUndefined();
-  });
-
-  it("vercel.json rejects bare runtime identifiers like 'nodejs20.x'", () => {
-    expect(() =>
-      renderVercelJson({ projectName: "acme", runtime: "nodejs20.x" })
-    ).toThrow(/npm package spec/i);
   });
 
   it("railway.json + nixpacks.toml emit bun providers", () => {
@@ -174,20 +168,6 @@ describe("template renderers", () => {
     expect(yes).toContain("Redis");
   });
 
-  it("vercel function entry exports a Bun-style fetch handler", () => {
-    const entry = renderVercelFunctionEntry();
-    expect(entry).toContain("export default");
-    expect(entry).toContain("fetch(req: Request)");
-    expect(entry).toContain("@mandujs/core");
-    // Old Node @vercel/node IncomingMessage handler must be gone — that
-    // path crashes at cold start because @mandujs/core uses Bun globals.
-    expect(entry).not.toContain("IncomingMessage");
-    expect(entry).not.toContain("ServerResponse");
-    // Bug 5 (#247): SSR entry must not reach into a CLI subpath that has
-    // no `exports` map. registerManifestHandlers now lives in @mandujs/core.
-    expect(entry).not.toContain("@mandujs/cli/util/handlers");
-    expect(entry).toContain("registerManifestHandlers");
-  });
 });
 
 // ===== check() + prepare() ===========================================
@@ -279,19 +259,21 @@ describe("vercelAdapter", () => {
     await cleanup(p);
   });
 
-  it("prepare() emits vercel.json + api/mandu.ts", async () => {
+  it("prepare() emits vercel.json only — no SSR function (Issue #248)", async () => {
     const p = await makeProject("vercel-prepare");
     const artifacts = await vercelAdapter.prepare(p, { target: "vercel" });
     const rels = artifacts
       .map((a) => path.relative(p.root, a.path).replace(/\\/g, "/"))
       .sort();
-    // Function file is `api/mandu.ts`, not `api/_mandu.ts` — Vercel
-    // ignores leading-underscore files in /api. Regression: #247 Bug 4.
-    expect(rels).toEqual(["api/mandu.ts", "vercel.json"]);
+    // Static-only scaffold — no api/*.ts is generated. Removing the
+    // SSR entry was deliberate: no published Vercel function runtime
+    // can host Mandu's startServer (see vercel.ts module docstring).
+    expect(rels).toEqual(["vercel.json"]);
     const parsed = JSON.parse(
       await fs.readFile(path.join(p.root, "vercel.json"), "utf8")
     );
-    expect(parsed.functions["api/mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
+    expect(parsed.functions).toBeUndefined();
+    expect(parsed.outputDirectory).toBe("dist");
     expect(parsed.name).toBeUndefined();
     await cleanup(p);
   });

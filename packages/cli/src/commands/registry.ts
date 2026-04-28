@@ -169,10 +169,12 @@ registerCommand({
     "    --prerender-skip-errors   Downgrade prerender errors to warnings (Issue #216)",
     "    --audit                   Run axe-core a11y audit over prerendered HTML (Phase 18.χ)",
     "    --audit-fail-on=<impact>  Fail build when violation ≥ impact (minor|moderate|serious|critical)",
+    "    --static[=<dir>]          Emit a flat static-host-ready dir (default: dist) — Issue #249",
     "",
     "  Outputs:",
     "    .mandu/client/                              Hydration bundles (default target)",
-    "    .mandu/static/                              Prerendered HTML shells",
+    "    .mandu/prerendered/                         Prerendered HTML (per locale, per route)",
+    "    <dir>/                                      Flat static export (when --static is used)",
     "    .mandu/workers/worker.js + wrangler.toml    (target=workers)",
     "    .mandu/deno/server.ts + deno.json           (target=deno)",
     "    api/_mandu.ts + vercel.json                 (target=vercel-edge)",
@@ -181,6 +183,8 @@ registerCommand({
     "  Examples:",
     "    mandu build",
     "    mandu build --watch",
+    "    mandu build --static                         # flat dist/ for any static host",
+    "    mandu build --static=public-out              # custom output dir",
     "    mandu build --target=workers --worker-name=my-app",
     "    mandu build --target=deno --project-name=my-app",
     "    mandu build --target=vercel-edge",
@@ -260,6 +264,14 @@ registerCommand({
       noLint:
         ctx.options["no-lint"] === "true" ||
         ctx.options["no-lint"] === "",
+      // Issue #249 — `--static` (bare) → true, defaulting outDir to "dist".
+      // `--static=<dir>` → custom directory. Anything else falsy → skip.
+      staticExport: (function () {
+        const raw = ctx.options.static;
+        if (raw === undefined) return undefined;
+        if (raw === "true" || raw === "") return true;
+        return raw;
+      })(),
     });
   },
 });

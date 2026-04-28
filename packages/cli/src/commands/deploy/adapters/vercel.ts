@@ -1,26 +1,36 @@
 /**
- * Vercel adapter.
+ * Vercel adapter — static-only.
  *
- * Emits `vercel.json` with a custom build/output configuration suitable
- * for Mandu's SSR pipeline. Vercel's "Other" framework preset is used so
- * Vercel doesn't rewrite routes based on its built-in detectors; the
- * adapter owns the entire mapping.
+ * # Why static-only (Issue #248)
  *
- * ## Runtime: @vercel/bun
+ * Vercel's function-runtime story is misaligned with Mandu in three ways:
  *
- * Mandu core relies on Bun-only APIs (Bun.serve, Bun.file, …), so the
- * SSR function targets the `@vercel/bun` community runtime. The entry
- * exports a Bun-style `fetch` handler that delegates to the same
- * `startServer` path used in dev/build.
+ *   1. The built-in Node runtime crashes on Mandu's `startServer` because
+ *      core uses Bun-only globals (`Bun.serve`, `Bun.file`, `Bun.env`).
+ *   2. The Edge runtime supports a Web-API subset that does not cover
+ *      every code path `startServer` reaches at request time.
+ *   3. There is no published `@vercel/bun` community runtime — the npm
+ *      registry returns 404 for the package as of 2026-04-28. (Vercel
+ *      ships build-time Bun support via `bun install`/`bun run build`,
+ *      not a function runtime.)
  *
- * ## vercel.json caveats
+ * Until one of those gaps closes, the adapter cannot generate a working
+ * SSR function. So the default scaffold pivots to the deploy shape that
+ * actually works today: emit a flat static directory (`mandu build
+ * --static`) and let Vercel serve it from its CDN. No functions, no
+ * runtime field, no dotfile-routed rewrites.
  *
- *   - `functions[*].runtime` is an npm package spec for community
- *     runtimes (e.g. `@vercel/bun@1.0.0`). For the built-in Node
- *     runtime the field must be omitted entirely — `nodejs20.x` is
- *     not a valid value here.
- *   - The top-level `name` field is deprecated; project naming is
- *     owned by Vercel project settings.
+ * Projects with API routes or non-prerenderable pages are not supported
+ * on Vercel via this adapter today — `check()` warns when the manifest
+ * contains routes the static build will drop on the floor.
+ *
+ * # vercel.json caveats
+ *
+ *   - The top-level `name` field is deprecated; project naming is owned
+ *     by Vercel project settings.
+ *   - `functions[*].runtime` requires an npm package spec (e.g.
+ *     `@vercel/python@4.0.0`). Bare identifiers like `nodejs20.x` are
+ *     rejected. The static scaffold avoids the field entirely.
  *
  * References:
  *   - https://vercel.com/docs/projects/project-configuration
@@ -49,11 +59,10 @@ import type {
 const MIN_VERCEL_VERSION = "28.0.0";
 
 /**
- * Default Vercel community runtime spec for Mandu's SSR function.
- * `@vercel/bun` provides a Bun runtime on Vercel, matching Mandu's
- * dev/build environment so `Bun.serve`/`Bun.file` paths work as-is.
+ * Default static-export directory that the scaffolded `vercel.json`
+ * points Vercel at. Matches `mandu build --static`'s default outDir.
  */
-const DEFAULT_VERCEL_RUNTIME = "@vercel/bun@1.0.0";
+const DEFAULT_STATIC_OUTPUT_DIR = "dist";
 
 const VERCEL_SECRETS: ReadonlyArray<SecretSpec> = [
   {
@@ -76,9 +85,16 @@ export interface VercelJsonOptions {
    * Project Settings.
    */
   projectName: string;
-  /** Build command — defaults to `mandu build` (Bun must be available in builder). */
+  /**
+   * Build command. Defaults to `bun run mandu build --static`, which
+   * produces the flat static directory `vercel.json` points at.
+   */
   buildCommand?: string;
-  /** Output directory Vercel should serve (relative to project root). */
+  /**
+   * Output directory Vercel should serve. Defaults to `dist`, matching
+   * `mandu build --static`'s default. Must point at a flat tree shaped
+   * like the URL space — Mandu's `--static` export does this for you.
+   */
   outputDirectory?: string;
   /** Install command hint for Vercel. */
   installCommand?: string;
@@ -87,14 +103,6 @@ export interface VercelJsonOptions {
    * via `vercel env add`, not embedded here.
    */
   env?: Record<string, string>;
-  /**
-   * Vercel community runtime spec for the SSR function. Must be an npm
-   * package identifier (e.g. `@vercel/bun@1.0.0`, `@vercel/python@4.0.0`).
-   * Defaults to `@vercel/bun@1.0.0` because Mandu core depends on Bun
-   * APIs. To target a different community runtime, override here; the
-   * built-in Node runtime is not supported by Mandu's SSR entry today.
-   */
-  runtime?: string;
 }
 
 export function renderVercelJson(options: VercelJsonOptions): string {
@@ -104,41 +112,19 @@ export function renderVercelJson(options: VercelJsonOptions): string {
     );
   }
 
-  const runtime = options.runtime ?? DEFAULT_VERCEL_RUNTIME;
-  if (!/^@?[a-z0-9][a-z0-9._/-]*@[0-9]+\.[0-9]+\.[0-9]+/i.test(runtime)) {
-    throw new Error(
-      `renderVercelJson: runtime "${runtime}" must be an npm package spec ` +
-        `like "@vercel/bun@1.0.0" — Vercel rejects bare identifiers ` +
-        `such as "nodejs20.x" in functions[*].runtime.`
-    );
-  }
-
   const config: Record<string, unknown> = {
     $schema: "https://openapi.vercel.sh/vercel.json",
     version: 2,
     framework: null,
-    buildCommand: options.buildCommand ?? "bun run mandu build",
+    buildCommand: options.buildCommand ?? "bun run mandu build --static",
     installCommand: options.installCommand ?? "bun install --frozen-lockfile",
-    outputDirectory: options.outputDirectory ?? ".mandu/client",
-    functions: {
-      // Note: filename must NOT begin with `_`. Vercel's filesystem
-      // function detection treats leading-underscore files in `/api`
-      // as private (Next.js convention: `_app`, `_document`, …) and
-      // refuses to register them.
-      "api/mandu.ts": {
-        runtime,
-        includeFiles: ".mandu/**",
-      },
-    },
-    rewrites: [
-      // Static assets pass through first (output directory), everything
-      // else hits the SSR function.
-      { source: "/assets/(.*)", destination: "/assets/$1" },
-      { source: "/(.*)", destination: "/api/mandu" },
-    ],
+    outputDirectory: options.outputDirectory ?? DEFAULT_STATIC_OUTPUT_DIR,
     headers: [
+      // Long-lived cache for hashed JS/CSS bundles. The static export
+      // preserves their on-disk path under `<outDir>/.mandu/client/...`
+      // so the URLs the prerendered HTML already references resolve.
       {
-        source: "/assets/(.*)",
+        source: "/.mandu/client/(.*)",
         headers: [
           { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
@@ -169,44 +155,18 @@ export function renderVercelJson(options: VercelJsonOptions): string {
 }
 
 // ---------------------------------------------------------------------
-// SSR function entry template — `api/mandu.ts`
+// SSR function entry — intentionally not generated.
 // ---------------------------------------------------------------------
-
-export function renderVercelFunctionEntry(): string {
-  return `// Generated by \`mandu deploy --target=vercel\`.
-// Vercel SSR function entry for the @vercel/bun runtime.
-// Exports a Bun-style fetch handler — Vercel adapts it automatically.
-import { startServer, generateManifest, registerManifestHandlers } from "@mandujs/core";
-
-let serverPromise: Promise<{ fetch: (req: Request) => Response | Promise<Response> }> | null = null;
-
-async function getServer(): Promise<{ fetch: (req: Request) => Response | Promise<Response> }> {
-  if (serverPromise) return serverPromise;
-  serverPromise = (async () => {
-    const rootDir = process.cwd();
-    const { manifest } = await generateManifest(rootDir);
-    await registerManifestHandlers(manifest, rootDir, {
-      importFn: (p: string) => import(p),
-      registeredLayouts: new Set(),
-    });
-    const { server } = startServer(manifest, {
-      port: 0,
-      rootDir,
-      isDev: false,
-    });
-    return server;
-  })();
-  return serverPromise;
-}
-
-export default {
-  async fetch(req: Request): Promise<Response> {
-    const server = await getServer();
-    return server.fetch(req);
-  },
-};
-`;
-}
+//
+// The previous version of this adapter wrote `api/mandu.ts` and pointed
+// `vercel.json#functions` at a Bun-style runtime. None of the published
+// Vercel function runtimes (Node, Edge, Python) can host Mandu's
+// `startServer` today (see module-level docstring), so emitting an SSR
+// entry created an artifact that 500'd at cold start. Removed in favour
+// of the static deploy shape which actually works.
+//
+// If/when an official Vercel Bun function runtime ships, restore this
+// path with a runtime spec that resolves on npm.
 
 // ---------------------------------------------------------------------
 // Adapter
@@ -237,6 +197,23 @@ export function createVercelAdapter(
         warnings.push({
           code: CLI_ERROR_CODES.DEPLOY_MANIFEST_MISSING,
           message: "Routes manifest is not built — `prepare()` will still emit vercel.json.",
+        });
+      }
+
+      // Issue #248 — Vercel adapter is currently static-only. Surface
+      // a warning when the manifest contains routes that the static
+      // build will drop on the floor (API endpoints, non-prerendered
+      // pages). Don't fail the check — the user may know their site
+      // is fully prerenderable but still have a placeholder API route.
+      const apiRoutes =
+        project.manifest?.routes.filter((r) => r.kind === "api") ?? [];
+      if (apiRoutes.length > 0) {
+        warnings.push({
+          code: CLI_ERROR_CODES.DEPLOY_UNSUPPORTED_ROUTE,
+          message:
+            `Vercel adapter is static-only (Issue #248): ${apiRoutes.length} API route(s) will not be served. ` +
+            `No published Vercel function runtime can currently host Mandu's startServer.`,
+          hint: "Move API logic to Workers (`mandu build --target=workers`) or self-host with `mandu start`.",
         });
       }
 
@@ -284,18 +261,9 @@ export function createVercelAdapter(
           : `Scaffolded vercel.json (project=${projectName})`,
       });
 
-      // 2. SSR function entry. Filename must not start with `_` — Vercel
-      // hides leading-underscore files in `/api` (Next.js convention).
-      const apiDir = path.join(rootDir, "api");
-      const functionResult = await writeArtifact({
-        forbiddenValues: options.forbiddenSecrets,
-        path: path.join(apiDir, "mandu.ts"),
-        content: renderVercelFunctionEntry(),
-      });
-      artifacts.push({
-        path: functionResult.path,
-        description: "Vercel @vercel/bun SSR entry",
-      });
+      // No SSR function entry. The static deploy shape serves the
+      // flat tree from `mandu build --static` directly. See module
+      // docstring for the runtime gap that drove this decision.
 
       return artifacts;
     },

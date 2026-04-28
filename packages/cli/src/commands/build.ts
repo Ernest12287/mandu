@@ -23,6 +23,7 @@ import fs from "fs/promises";
 import { resolveManifest } from "../util/manifest";
 import { registerManifestHandlers } from "@mandujs/core";
 import { createBuildSummaryRows, renderBuildSummaryTable } from "../util/build-summary";
+import { emitStaticExport } from "../util/static-export";
 
 export interface BuildOptions {
   /** Code minification (default: true in production) */
@@ -127,6 +128,21 @@ export interface BuildOptions {
    * block. oxlint not installed → gate is a no-op + advisory log.
    */
   noLint?: boolean;
+  /**
+   * Issue #249 — emit a flat static-host-ready directory after the
+   * normal build completes. The directory mirrors the URL space:
+   * prerendered HTML at root, client bundles preserved at
+   * `<dir>/.mandu/client/...`, `public/` files at root.
+   *
+   *   - `false` / `undefined` → skip (default).
+   *   - `true`                → write to `dist/` at the project root.
+   *   - `<string>`            → write to that directory (relative or absolute).
+   *
+   * Refuses to overlap the project root or `.mandu/` itself. Requires
+   * `.mandu/prerendered/` and `.mandu/client/` to exist (i.e. an
+   * actual successful build); otherwise fails loud.
+   */
+  staticExport?: boolean | string;
 }
 
 type PreBuildLintResult =
@@ -875,6 +891,33 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
       console.warn(
         `\n⚠️  Accessibility audit failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`
       );
+    }
+  }
+
+  // Issue #249 — flat static export. Runs after the audit gate so we
+  // never package a build that failed accessibility/budget enforcement.
+  if (options.staticExport) {
+    const target =
+      typeof options.staticExport === "string" ? options.staticExport : "dist";
+    console.log(`\n📦 Emitting static export to "${target}"...`);
+    try {
+      const result = await emitStaticExport({ rootDir: cwd, outDir: target });
+      console.log(
+        `   ✅ ${result.filesCopied} file(s) copied → ${path.relative(cwd, result.outDir) || result.outDir}`
+      );
+      console.log(
+        `      prerendered: ${result.copied.prerendered}  ` +
+          `client: ${result.copied.client}  public: ${result.copied.public}`
+      );
+    } catch (err) {
+      console.error(
+        `\n❌ Static export failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+      await runHook("onAfterBuild", plugins, hooks, {
+        success: false,
+        duration: Math.round(performance.now() - buildStartTime),
+      });
+      return false;
     }
   }
 

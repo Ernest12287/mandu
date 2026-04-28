@@ -188,6 +188,10 @@ export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
     message: "Adapter {target} does not yet support this operation.",
     suggestion: "Check docs/deploy/README.md for the adapter capability matrix.",
   },
+  [CLI_ERROR_CODES.DEPLOY_UNSUPPORTED_ROUTE]: {
+    message: "Adapter {target} cannot serve route(s) of this kind.",
+    suggestion: "Either move the affected routes off this target or pick an adapter that supports them.",
+  },
 
   // AI chat / eval errors (CLI_E300-CLI_E309) — Phase 14.2
   [CLI_ERROR_CODES.AI_API_KEY_MISSING]: {

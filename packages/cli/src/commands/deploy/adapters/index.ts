@@ -23,7 +23,6 @@ export {
   vercelAdapter,
   createVercelAdapter,
   renderVercelJson,
-  renderVercelFunctionEntry,
 } from "./vercel";
 export {
   railwayAdapter,
