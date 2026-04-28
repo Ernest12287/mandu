@@ -27,6 +27,7 @@ import {
   type ConfigGuardResult,
   type ReactCompilerDiagnostic,
 } from "@mandujs/core";
+import { resolveReactCompilerConfig } from "@mandujs/core/bundler/plugins";
 import path from "path";
 import { resolveFromCwd, isDirectory, pathExists } from "../util/fs";
 import { getFsRoutesGuardPolicy } from "../util/guard-policy";
@@ -398,9 +399,13 @@ export async function check(): Promise<boolean> {
   // a user who enabled the flag but forgot to install ESLint never
   // sees `mandu check` blow up.
   const rcConfig = config.experimental?.reactCompiler;
+  // #240 Phase 2 — auto-detect peer deps so `mandu check` runs the
+  // bailout lint when the user installed `babel-plugin-react-compiler`
+  // even without an explicit `enabled: true` in mandu.config.ts.
+  const resolvedRc = resolveReactCompilerConfig(rcConfig, rootDir);
   let compilerDiagnostics: ReactCompilerDiagnostic[] = [];
   let compilerSkipped = false;
-  if (rcConfig?.enabled === true && fsRoutesManifest) {
+  if (resolvedRc.enabled && fsRoutesManifest) {
     try {
       const targets = await collectCompilerLintTargets(fsRoutesManifest, rootDir);
       if (targets.length === 0) {
@@ -412,7 +417,7 @@ export async function check(): Promise<boolean> {
         const result = await runReactCompilerLint({
           projectRoot: rootDir,
           targetFiles: targets,
-          severity: rcConfig.strict === true ? "error" : "warning",
+          severity: rcConfig?.strict === true ? "error" : "warning",
         });
         compilerDiagnostics = result.diagnostics;
         compilerSkipped = result.skipped;
@@ -430,7 +435,7 @@ export async function check(): Promise<boolean> {
           }
         }
 
-        if (rcConfig.strict === true && compilerDiagnostics.length > 0) {
+        if (rcConfig?.strict === true && compilerDiagnostics.length > 0) {
           success = false;
         }
       }

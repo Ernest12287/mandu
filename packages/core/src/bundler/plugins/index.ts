@@ -36,6 +36,12 @@ export {
   type FormatCompilerReportOptions,
 } from "./react-compiler-lint";
 
+export {
+  resolveReactCompilerConfig,
+  type RawReactCompilerConfig,
+  type ResolvedReactCompilerConfig,
+} from "./react-compiler-config";
+
 /**
  * Subset of `ManduConfig.guard` consumed by `defaultBundlerPlugins()`.
  * We deliberately don't import the full `ManduConfig` type to keep the

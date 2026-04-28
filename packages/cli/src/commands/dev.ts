@@ -39,6 +39,7 @@ import {
   printRuntimeLockfileStatus,
 } from "../util/lockfile";
 import { registerManifestHandlers } from "@mandujs/core";
+import { resolveReactCompilerConfig } from "@mandujs/core/bundler/plugins";
 import { getFsRoutesGuardPolicy } from "../util/guard-policy";
 import { openBrowser } from "../util/browser";
 import { resolveDisplayHost } from "../util/host";
@@ -143,6 +144,25 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   const plugins = config.plugins ?? [];
   const hooks = config.hooks;
   const HMR_OFFSET = 1;
+
+  // #240 Phase 2 — auto-detect React Compiler peer deps once per dev
+  // session. The result is forwarded to every client-bundle path
+  // (initial `buildClientBundles` for non-island projects, the dev
+  // bundler factory) so HMR rebuilds use the same enabled state as
+  // the cold build.
+  const resolvedReactCompiler = resolveReactCompilerConfig(
+    config.experimental?.reactCompiler,
+    rootDir,
+  );
+  if (resolvedReactCompiler.autoDetected) {
+    console.log(
+      "🧠 React Compiler — auto-detected peer deps; auto-memoization enabled.",
+    );
+  }
+  const reactCompilerOption = {
+    enabled: resolvedReactCompiler.enabled,
+    compilerConfig: resolvedReactCompiler.compilerConfig,
+  };
 
   // Issue #196 — Auto-run `scripts/prebuild-*.ts` before dev boot.
   //
@@ -527,7 +547,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     // HMR 비활성 + island 없음: devBundler가 안 도니까 수동으로 DevTools 번들 빌드
     await buildClientBundles(manifest, rootDir, {
       minify: false,
-      reactCompiler: config.experimental?.reactCompiler,
+      reactCompiler: reactCompilerOption,
     });
   }
 
@@ -1011,7 +1031,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         onResourceChange: handleResourceChange,
         onContentChange: handleContentChange,
         onPackageJsonChange: handlePackageJsonChange,
-        reactCompiler: config.experimental?.reactCompiler,
+        reactCompiler: reactCompilerOption,
       });
 
       hmrServer.broadcast({

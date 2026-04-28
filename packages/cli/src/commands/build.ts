@@ -18,6 +18,7 @@ import {
   type ServerOptions,
 } from "@mandujs/core";
 import { prerenderRoutes } from "@mandujs/core/bundler/prerender";
+import { resolveReactCompilerConfig } from "@mandujs/core/bundler/plugins";
 import path from "path";
 import fs from "fs/promises";
 import { resolveManifest } from "../util/manifest";
@@ -281,14 +282,30 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
 
   const cssPath = hasTailwind ? "/.mandu/client/globals.css" : false;
   let bundleManifest: BundleManifest | undefined;
+  // #240 Phase 2 — resolve `experimental.reactCompiler.enabled` here so
+  // peer-dep auto-detect runs once per build and the result flows into
+  // every client-bundle invocation. Implicit enable kicks in when the
+  // user has installed `@babel/core` + `babel-plugin-react-compiler`
+  // and left `enabled` unset; explicit `false` continues to veto.
+  const resolvedReactCompiler = resolveReactCompilerConfig(
+    config.experimental?.reactCompiler,
+    cwd,
+  );
+  if (resolvedReactCompiler.autoDetected) {
+    console.log(
+      "🧠 React Compiler — auto-detected peer deps; auto-memoization enabled.",
+    );
+  }
   const resolvedBuildOptions: BuildOptions = {
     minify: options.minify ?? buildConfig.minify,
     sourcemap: options.sourcemap ?? buildConfig.sourcemap,
     outDir: options.outDir ?? buildConfig.outDir,
     // #240 — forward experimental.reactCompiler from mandu.config.ts
-    // to the bundler's client-bundle path. Omitted / disabled → plugin
-    // is not installed; SSR paths are never affected either way.
-    reactCompiler: config.experimental?.reactCompiler,
+    // to the bundler's client-bundle path. SSR paths are never affected.
+    reactCompiler: {
+      enabled: resolvedReactCompiler.enabled,
+      compilerConfig: resolvedReactCompiler.compilerConfig,
+    },
   };
 
   if (hydratedRoutes.length === 0) {
