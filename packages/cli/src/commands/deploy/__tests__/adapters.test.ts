@@ -103,7 +103,17 @@ describe("template renderers", () => {
     const parsed = JSON.parse(content);
     expect(parsed.rewrites[0].source).toBe("/assets/(.*)");
     expect(parsed.rewrites[1].destination).toBe("/api/_mandu");
-    expect(parsed.functions["api/_mandu.ts"].runtime).toBe("nodejs20.x");
+    // Defaults to @vercel/bun community runtime — Mandu core uses Bun APIs.
+    expect(parsed.functions["api/_mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
+    // Deprecated `name` must not appear; project naming is owned by Vercel
+    // project settings.
+    expect(parsed.name).toBeUndefined();
+  });
+
+  it("vercel.json rejects bare runtime identifiers like 'nodejs20.x'", () => {
+    expect(() =>
+      renderVercelJson({ projectName: "acme", runtime: "nodejs20.x" })
+    ).toThrow(/npm package spec/i);
   });
 
   it("railway.json + nixpacks.toml emit bun providers", () => {
@@ -160,10 +170,15 @@ describe("template renderers", () => {
     expect(yes).toContain("Redis");
   });
 
-  it("vercel function entry is valid TS with default handler", () => {
+  it("vercel function entry exports a Bun-style fetch handler", () => {
     const entry = renderVercelFunctionEntry();
-    expect(entry).toContain("export default async function handler");
+    expect(entry).toContain("export default");
+    expect(entry).toContain("fetch(req: Request)");
     expect(entry).toContain("@mandujs/core");
+    // Old Node @vercel/node IncomingMessage handler must be gone — that
+    // path crashes at cold start because @mandujs/core uses Bun globals.
+    expect(entry).not.toContain("IncomingMessage");
+    expect(entry).not.toContain("ServerResponse");
   });
 });
 
@@ -266,7 +281,8 @@ describe("vercelAdapter", () => {
     const parsed = JSON.parse(
       await fs.readFile(path.join(p.root, "vercel.json"), "utf8")
     );
-    expect(parsed.name).toBe("acme-app");
+    expect(parsed.functions["api/_mandu.ts"].runtime).toBe("@vercel/bun@1.0.0");
+    expect(parsed.name).toBeUndefined();
     await cleanup(p);
   });
 });
