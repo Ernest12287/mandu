@@ -25,6 +25,7 @@
     "./content/llms-txt": "./src/content/llms-txt.ts",
     "./content/schema": "./src/content/schema.ts",
     "./db": "./src/db/index.ts",
+    "./design": "./src/design/index.ts",
     "./desktop": "./src/desktop/index.ts",
     "./desktop/worker": "./src/desktop/worker.ts",
     "./email": "./src/email/index.ts",

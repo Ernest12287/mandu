@@ -298,6 +298,67 @@ registerCommand({
 });
 
 registerCommand({
+  id: "design",
+  description:
+    "DESIGN.md operations (init / import / validate). Issue #245 M1 minimal slice.",
+  exitOnSuccess: true,
+  help: [
+    "",
+    "  mandu design — DESIGN.md operations",
+    "",
+    "  Subcommands:",
+    "    mandu design init [--from <slug|url>]",
+    "        Write a fresh DESIGN.md. Empty 9-section skeleton by default,",
+    "        or import a brand spec via --from (e.g. `--from stripe`).",
+    "    mandu design import <slug|url>",
+    "        Overwrite the existing DESIGN.md with an imported brand spec.",
+    "    mandu design validate",
+    "        Parse DESIGN.md and report missing / empty / malformed sections.",
+    "",
+    "  Flags:",
+    "    --from <slug|url>   Source for init/import (awesome-design-md slug",
+    "                        or any raw URL). Slug examples: stripe, linear,",
+    "                        spotify — see github.com/VoltAgent/awesome-design-md",
+    "    --force             init: overwrite existing DESIGN.md.",
+    "    --filename <name>   Target filename (default: DESIGN.md).",
+    "",
+    "  Examples:",
+    "    mandu design init                       # empty 9-section skeleton",
+    "    mandu design init --from stripe         # import Stripe DESIGN.md",
+    "    mandu design import linear              # swap to Linear DESIGN.md",
+    "    mandu design validate                   # report gaps",
+    "",
+  ].join("\n"),
+  subcommands: ["init", "import", "validate"],
+  async run(ctx) {
+    const { design } = await import("./design");
+    // ctx.args[0] is the command name ("design"); subcommand starts at args[1].
+    const sub = ctx.args[1];
+    if (sub !== "init" && sub !== "import" && sub !== "validate") {
+      console.error(
+        `❌ unknown subcommand "${sub ?? ""}". Use one of: init | import | validate`,
+      );
+      console.error(`   Run \`mandu design --help\` for usage.`);
+      return false;
+    }
+    const fromArg =
+      ctx.options.from && ctx.options.from !== "true" ? ctx.options.from : undefined;
+    // For `import <slug>` the slug is the third positional (after `design import`).
+    // `init --from` uses the flag instead.
+    const positionalFrom = sub === "import" ? ctx.args[2] : undefined;
+    return design({
+      action: sub,
+      from: fromArg ?? positionalFrom,
+      force: ctx.options.force === "true" || ctx.options.force === "",
+      filename:
+        ctx.options.filename && ctx.options.filename !== "true"
+          ? ctx.options.filename
+          : undefined,
+    });
+  },
+});
+
+registerCommand({
   id: "info",
   description:
     "Print environment + config + health summary (agent-friendly debug dump)",
