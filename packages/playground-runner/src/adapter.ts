@@ -257,16 +257,11 @@ export class CloudflareSandboxAdapter implements PlaygroundAdapter {
 export class FlyMachineAdapter implements PlaygroundAdapter {
   readonly name = "fly-machine" as const;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   constructor(_config: { apiToken: string; appName: string; region?: string }) {
-    // TODO(phase-16.2-fallback): Build out fly-machines control-plane integration.
-    // Required pieces:
-    //  - POST /v1/apps/<app>/machines (spawn with image)
-    //  - Wait for state=started
-    //  - exec via `fly machine exec` or SSH
-    //  - Stream stdout back through a WS relay (fly doesn't have SSE native)
-    //  - Kill on timeout
-    //  - Recycle idle machines after 60s
+    // STUB — fly-machines control-plane integration deferred; see #201
+    // (closed as not-planned). Reference _config so the param survives
+    // future activation without an unused-parameter warning.
+    void _config;
   }
 
   async *run(_opts: RunOptions): AsyncIterable<SSEEvent> {

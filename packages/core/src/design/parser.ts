@@ -176,7 +176,7 @@ function extractTypographyTokens(body: string): TypographyToken[] {
   for (const line of body.split(/\r?\n/)) {
     const trimmed = line.trim().replace(/^[-*+]\s*/, "");
     if (!trimmed) continue;
-    if (/^#/.test(trimmed)) continue; // sub-headings
+    if (trimmed.startsWith("#")) continue; // sub-headings
     const stripped = trimmed.replace(/[`*_]/g, "");
     const nameMatch = /^([^:—–]+?)[\s]*[:—–]/.exec(stripped);
     const name = nameMatch ? nameMatch[1].trim() : stripped.split(/\s{2,}|—|–/)[0]?.trim();
