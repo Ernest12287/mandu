@@ -122,6 +122,15 @@ export const GUARD_RULES: Record<string, GuardRule> = {
     description: "spec/contracts/ 디렉토리에 .contract.ts가 아닌 파일이 있습니다",
     severity: "error",
   },
+  // Issue #245 — design system enforcement
+  DESIGN_INLINE_CLASS: {
+    id: "DESIGN_INLINE_CLASS",
+    name: "Forbidden Inline Class",
+    description:
+      "A className contains a token that DESIGN.md / guard.design declares forbidden outside the canonical component dirs. " +
+      "Replace the inline usage with the suggested component (or move to src/client/shared/ui or src/client/widgets).",
+    severity: "error",
+  },
 };
 
 export const FORBIDDEN_IMPORTS = ["fs", "child_process", "cluster", "worker_threads"];

@@ -454,6 +454,21 @@ export async function runGuardCheck(
   violations.push(...contractViolations);
 
   // ============================================
+  // Issue #245 — DESIGN.md-driven inline-class enforcement.
+  // Skipped silently when guard.design is undefined or has nothing
+  // to enforce (no explicit forbid list + autoFromDesignMd off).
+  // ============================================
+  const designConfig = (config.guard as { design?: unknown } | undefined)?.design;
+  if (designConfig && typeof designConfig === "object") {
+    const { checkDesignInlineClasses } = await import("./design-inline-class");
+    const designViolations = await checkDesignInlineClasses(
+      rootDir,
+      designConfig as Parameters<typeof checkDesignInlineClasses>[1],
+    );
+    violations.push(...designViolations);
+  }
+
+  // ============================================
   // Phase 18.ν — Consumer-defined custom rules
   // ============================================
   const customRules = (config.guard?.rules as unknown);

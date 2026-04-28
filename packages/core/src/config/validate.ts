@@ -114,6 +114,34 @@ const GuardTypeAwareConfigSchema = z
  *   - `GuardRule[]` (Phase 18.ν) → consumer-defined custom rules.
  * The runner dispatches on `Array.isArray()`.
  */
+/**
+ * Issue #245 — DESIGN.md-driven design system enforcement.
+ *
+ * `forbidInlineClasses` stops agents from re-inlining the same UI
+ * pattern across pages (the regression #245 was filed for); when set,
+ * the named classes trigger a Guard violation if they appear directly
+ * in `className` outside the canonical component dirs.
+ *
+ * `requireComponent` maps a forbidden class to the component that
+ * should be used instead — surfaced verbatim in the violation message
+ * so an agent reading the diagnostic knows the fix.
+ *
+ * `autoFromDesignMd` extracts the forbid list from DESIGN.md §7
+ * Do's & Don'ts when set, so users only need to maintain the spec.
+ */
+const GuardDesignConfigSchema = z
+  .object({
+    designMd: z.string().default("DESIGN.md"),
+    forbidInlineClasses: z.array(z.string().min(1)).default([]),
+    autoFromDesignMd: z.boolean().default(false),
+    requireComponent: z.record(z.string()).default({}),
+    exclude: z
+      .array(z.string())
+      .default(["src/client/shared/ui/**", "src/client/widgets/**"]),
+    severity: z.enum(["warning", "error"]).default("error"),
+  })
+  .strict();
+
 const GuardConfigSchema = z
   .object({
     preset: z.enum(["mandu", "fsd", "clean", "hexagonal", "atomic", "cqrs"]).default("mandu"),
@@ -136,6 +164,14 @@ const GuardConfigSchema = z
      * Follow-up E — `oxlint --type-aware` bridge. Optional.
      */
     typeAware: GuardTypeAwareConfigSchema.optional(),
+    /**
+     * Issue #245 — design system enforcement. Optional; when present,
+     * the design-inline-class checker runs alongside the standard
+     * Guard pipeline. Most projects start by setting `designMd:
+     * "DESIGN.md"` + `autoFromDesignMd: true` and let the spec drive
+     * the forbid list.
+     */
+    design: GuardDesignConfigSchema.optional(),
   })
   .strict();
 

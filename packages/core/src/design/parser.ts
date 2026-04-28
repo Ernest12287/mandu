@@ -289,7 +289,10 @@ function extractDoDontRules(body: string): DoDontRule[] {
     }
     const bullet = /^[-*+]\s+(.+)$/.exec(stripped);
     if (bullet && mode) {
-      rules.push({ kind: mode, text: bullet[1].replace(/[`*_]/g, "").trim() });
+      // Preserve backticks — they mark identifier tokens
+      // (`btn-hard`, `shadow-hard`) that downstream consumers
+      // (Guard `autoFromDesignMd`) extract from the rule text.
+      rules.push({ kind: mode, text: bullet[1].replace(/[*_]/g, "").trim() });
     } else if (bullet) {
       // ✅ / ❌ inline markers.
       const text = bullet[1];
