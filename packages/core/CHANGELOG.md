@@ -1,5 +1,78 @@
 # @mandujs/core
 
+## 0.45.0
+
+### Minor Changes
+
+- [`117fd08`](https://github.com/konamgil/mandu/commit/117fd08c674e2e13d60f8a66295caf23eae1db78) Thanks [@konamgil](https://github.com/konamgil)! - feat(#245 M1): DESIGN.md primitives — parser + scaffold + import + validate
+
+  Issue #245 M1 minimal slice. Adopts Google Stitch's 9-section DESIGN.md convention as Mandu's first-class design system spec. Mandu provides the _mechanism_, not the _content_ — users either start from an empty 9-section skeleton or import any of the 69 brand specs from `VoltAgent/awesome-design-md` (MIT) by slug.
+
+  **Public surface (`@mandujs/core/design`)**:
+
+  - `parseDesignMd(source)` — never-throwing markdown walker that extracts colour palette, typography, components (with variants), layout/spacing, shadows, dos & don'ts, responsive breakpoints, and agent prompts. Unrecognised H2 headings round-trip via `extraSections`.
+  - `validateDesignSpec(spec)` — diagnostic for missing / empty / malformed sections (advisory, not a build gate).
+  - `EMPTY_DESIGN_MD` — canonical empty 9-section skeleton with HTML-comment example tokens. Designed to be filled incrementally.
+  - `fetchUpstreamDesignMd(slug)` — raw GitHub fetch from `awesome-design-md` (or any URL).
+
+  **CLI**:
+
+  - `mandu design init` — write empty skeleton (or `--from <slug>` to import).
+  - `mandu design import <slug|url>` — swap to a different brand spec.
+  - `mandu design validate` — report gaps without blocking.
+
+  Subsequent slices (separate PRs) add `pick` (interactive catalog), `diff` (upstream comparison), and `extract` (token proposal from source).
+
+- [`4faa29d`](https://github.com/konamgil/mandu/commit/4faa29d2c528718f15a9f62ce16c25da0a6758d4) Thanks [@konamgil](https://github.com/konamgil)! - feat(#245 M2): Guard `DESIGN_INLINE_CLASS` rule (build gate)
+
+  Issue #245 M2 — the actual build gate. The Guard pipeline now refuses to ship a build when a `className` literal contains a forbidden token outside the canonical component dirs. This is the regression-blocking part of #245: agents that re-inline `btn-hard` across pages now hit a hard fail with a message that names the replacement component.
+
+  **Config (`mandu.config.ts`)**:
+
+  ```ts
+  guard: {
+    design: {
+      designMd: "DESIGN.md",                          // default
+      forbidInlineClasses: ["btn-hard", "shadow-hard"], // explicit list
+      autoFromDesignMd: true,                          // also pull from DESIGN.md §7 Don't
+      requireComponent: {
+        "btn-hard": "@/client/shared/ui#MButton",
+      },
+      exclude: ["src/client/shared/ui/**", "src/client/widgets/**"], // default
+      severity: "error",                               // default
+    },
+  }
+  ```
+
+  **Behaviour**:
+
+  - Scans `<rootDir>/src` and `<rootDir>/app` for `.ts`/`.tsx`/`.js`/`.jsx`.
+  - Detects forbidden tokens inside any string literal (`"…"`, `'…'`, `` `…` ``). Strips Tailwind variant prefixes (`hover:btn-hard` matches `btn-hard`).
+  - `autoFromDesignMd: true` extracts forbid tokens from DESIGN.md §7 Do's & Don'ts — every backticked token in a "Don't" rule (`Inline \`btn-hard\` directly`) becomes a forbid entry.
+  - Default `exclude` skips `src/client/shared/ui/**` and `src/client/widgets/**` so the canonical component dirs (where the forbidden classes legitimately live) don't self-flag.
+  - Violations carry the replacement component in both `message` and `suggestion` so an agent reading the diagnostic can fix the regression directly.
+
+  **Implementation note**: detection is regex-based, not AST-based. The Guard pass runs frequently and a string-literal sweep is O(n) over file size with no parse failures. Tradeoff: forbidden tokens inside comments still flag — the regression we exist to prevent matters more than that false positive.
+
+  Tests in `packages/core/src/guard/__tests__/design-inline-class.test.ts`.
+
+### Patch Changes
+
+- [`eceec68`](https://github.com/konamgil/mandu/commit/eceec68445d8674a54be4fd27020b014c5c2ed6c) Thanks [@konamgil](https://github.com/konamgil)! - fix(#252): swallow ViewTransition promise rejections in SPA router
+
+  `document.startViewTransition()` returns an object whose `.finished`,
+  `.ready`, and `.updateCallbackDone` promises reject with
+  `InvalidStateError: Transition was aborted because of invalid state`
+  when a newer navigation aborts the in-flight transition. The router
+  called `startViewTransition` but never attached `.catch()` handlers,
+  so those rejections escaped to the global error handler — visible as
+  an unhandled promise rejection on every rapid SPA navigation.
+
+  Both call sites now attach noop catches:
+
+  - `packages/core/src/client/router.ts` — typed router `navigate()`
+  - `packages/core/src/client/spa-nav-helper.ts` — inlined SSR helper
+
 ## 0.44.0
 
 ### Minor Changes
