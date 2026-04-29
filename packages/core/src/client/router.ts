@@ -346,9 +346,19 @@ export async function navigate(
       // `startViewTransition` is part of the View Transitions API which
       // is not yet in every lib.dom.d.ts. Narrow the cast to the only
       // method we call rather than widening to `any`.
-      (document as Document & {
-        startViewTransition: (callback: () => void) => unknown;
+      const transition = (document as Document & {
+        startViewTransition: (callback: () => void) => {
+          finished?: Promise<unknown>;
+          ready?: Promise<unknown>;
+          updateCallbackDone?: Promise<unknown>;
+        };
       }).startViewTransition(applyUpdate);
+      // ViewTransition.finished/ready reject with InvalidStateError when a
+      // newer transition aborts this one (rapid navigation, popstate, etc.).
+      // Swallow those — they are expected and not actionable for the app.
+      transition?.finished?.catch(() => {});
+      transition?.ready?.catch(() => {});
+      transition?.updateCallbackDone?.catch(() => {});
     } else {
       applyUpdate();
     }
