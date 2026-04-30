@@ -1,36 +1,46 @@
 /**
- * Vercel adapter — static-only.
+ * Vercel adapter — DeployIntent-driven compiler (#250 M3).
  *
- * # Why static-only (Issue #248)
+ * The adapter no longer scaffolds a hand-writable `vercel.json` from a
+ * fixed template. It now reads `.mandu/deploy.intent.json` (produced
+ * by `mandu deploy:plan`) plus the routes manifest and **compiles**
+ * the intents into the actual `vercel.json` shape — `functions`
+ * block, per-route `Cache-Control` headers, regions, `maxDuration`,
+ * provider-specific overrides via `intent.overrides.vercel`. The
+ * compile primitive lives in `@mandujs/core/deploy/compile/vercel`,
+ * so kitchen / MCP / future CI surfaces can preview the same output.
  *
- * Vercel's function-runtime story is misaligned with Mandu in three ways:
+ * # Backward-compat fallback
  *
- *   1. The built-in Node runtime crashes on Mandu's `startServer` because
- *      core uses Bun-only globals (`Bun.serve`, `Bun.file`, `Bun.env`).
- *   2. The Edge runtime supports a Web-API subset that does not cover
- *      every code path `startServer` reaches at request time.
- *   3. There is no published `@vercel/bun` community runtime — the npm
- *      registry returns 404 for the package as of 2026-04-28. (Vercel
- *      ships build-time Bun support via `bun install`/`bun run build`,
- *      not a function runtime.)
+ * When `.mandu/deploy.intent.json` is absent the adapter falls back
+ * to the legacy static-only template. `prepare()` surfaces a warning
+ * pointing the user at `mandu deploy:plan`. This keeps the upgrade
+ * path soft for projects already deploying via the static scaffold.
  *
- * Until one of those gaps closes, the adapter cannot generate a working
- * SSR function. So the default scaffold pivots to the deploy shape that
- * actually works today: emit a flat static directory (`mandu build
- * --static`) and let Vercel serve it from its CDN. No functions, no
- * runtime field, no dotfile-routed rewrites.
+ * # Why some intents still warn (Issue #248)
  *
- * Projects with API routes or non-prerenderable pages are not supported
- * on Vercel via this adapter today — `check()` warns when the manifest
- * contains routes the static build will drop on the floor.
+ * Even with intent-driven compile, Vercel's function-runtime story is
+ * still misaligned with Mandu's Bun-first runtime:
+ *
+ *   1. The built-in Node runtime would crash on Mandu's `startServer`
+ *      because core uses Bun-only globals (`Bun.serve`, `Bun.file`).
+ *   2. There is no published `@vercel/bun` community runtime; the
+ *      compiler emits the field anyway so once it ships, no compile
+ *      change is needed.
+ *
+ * The compiler surfaces these as warnings (not errors) so the operator
+ * can audit the gap and pick an alternate runtime per route via an
+ * explicit `.deploy({ runtime: "edge" })` override (M5) or by
+ * editing the cache file directly.
  *
  * # vercel.json caveats
  *
- *   - The top-level `name` field is deprecated; project naming is owned
- *     by Vercel project settings.
+ *   - The top-level `name` field is deprecated; project naming is
+ *     owned by Vercel project settings.
  *   - `functions[*].runtime` requires an npm package spec (e.g.
  *     `@vercel/python@4.0.0`). Bare identifiers like `nodejs20.x` are
- *     rejected. The static scaffold avoids the field entirely.
+ *     rejected. The compiler emits `"edge"` (a special-case literal
+ *     accepted by Vercel) or `"@vercel/bun@1.0.0"`.
  *
  * References:
  *   - https://vercel.com/docs/projects/project-configuration
@@ -39,6 +49,12 @@
  * @module cli/commands/deploy/adapters/vercel
  */
 import path from "node:path";
+import {
+  compileVercelJson,
+  loadDeployIntentCache,
+  renderVercelJsonFromCompile,
+  VercelCompileError,
+} from "@mandujs/core/deploy";
 import { CLI_ERROR_CODES } from "../../../errors/codes";
 import { writeArtifact } from "../artifact-writer";
 import {
@@ -246,11 +262,52 @@ export function createVercelAdapter(
       const rootDir = project.rootDir;
       const projectName = options.projectName ?? project.projectName;
 
-      // 1. vercel.json — preserved if user has already customized one.
+      // Try the intent-driven path first. Fall back to the legacy
+      // static-only template when the cache is missing OR the
+      // manifest is unavailable (`mandu deploy --dry-run` without a
+      // prior build).
+      let content: string | null = null;
+      let description = "";
+
+      if (project.manifest) {
+        try {
+          const cache = await loadDeployIntentCache(rootDir);
+          const hasIntents = Object.keys(cache.intents).length > 0;
+          if (hasIntents) {
+            const compiled = compileVercelJson(project.manifest, cache, { projectName });
+            content = renderVercelJsonFromCompile(compiled);
+            description =
+              `Compiled vercel.json from .mandu/deploy.intent.json ` +
+              `(${compiled.perRoute.length} routes, ${Object.keys(compiled.config.functions ?? {}).length} functions)`;
+            // Surface non-fatal warnings into the artifact description
+            // so `mandu deploy --target=vercel` prints them above the
+            // fold.
+            if (compiled.warnings.length > 0) {
+              description += `\n   ⚠ ${compiled.warnings.length} compile warning(s) — re-run with --verbose for details`;
+            }
+          }
+        } catch (err) {
+          if (err instanceof VercelCompileError) {
+            // Hard error — surface and abort. A partial vercel.json
+            // would deploy with the wrong runtime.
+            throw err;
+          }
+          // Other errors (cache JSON parse, fs) → fall through to
+          // legacy template with a warning later in the flow.
+        }
+      }
+
+      if (content === null) {
+        content = renderVercelJson({ projectName });
+        description =
+          `Scaffolded static-only vercel.json (project=${projectName}) — ` +
+          `run \`mandu deploy:plan\` to get intent-driven compile (#250).`;
+      }
+
       const vercelJsonResult = await writeArtifact({
         forbiddenValues: options.forbiddenSecrets,
         path: path.join(rootDir, "vercel.json"),
-        content: renderVercelJson({ projectName }),
+        content,
         preserveIfExists: true,
       });
       artifacts.push({
@@ -258,12 +315,8 @@ export function createVercelAdapter(
         preserved: vercelJsonResult.preserved,
         description: vercelJsonResult.preserved
           ? "Existing vercel.json preserved"
-          : `Scaffolded vercel.json (project=${projectName})`,
+          : description,
       });
-
-      // No SSR function entry. The static deploy shape serves the
-      // flat tree from `mandu build --static` directly. See module
-      // docstring for the runtime gap that drove this decision.
 
       return artifacts;
     },

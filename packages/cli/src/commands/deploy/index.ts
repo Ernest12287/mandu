@@ -197,22 +197,27 @@ export async function deploy(options: DeployCliOptions = {}): Promise<boolean> {
     }
   }
 
+  // ----- manifest -----------------------------------------------------
+  // Load the routes manifest BEFORE the build runs — adapters need it
+  // for compile-time decisions (e.g. the Vercel adapter compiles
+  // `vercel.json` from .mandu/deploy.intent.json + manifest #250 M3).
+  // resolveManifest reads `app/` directly and does not require build
+  // artifacts, so it works in dry-run too.
+  try {
+    const resolved = await resolveManifest(cwd, { fsRoutes: config.fsRoutes });
+    (project as { manifest?: typeof resolved.manifest }).manifest = resolved.manifest;
+  } catch (err) {
+    log.warn(
+      `  manifest load skipped: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
   // ----- build -------------------------------------------------------
   if (!deployOptions.dryRun) {
     const ok = await runBuild();
     if (!ok) {
       log.error(`Build failed (${CLI_ERROR_CODES.DEPLOY_BUILD_FAILED}).`);
       return false;
-    }
-    // After build, load manifest for adapters that can benefit (vercel /
-    // cf-pages preflight). Failure here is non-fatal — adapters decide.
-    try {
-      const resolved = await resolveManifest(cwd, { fsRoutes: config.fsRoutes });
-      (project as { manifest?: typeof resolved.manifest }).manifest = resolved.manifest;
-    } catch (err) {
-      log.warn(
-        `  manifest load skipped: ${err instanceof Error ? err.message : String(err)}`
-      );
     }
   }
 

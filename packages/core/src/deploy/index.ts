@@ -60,3 +60,14 @@ export {
   type PlanDiffEntryKind,
   type PlanResult,
 } from "./plan";
+
+export {
+  compileVercelJson,
+  renderVercelJsonFromCompile,
+  VercelCompileError,
+  type CompileVercelOptions,
+  type VercelCompileResult,
+  type VercelConfig,
+  type VercelFunctionConfig,
+  type VercelHeader,
+} from "./compile/vercel";
