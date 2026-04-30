@@ -80,7 +80,16 @@ export async function buildDeployInferenceContext(
 
   const imports = extractImports(source);
   const dependencyClasses = classifyImports(imports);
-  const isDynamic = /\[(\.\.\.)?[^\]]+\]/.test(route.pattern);
+  // Mandu's manifest patterns use `:param` / `*` (path-pattern style),
+  // not bracket-form. Detect both shapes so the heuristic doesn't
+  // misclassify dynamic routes as prerenderable. Examples:
+  //   "/blog/:slug"   → dynamic
+  //   "/docs/*"       → dynamic
+  //   "/[lang]/blog"  → dynamic (legacy / hand-written)
+  const isDynamic =
+    /\[(\.\.\.)?[^\]]+\]/.test(route.pattern) ||
+    /\/:[^/]+/.test(route.pattern) ||
+    /\*/.test(route.pattern);
   const hasGenerateStaticParams =
     route.kind === "page" &&
     Array.isArray(route.staticParams) &&

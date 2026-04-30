@@ -1293,6 +1293,47 @@ registerCommand({
 });
 
 registerCommand({
+  id: "deploy:plan",
+  description:
+    "Infer per-route deploy intent and write .mandu/deploy.intent.json (#250)",
+  exitOnSuccess: true,
+  help: [
+    "",
+    "  mandu deploy:plan — infer DeployIntent for every route",
+    "",
+    "  Reads app/ + the routes manifest, runs the heuristic inferer",
+    "  (or the brain, when --use-brain is set in M4+), and produces a",
+    "  diff against .mandu/deploy.intent.json. The file is the source",
+    "  of truth that adapters read at deploy time — commit it.",
+    "",
+    "  Flags:",
+    "    --apply            Write the cache without prompting (CI-safe)",
+    "    --dry-run          Render the plan without prompting or writing",
+    "    --reinfer          Force re-inference even on unchanged sources",
+    "    --verbose          Show unchanged rows in the diff",
+    "    --use-brain        Reserved for M4 — currently a no-op",
+    "",
+    "  Examples:",
+    "    mandu deploy:plan",
+    "    mandu deploy:plan --dry-run",
+    "    mandu deploy:plan --apply",
+    "    mandu deploy:plan --reinfer --apply",
+    "",
+  ].join("\n"),
+  async run(ctx) {
+    const { deployPlan } = await import("./deploy/plan");
+    const result = await deployPlan({
+      apply: ctx.options.apply === "true" || ctx.options.apply === "",
+      dryRun: ctx.options["dry-run"] === "true" || ctx.options["dry-run"] === "",
+      reinfer: ctx.options.reinfer === "true" || ctx.options.reinfer === "",
+      useBrain: ctx.options["use-brain"] === "true" || ctx.options["use-brain"] === "",
+      verbose: ctx.options.verbose === "true" || ctx.options.verbose === "",
+    });
+    return result.exitCode === 0;
+  },
+});
+
+registerCommand({
   id: "upgrade",
   description:
     "Update @mandujs packages, or self-update the Mandu binary (Phase 13.2)",

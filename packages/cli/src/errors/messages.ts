@@ -192,6 +192,14 @@ export const ERROR_MESSAGES: Record<CLIErrorCode, ErrorInfo> = {
     message: "Adapter {target} cannot serve route(s) of this kind.",
     suggestion: "Either move the affected routes off this target or pick an adapter that supports them.",
   },
+  [CLI_ERROR_CODES.DEPLOY_PLAN_MANIFEST_FAILED]: {
+    message: "deploy:plan could not resolve the routes manifest: {detail}",
+    suggestion: "Make sure `app/` exists and `mandu build` (or `mandu dev`) has populated it.",
+  },
+  [CLI_ERROR_CODES.DEPLOY_PLAN_CACHE_INVALID]: {
+    message: ".mandu/deploy.intent.json is malformed: {detail}",
+    suggestion: "Delete the file or restore it from git, then re-run `mandu deploy:plan`.",
+  },
 
   // AI chat / eval errors (CLI_E300-CLI_E309) — Phase 14.2
   [CLI_ERROR_CODES.AI_API_KEY_MISSING]: {
