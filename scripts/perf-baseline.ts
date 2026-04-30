@@ -1,7 +1,9 @@
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { z } from "zod";
 
 const baselinePath = new URL("../tests/perf/perf-baseline.json", import.meta.url);
+const demoRoot = new URL("../demo/", import.meta.url);
 
 const MetricDefinitionSchema = z.object({
   unit: z.enum(["ms", "kb", "count"]),
@@ -41,6 +43,13 @@ function validateCrossReferences(config: PerfBaseline): void {
   const metricKeys = new Set(Object.keys(config.metrics));
 
   for (const scenario of config.scenarios) {
+    if (scenario.status === "active") {
+      const demoPath = new URL(`${scenario.app}/`, demoRoot);
+      if (!existsSync(demoPath)) {
+        throw new Error(`Active scenario '${scenario.id}' points to missing demo '${scenario.app}'`);
+      }
+    }
+
     for (const metric of scenario.measuredMetrics) {
       if (!metricKeys.has(metric)) {
         throw new Error(`Unknown metric '${metric}' referenced by scenario '${scenario.id}'`);

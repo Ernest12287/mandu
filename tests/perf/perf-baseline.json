@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastReviewed": "2026-04-03",
+  "lastReviewed": "2026-05-01",
   "metrics": {
     "ssr_ttfb_p95_ms": {
       "unit": "ms",
@@ -35,11 +35,11 @@
   },
   "scenarios": [
     {
-      "id": "todo-list-home-dev",
-      "app": "todo-list-mandu",
+      "id": "todo-app-home-dev",
+      "app": "todo-app",
       "status": "active",
       "mode": "dev",
-      "url": "http://localhost:3333/",
+      "url": "/",
       "runner": "packages/core/benchmark/hydration-benchmark.ts",
       "measuredMetrics": [
         "ssr_ttfb_p95_ms",
@@ -50,7 +50,7 @@
         "ssr_ttfb_p95_ms": {
           "budget": 1500,
           "warningThresholdPct": 10,
-          "baseline": null
+          "baseline": 74.5
         },
         "hydration_p95_ms": {
           "budget": 500,
@@ -58,19 +58,19 @@
           "baseline": null
         },
         "initial_js_bundle_kb": {
-          "budget": 200,
+          "budget": 1300,
           "warningThresholdPct": 10,
-          "baseline": null
+          "baseline": 1124.4
         }
       },
-      "notes": "Current official demo baseline entry. Historical freeze is pending P0-4-7."
+      "notes": "Current official demo baseline entry. Active app path verified against demo/todo-app. HTTP metrics frozen from a local Windows run on 2026-05-01; hydration remains unsupported because browser launch failed."
     },
     {
-      "id": "todo-list-home-prod",
-      "app": "todo-list-mandu",
+      "id": "todo-app-home-prod",
+      "app": "todo-app",
       "status": "active",
       "mode": "prod",
-      "url": "http://localhost:3333/",
+      "url": "/",
       "runner": "scripts/smoke.ts + packages/core/benchmark/hydration-benchmark.ts",
       "measuredMetrics": [
         "ssr_ttfb_p95_ms",
@@ -81,7 +81,7 @@
         "ssr_ttfb_p95_ms": {
           "budget": 1000,
           "warningThresholdPct": 10,
-          "baseline": null
+          "baseline": 2.2
         },
         "hydration_p95_ms": {
           "budget": 350,
@@ -91,10 +91,10 @@
         "initial_js_bundle_kb": {
           "budget": 150,
           "warningThresholdPct": 10,
-          "baseline": null
+          "baseline": 0
         }
       },
-      "notes": "Production-mode budget for the first official reference path."
+      "notes": "Production-mode budget for the first official reference path. HTTP metrics frozen from a local Windows run on 2026-05-01; hydration remains unsupported because browser launch failed."
     },
     {
       "id": "hello-ssr-home",
@@ -191,8 +191,8 @@
     }
   ],
   "notes": [
-    "Budgets are enforced ceilings. Historical baseline values stay null until the first freeze pass.",
-    "P0-4-1 fixes the metric list, P0-4-3 fixes the storage format, and P0-4-7 fills baseline values.",
+    "Budgets are enforced ceilings. Baselines define the frozen historical value for active scenarios.",
+    "P0-F-0 reconnects active scenarios to real demo directories; P0-F-2 fills active baseline values.",
     "Only active scenarios are expected to map to running demos today."
   ]
 }

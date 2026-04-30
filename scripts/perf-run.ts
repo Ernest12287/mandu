@@ -6,6 +6,7 @@ const repoRoot = path.resolve(import.meta.dir, "..");
 const baselinePath = path.join(repoRoot, "tests", "perf", "perf-baseline.json");
 const benchmarkEntry = path.join(repoRoot, "packages", "core", "benchmark", "hydration-benchmark.ts");
 const cliEntry = path.join(repoRoot, "packages", "cli", "src", "main.ts");
+const bunExecutable = process.execPath;
 const outputRoot = path.join(repoRoot, ".perf", "latest");
 
 interface CompletedCommand {
@@ -197,6 +198,14 @@ async function cleanupWindowsProcessesByCommandFragments(fragments: string[]): P
     stderr: "ignore",
   });
   await proc.exited;
+}
+
+async function directoryExists(directory: string): Promise<boolean> {
+  try {
+    return (await fs.stat(directory)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 async function runCommand(
@@ -481,12 +490,12 @@ function renderMarkdownReport(results: ScenarioResult[], generatedAt: string): s
       lines.push(`- Warning: ${warning}`);
     }
     lines.push("");
-    lines.push("| Metric | Measured | Budget | Status |");
-    lines.push("|---|---:|---:|---|");
+    lines.push("| Metric | Measured | Baseline | Budget | Status |");
+    lines.push("|---|---:|---:|---:|---|");
 
     for (const metric of result.results) {
       lines.push(
-        `| \`${metric.metric}\` | ${metric.measured === null ? "n/a" : metric.measured.toFixed(1)} | ${metric.budget.toFixed(1)} | ${metric.status} |`
+        `| \`${metric.metric}\` | ${metric.measured === null ? "n/a" : metric.measured.toFixed(1)} | ${metric.baseline === null ? "n/a" : metric.baseline.toFixed(1)} | ${metric.budget.toFixed(1)} | ${metric.status} |`
       );
     }
 
@@ -514,12 +523,19 @@ async function runScenarioBenchmark(
 
   if (scenario.mode === "prod") {
     console.log(`  build ${scenario.id}`);
-    await runCommand(["bun", "run", cliEntry, "build"], demoDir, { PORT: String(port) });
+    await runCommand([bunExecutable, "run", cliEntry, "build"], demoDir, {
+      NODE_ENV: "production",
+      PORT: String(port),
+    });
   }
 
   const commandName = scenario.mode === "prod" ? "start" : "dev";
   console.log(`  start ${scenario.id} (${commandName}) on ${origin}`);
-  const serverCommand = startCommand(["bun", "run", cliEntry, commandName], demoDir, {
+  const serverCommand = startCommand([bunExecutable, "run", cliEntry, commandName, `--port=${port}`], demoDir, {
+    // Perf runs measure server/rendering behavior, not config lockfile policy.
+    // Local demo worktrees may contain stale untracked .mandu/lockfile.json.
+    MANDU_LOCK_BYPASS: "1",
+    NODE_ENV: scenario.mode === "prod" ? "production" : "development",
     PORT: String(port),
   });
 
@@ -533,7 +549,7 @@ async function runScenarioBenchmark(
     try {
       await runCommand(
         [
-          "bun",
+          bunExecutable,
           "run",
           benchmarkEntry,
           scenarioUrl,
@@ -603,11 +619,11 @@ async function main(): Promise<number> {
   const results: ScenarioResult[] = [];
 
   for (const scenario of selectedScenarios) {
-    if (scenario.app !== "todo-list-mandu") {
-      throw new Error(`Active scenario '${scenario.id}' points to unsupported local app '${scenario.app}'`);
+    const demoDir = path.join(repoRoot, "demo", scenario.app);
+    if (!await directoryExists(demoDir)) {
+      throw new Error(`Active scenario '${scenario.id}' points to missing local demo '${scenario.app}' at ${demoDir}`);
     }
 
-    const demoDir = path.join(repoRoot, "demo", scenario.app);
     console.log(`Running perf scenario: ${scenario.id}`);
     const result = await runScenarioBenchmark(scenario, demoDir, runs, warmup);
     results.push(result);
