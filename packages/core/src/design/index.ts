@@ -20,6 +20,20 @@ export {
   AWESOME_DESIGN_MD_RAW_BASE,
 } from "./scaffold";
 
+export {
+  compileTailwindTheme,
+  mergeThemeIntoCss,
+  stripMarkeredBlock,
+  slugifyTokenName,
+  THEME_MARKER_START,
+  THEME_MARKER_END,
+  type CompiledTheme,
+  type CompiledThemeEntry,
+  type CompiledThemeWarning,
+  type ThemeMergeConflict,
+  type ThemeMergeResult,
+} from "./tailwind-theme";
+
 export type {
   AgentPrompt,
   AgentPromptsSection,

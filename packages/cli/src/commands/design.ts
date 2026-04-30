@@ -23,7 +23,9 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import {
   EMPTY_DESIGN_MD,
+  compileTailwindTheme,
   fetchUpstreamDesignMd,
+  mergeThemeIntoCss,
   parseDesignMd,
   validateDesignSpec,
   humanizeSectionId,
@@ -34,7 +36,7 @@ const DEFAULT_FILENAME = "DESIGN.md";
 
 export interface DesignCommandOptions {
   /** Subcommand. */
-  action: "init" | "import" | "validate";
+  action: "init" | "import" | "validate" | "sync";
   /** Project root (for tests). Defaults to `process.cwd()`. */
   rootDir?: string;
   /** `--from <slug|url>` value (init only) or positional arg (import). */
@@ -43,6 +45,10 @@ export interface DesignCommandOptions {
   force?: boolean;
   /** Override target filename. Defaults to `DESIGN.md`. */
   filename?: string;
+  /** sync: target globals.css path (default: `app/globals.css` or `src/globals.css`). */
+  cssPath?: string;
+  /** sync: print compiled theme without writing the file. */
+  dryRun?: boolean;
 }
 
 export async function design(options: DesignCommandOptions): Promise<boolean> {
@@ -56,7 +62,94 @@ export async function design(options: DesignCommandOptions): Promise<boolean> {
       return runImport(target, options);
     case "validate":
       return runValidate(target);
+    case "sync":
+      return runSync(target, options, rootDir);
   }
+}
+
+/* -------------------------------------------------------------------- */
+/* mandu design sync — DESIGN.md → Tailwind v4 @theme (#245 M3)         */
+/* -------------------------------------------------------------------- */
+
+async function runSync(
+  designMdPath: string,
+  options: DesignCommandOptions,
+  rootDir: string,
+): Promise<boolean> {
+  if (!(await fileExists(designMdPath))) {
+    console.error(
+      `❌ ${path.basename(designMdPath)} not found. Run \`mandu design init\` to create one.`,
+    );
+    return false;
+  }
+
+  const source = await Bun.file(designMdPath).text();
+  const spec = parseDesignMd(source);
+  const compiled = compileTailwindTheme(spec);
+
+  console.log(`🎨 mandu design sync — compiling ${path.relative(rootDir, designMdPath) || "DESIGN.md"}`);
+  console.log(
+    `   Tokens: ${compiled.entries.length} variable(s) across ${
+      new Set(compiled.entries.map((e) => e.section)).size
+    } section(s)`,
+  );
+
+  if (compiled.entries.length === 0) {
+    console.log("");
+    console.log(
+      "⚠ No structured tokens found. DESIGN.md sections (Color Palette, Typography, Layout, Depth & Elevation) need bullet/list entries with parseable values.",
+    );
+    return true;
+  }
+
+  for (const warning of compiled.warnings) {
+    console.log(`   ⚠ ${warning.section}: ${warning.message}`);
+  }
+
+  if (options.dryRun) {
+    console.log("");
+    console.log("--- compiled @theme block (dry-run) ---");
+    console.log(compiled.cssBody);
+    console.log("--- end ---");
+    return true;
+  }
+
+  const cssPath = await resolveCssPath(rootDir, options.cssPath);
+  const existingCss = (await fileExists(cssPath)) ? await Bun.file(cssPath).text() : "";
+  const merged = mergeThemeIntoCss(existingCss, compiled);
+
+  if (merged.conflicts.length > 0) {
+    console.log("");
+    console.log(`⚠ ${merged.conflicts.length} conflict(s) — DESIGN.md token vs hand-written @theme:`);
+    for (const c of merged.conflicts) {
+      console.log(`   ${c.variable}: DESIGN.md=${c.fromDesign} ↔ globals.css=${c.fromCss}`);
+    }
+    console.log("   Generated region wins inside the @mandu-design-sync markers.");
+    console.log("   Reconcile by editing DESIGN.md or removing the duplicate from globals.css.");
+  }
+
+  await Bun.write(cssPath, merged.css);
+  const verb = merged.inserted ? "inserted into" : "updated in";
+  console.log("");
+  console.log(`📝 ${verb} ${path.relative(rootDir, cssPath) || cssPath}`);
+  console.log("   Restart \`mandu dev\` (or save the CSS file) to pick up the new tokens.");
+  return true;
+}
+
+async function resolveCssPath(rootDir: string, override?: string): Promise<string> {
+  if (override) return path.resolve(rootDir, override);
+  const candidates = [
+    "app/globals.css",
+    "src/globals.css",
+    "src/app/globals.css",
+    "src/styles/globals.css",
+  ];
+  for (const rel of candidates) {
+    const full = path.join(rootDir, rel);
+    if (await fileExists(full)) return full;
+  }
+  // Default: create app/globals.css if nothing exists yet.
+  return path.join(rootDir, "app/globals.css");
 }
 
 async function runInit(
