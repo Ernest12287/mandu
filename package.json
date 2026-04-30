@@ -21,6 +21,7 @@
   "scripts": {
     "test": "bun test",
     "test:core": "bun run scripts/test-core.ts",
+    "test:core:mysql-e2e": "bun run scripts/test-mysql-resource-e2e.ts",
     "test:cli": "bun test packages/cli/src packages/cli/tests packages/cli/templates/default/tests packages/cli/templates/realtime-chat/tests",
     "test:mcp": "bun test packages/mcp/tests",
     "test:ate": "bun test packages/ate/src packages/ate/tests packages/ate/__tests__",

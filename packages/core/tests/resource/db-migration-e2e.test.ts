@@ -87,9 +87,17 @@ const POSTGRES_URL = process.env.DB_TEST_POSTGRES_URL?.trim() || "";
 /** MySQL URL (docker fixture). Present → run. */
 const MYSQL_URL = process.env.DB_TEST_MYSQL_URL?.trim() || "";
 
-const runSqlite = hasBunSql;
-const runPostgres = hasBunSql && POSTGRES_URL.length > 0;
-const runMysql = hasBunSql && MYSQL_URL.length > 0;
+const ONLY_PROVIDER = process.env.MANDU_E2E_ONLY_PROVIDER?.trim() as
+  | SqlProvider
+  | undefined;
+
+function providerSelected(provider: SqlProvider): boolean {
+  return !ONLY_PROVIDER || ONLY_PROVIDER === provider;
+}
+
+const runSqlite = hasBunSql && providerSelected("sqlite");
+const runPostgres = hasBunSql && providerSelected("postgres") && POSTGRES_URL.length > 0;
+const runMysql = hasBunSql && providerSelected("mysql") && MYSQL_URL.length > 0;
 
 // ============================================
 // Builders — ParsedResource fixtures
@@ -295,9 +303,9 @@ async function setupFixture(provider: SqlProvider): Promise<Fixture> {
     cleanup = async () => {
       // Bun.SQL's MySQL adapter can leave DROP TABLE promises unresolved under
       // bun:test on Windows even after the server marks the session idle. The
-      // namespace keeps tests isolated; close the connection and let the test
-      // database reset handle old `t*` tables.
-      try { await db.close({ timeout: 0 }); } catch { /* idempotent */ }
+      // namespace keeps tests isolated; start connection shutdown and let the
+      // isolated runner/test database reset handle old `t*` tables.
+      void db.close({ timeout: 0 }).catch(() => { /* idempotent */ });
     };
   }
 
@@ -325,9 +333,6 @@ function createFixtureMigrationRunner(f: Fixture) {
   return createMigrationRunner(f.db, {
     migrationsDir: f.migrationsDir,
     historyTable: historyTableName(f),
-    // Most MySQL cases in this file are single-run fixture checks. Test 8 uses
-    // the default strategy to cover concurrent MySQL GET_LOCK behavior.
-    ...(f.provider === "mysql" ? { lockStrategy: "none" as const } : {}),
   });
 }
 
