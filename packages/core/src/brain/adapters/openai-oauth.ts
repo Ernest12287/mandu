@@ -89,10 +89,8 @@ export const OPENAI_OAUTH_SCOPE = "openai.chat";
 /**
  * Default model — GPT-5.4 (current-generation OpenAI flagship as of
  * 2026-04). Gives brain doctor triage the quality it needs to produce
- * actionable patches, which was the whole motivation for moving off
- * the local ministral-3:3b adapter. Override via
- * `ManduConfig.brain.openai.model` (e.g. set to a cheaper tier for
- * low-stakes automated runs).
+ * actionable patches. Override via `ManduConfig.brain.openai.model`
+ * (e.g. set to a cheaper tier for low-stakes automated runs).
  */
 export const OPENAI_DEFAULT_MODEL = "gpt-5.4";
 export const OPENAI_API_BASE = "https://api.openai.com/v1";

@@ -10,8 +10,11 @@
 // Types
 export * from "./types";
 
-// Adapters (includes Ollama, OpenAI OAuth, Anthropic OAuth, and the
+// Adapters (OpenAI OAuth, Anthropic OAuth, plus the
 // `createBrainAdapter` / `resolveBrainAdapter` resolver — Issue #235).
+// The local Ollama tier was removed; cloud OAuth is the only non-template
+// adapter now. Interactive CLIs prompt `mandu brain login` when the
+// resolver returns `needsLogin: true`.
 export * from "./adapters";
 
 // Credential store (OS keychain + filesystem fallback).

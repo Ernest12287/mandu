@@ -163,7 +163,7 @@ export const brainToolDefinitions: Tool[] = [
   {
     name: "mandu.brain.status",
     description:
-      "Check which LLM adapter is active for brain (openai / anthropic / ollama / template) and whether auth tokens are present. Read-only — does not call an LLM or spawn subprocesses.",
+      "Check which LLM adapter is active for brain (openai / anthropic / template) and whether auth tokens are present. Read-only — does not call an LLM or spawn subprocesses.",
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: "object",
@@ -221,8 +221,11 @@ let mcpWarningUnsubscribe: (() => void) | null = null;
  * suggestion mapping is pinned without spinning up a credential store.
  *
  * - openai / anthropic tiers → point at the LLM-heal loop + guard doctor.
- * - ollama / template tiers → point at `mandu brain login` for higher
- *   quality. Everyone also gets a generic status pointer.
+ * - template tier (with login prompt) → point at `mandu brain login` for
+ *   higher quality. Unknown tiers return an empty list.
+ *
+ * Issue #235 follow-up — the local Ollama tier was removed; the only
+ * non-cloud fallback is now `template` (deterministic, no LLM).
  */
 export function buildBrainStatusSuggestions(activeTier: string): string[] {
   const suggestions: string[] = [];
@@ -233,7 +236,7 @@ export function buildBrainStatusSuggestions(activeTier: string): string[] {
     suggestions.push(
       "Call mandu.brain.doctor after a mandu.guard.check failure to get LLM-assisted diagnosis + patch suggestions.",
     );
-  } else if (activeTier === "ollama" || activeTier === "template") {
+  } else if (activeTier === "template") {
     suggestions.push(
       "Run `mandu brain login --provider=openai` (or --provider=anthropic) to unlock higher-quality LLM-assisted heal + doctor output.",
     );
@@ -701,8 +704,17 @@ export function brainTools(projectRoot: string, server?: Server, monitor?: Activ
     // Issue #237 Concern 4 — surface next-step suggestions keyed to the
     // active tier so agents can find the LLM invocation paths without
     // grep-archaeology. LLM tiers point at ate.heal / brain.doctor;
-    // offline tiers point at `mandu brain login` for an upgrade.
+    // template tier points at `mandu brain login` for an upgrade.
     const suggestions = buildBrainStatusSuggestions(resolution.resolved);
+
+    // Issue #235 follow-up — the resolver now exposes `needsLogin: true`
+    // when the only reason it fell back to template is that no cloud
+    // token exists yet. Surface it so agents can short-circuit a chat
+    // round-trip to ask the user for `mandu brain login`.
+    const needsLogin = resolution.needsLogin === true;
+    const loginHint = needsLogin
+      ? "No cloud token detected — run `mandu brain login --provider=openai` (or --provider=anthropic) to unlock LLM-backed adapters."
+      : undefined;
 
     return {
       content: [
@@ -713,6 +725,8 @@ export function brainTools(projectRoot: string, server?: Server, monitor?: Activ
               active_tier: resolution.resolved,
               reason: resolution.reason,
               backend: store.backendName,
+              needs_login: needsLogin,
+              login_hint: loginHint,
               providers,
               suggestions,
             },

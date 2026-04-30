@@ -663,21 +663,13 @@ const BrainAnthropicConfigSchema = z
   })
   .strict();
 
-const BrainOllamaConfigSchema = z
-  .object({
-    model: z.string().min(1).optional(),
-    baseUrl: z.string().url().optional(),
-  })
-  .strict();
-
 const BrainConfigSchema = z
   .object({
     adapter: z
-      .enum(["auto", "openai", "anthropic", "ollama", "template"])
+      .enum(["auto", "openai", "anthropic", "template"])
       .default("auto"),
     openai: BrainOpenAIConfigSchema.optional(),
     anthropic: BrainAnthropicConfigSchema.optional(),
-    ollama: BrainOllamaConfigSchema.optional(),
     telemetryOptOut: z.boolean().optional(),
   })
   .strict();
@@ -742,7 +734,8 @@ export const ManduConfigSchema = z
      * Issue #235 — Brain adapter selection. See {@link BrainConfigSchema}.
      * Optional; omission is equivalent to `{ adapter: "auto" }`, which
      * resolves in priority order: openai-oauth → anthropic-oauth →
-     * ollama → template.
+     * template (with `needsLogin: true` so interactive CLIs prompt
+     * `mandu brain login`).
      */
     brain: BrainConfigSchema.optional(),
     /**

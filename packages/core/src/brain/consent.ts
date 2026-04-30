@@ -13,7 +13,7 @@
  *
  * Privacy invariants:
  *   - If consent is not granted, the adapter MUST fall through to the
- *     next tier in the resolver (ollama → template).
+ *     template tier in the resolver (NoopAdapter).
  *   - `telemetryOptOut: true` in config bypasses this module entirely —
  *     cloud adapters are never constructed in that case.
  *   - The consent cache only stores `{ providerId, projectFingerprint,

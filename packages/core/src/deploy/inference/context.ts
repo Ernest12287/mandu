@@ -1,0 +1,173 @@
+/**
+ * Deploy inference context — the bundle of facts an inferer (heuristic
+ * or brain) consumes when deciding a route's `DeployIntent`.
+ *
+ * Issue #250 — Phase 1.
+ *
+ * The context is intentionally narrow. Anything that's not statically
+ * derivable from the route source and manifest entry stays out — we
+ * want inference to be deterministic enough that two identical inputs
+ * always yield the same intent.
+ */
+
+import { promises as fs } from "fs";
+import { createHash } from "crypto";
+import path from "path";
+import type { RouteSpec } from "../../spec/schema";
+
+/**
+ * The dependency import classes the heuristic recognises. Mapped from
+ * raw import specifiers in `extractImports()` below. The key is the
+ * coarsest signal a route exposes about whether it can run at the
+ * edge — DB drivers and file IO push the route to `node`/`bun`, while
+ * stateless `fetch`/transform code happily runs at the edge.
+ */
+export type DependencyClass =
+  | "db"          // bun:sqlite, postgres, drizzle, prisma, mongodb, etc.
+  | "node-fs"    // node:fs, fs/promises, fs
+  | "node-net"   // node:net, http, dgram
+  | "node-child" // node:child_process, worker_threads
+  | "bun-native" // bun:sqlite, bun:ffi, Bun.s3, Bun.serve
+  | "ai-sdk"     // @anthropic-ai/sdk, openai, ai (long latency)
+  | "heavy"      // sharp, playwright, puppeteer, large native deps
+  | "fetch-only" // only http fetch / minor transforms
+  | "unknown";
+
+export interface DeployInferenceContext {
+  /** Stable id from the manifest entry. */
+  routeId: string;
+  /** URL pattern (`/api/embed`, `/[lang]/page`). */
+  pattern: string;
+  /** `page` | `api` | `metadata`. */
+  kind: RouteSpec["kind"];
+  /** Pattern contains `[param]` or `[...rest]`. */
+  isDynamic: boolean;
+  /**
+   * Page route exports `generateStaticParams` AND has at least one
+   * static-param entry in the manifest. Adapters use this with
+   * `runtime: "static"` to know the route is genuinely prerenderable.
+   */
+  hasGenerateStaticParams: boolean;
+  /** Top-level imports from the handler module (deduped, sorted). */
+  imports: string[];
+  /** Coarse classification derived from `imports`. */
+  dependencyClasses: ReadonlySet<DependencyClass>;
+  /** Whether the handler exports a `default` Mandu.filling() instance. */
+  exportsFilling: boolean;
+  /**
+   * SHA-256 of the route source. Used by the cache to skip re-
+   * inference when nothing relevant changed.
+   */
+  sourceHash: string;
+}
+
+/**
+ * Build the inference context for a single route. `rootDir` is the
+ * project root; `route.module` is resolved relative to it.
+ */
+export async function buildDeployInferenceContext(
+  rootDir: string,
+  route: RouteSpec,
+): Promise<DeployInferenceContext> {
+  const modulePath = path.resolve(rootDir, route.module);
+  let source = "";
+  try {
+    source = await fs.readFile(modulePath, "utf8");
+  } catch {
+    // A missing module file is unusual but not fatal — the inferer
+    // still gets the manifest metadata and falls back to defaults.
+  }
+
+  const imports = extractImports(source);
+  const dependencyClasses = classifyImports(imports);
+  const isDynamic = /\[(\.\.\.)?[^\]]+\]/.test(route.pattern);
+  const hasGenerateStaticParams =
+    route.kind === "page" &&
+    Array.isArray(route.staticParams) &&
+    route.staticParams.length > 0;
+  const exportsFilling = /\bMandu\.filling\b|\bfilling\(\)/m.test(source);
+
+  return {
+    routeId: route.id,
+    pattern: route.pattern,
+    kind: route.kind,
+    isDynamic,
+    hasGenerateStaticParams,
+    imports,
+    dependencyClasses,
+    exportsFilling,
+    sourceHash: hashSource(source),
+  };
+}
+
+// ─── Internals ────────────────────────────────────────────────────────
+
+/** SHA-256 hex digest. Empty input still produces a stable hash. */
+export function hashSource(source: string): string {
+  return createHash("sha256").update(source).digest("hex");
+}
+
+/**
+ * Extract bare import specifiers (`from "..."` / `import("...")`).
+ *
+ * Best-effort — a TS AST would be more precise but pulling in a parser
+ * just for this is heavy. False positives (matches in comments or
+ * strings) only mis-classify the route in the heuristic, never break
+ * deploys, and the brain inferer can override.
+ */
+export function extractImports(source: string): string[] {
+  const out = new Set<string>();
+  const staticImport = /^\s*import\b[^"']*?["']([^"']+)["']/gm;
+  const dynamicImport = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
+  for (const re of [staticImport, dynamicImport]) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(source)) !== null) {
+      const spec = m[1]!;
+      if (!spec.startsWith(".")) out.add(spec);
+    }
+  }
+  return [...out].sort();
+}
+
+/** Map import specifiers to coarse dependency classes. */
+export function classifyImports(imports: string[]): ReadonlySet<DependencyClass> {
+  const classes = new Set<DependencyClass>();
+  for (const spec of imports) {
+    const cls = classifyOne(spec);
+    if (cls) classes.add(cls);
+  }
+  if (classes.size === 0) classes.add("fetch-only");
+  return classes;
+}
+
+function classifyOne(spec: string): DependencyClass | null {
+  const s = spec.toLowerCase();
+  if (
+    s === "bun:sqlite" ||
+    s === "bun:ffi" ||
+    s.startsWith("bun:")
+  ) {
+    return "bun-native";
+  }
+  if (s === "fs" || s === "fs/promises" || s === "node:fs" || s === "node:fs/promises" || s === "node:path") {
+    return "node-fs";
+  }
+  if (s === "net" || s === "node:net" || s === "node:dgram" || s === "node:tls") {
+    return "node-net";
+  }
+  if (s === "node:child_process" || s === "child_process" || s === "node:worker_threads" || s === "worker_threads") {
+    return "node-child";
+  }
+  if (
+    /^(postgres|pg|mysql2?|drizzle-orm(\/.*)?|@prisma\/client|prisma|mongodb|mongoose|@neondatabase\/.+|kysely|sqlite3|better-sqlite3|@planetscale\/.+)$/.test(s)
+  ) {
+    return "db";
+  }
+  if (/^(@anthropic-ai\/sdk|openai|ai|@ai-sdk\/.+|@google\/generative-ai|cohere-ai)$/.test(s)) {
+    return "ai-sdk";
+  }
+  if (/^(sharp|playwright|playwright-core|puppeteer|@sparticuz\/.+|canvas|jimp)$/.test(s)) {
+    return "heavy";
+  }
+  return null;
+}

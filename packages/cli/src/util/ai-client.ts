@@ -151,7 +151,7 @@ export interface AIStreamOptions {
   model?: string;
   apiKey?: string;
   signal?: AbortSignal;
-  /** Base URL override (primarily for tests / Ollama). */
+  /** Base URL override (primarily for tests / OpenAI-compatible local runtimes). */
   baseUrl?: string;
   /** Wall-clock budget. Defaults to `MANDU_AI_TIMEOUT_MS` or 60000ms. */
   timeoutMs?: number;

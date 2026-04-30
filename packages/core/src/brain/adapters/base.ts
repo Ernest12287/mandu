@@ -17,12 +17,13 @@ import type {
  * Base LLM Adapter Interface
  *
  * Implementations:
- * - OllamaAdapter: Local sLLM via Ollama
- * - (Future) OpenAIAdapter, AnthropicAdapter, etc.
+ * - OpenAIOAuthAdapter: OpenAI via ChatGPT session token / OAuth
+ * - AnthropicOAuthAdapter: Anthropic via Claude OAuth
+ * - NoopAdapter: template fallback (no LLM)
  */
 export interface LLMAdapter {
   /**
-   * Adapter name (e.g., "ollama", "openai")
+   * Adapter name (e.g., "openai", "anthropic", "template")
    */
   readonly name: string;
 

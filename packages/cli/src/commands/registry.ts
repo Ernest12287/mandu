@@ -643,8 +643,8 @@ registerCommand({
 registerCommand({
   id: "brain",
   description:
-    "Brain LLM adapter management: login (OAuth), logout, status, setup (Ollama)",
-  subcommands: ["login", "logout", "status", "setup"],
+    "Brain LLM adapter management: login (OAuth), logout, status",
+  subcommands: ["login", "logout", "status"],
   help: [
     "",
     "  mandu brain — Brain LLM adapter management (Issue #235)",
@@ -653,14 +653,17 @@ registerCommand({
     "    login    OAuth login for a cloud provider (openai|anthropic)",
     "    logout   Remove stored OAuth token(s)",
     "    status   Show which adapter tier is active and any stored tokens",
-    "    setup    Configure the local Ollama adapter (legacy)",
+    "",
+    "  Tiers (auto-detected, in order):",
+    "    openai     — OAuth via `npx @openai/codex login`",
+    "    anthropic  — OAuth via Mandu's local loopback flow",
+    "    template   — deterministic templates (no LLM, with login prompt)",
     "",
     "  Examples:",
     "    mandu brain login --provider=openai",
     "    mandu brain login --provider=anthropic",
     "    mandu brain logout --provider=all",
     "    mandu brain status",
-    "    mandu brain setup --model=ministral-3:3b",
     "",
     "  Mandu is a CONNECTOR for third-party LLMs — never an owner. Tokens",
     "  live in the OS keychain; no API keys run in Mandu's process.",
@@ -669,27 +672,22 @@ registerCommand({
   async run(ctx) {
     const subCommand = ctx.args[1];
 
-    // New OAuth-aware subcommands (Issue #235).
-    if (
-      subCommand === "login" ||
-      subCommand === "logout" ||
-      (subCommand === "status" && ctx.options.provider !== undefined) ||
-      subCommand === "auth-status"
-    ) {
-      const { brainLogin, brainLogout, brainAuthStatus } = await import(
-        "./brain-auth"
-      );
-      type CloudProvider = "openai" | "anthropic";
-      type LogoutProvider = CloudProvider | "all";
-      const rawProvider = ctx.options.provider;
-      if (subCommand === "login") {
+    const { brainLogin, brainLogout, brainAuthStatus } = await import(
+      "./brain-auth"
+    );
+    type CloudProvider = "openai" | "anthropic";
+    type LogoutProvider = CloudProvider | "all";
+    const rawProvider = ctx.options.provider;
+
+    switch (subCommand) {
+      case "login": {
         const provider: CloudProvider | undefined =
           rawProvider === "openai" || rawProvider === "anthropic"
             ? rawProvider
             : undefined;
         return brainLogin({ provider });
       }
-      if (subCommand === "logout") {
+      case "logout": {
         const provider: LogoutProvider | undefined =
           rawProvider === "openai" ||
           rawProvider === "anthropic" ||
@@ -698,28 +696,10 @@ registerCommand({
             : undefined;
         return brainLogout({ provider });
       }
-      return brainAuthStatus({ verbose: ctx.options.verbose === "true" });
-    }
-
-    const { brainSetup, brainStatus } = await import("./brain");
-
-    switch (subCommand) {
-      case "setup":
-        return brainSetup({
-          model: ctx.options.model,
-          url: ctx.options.url,
-          skipCheck: ctx.options["skip-check"] === "true",
-        });
-      case "status": {
-        // Default `brain status` now prefers the resolver-aware view
-        // from brain-auth.ts (shows cloud tokens + active tier) while
-        // keeping the Ollama-detail path reachable via --legacy.
-        if (ctx.options.legacy === "true") {
-          return brainStatus({ verbose: ctx.options.verbose === "true" });
-        }
-        const { brainAuthStatus } = await import("./brain-auth");
+      case "status":
+      case "auth-status":
+      case undefined:
         return brainAuthStatus({ verbose: ctx.options.verbose === "true" });
-      }
       default:
         return false;
     }

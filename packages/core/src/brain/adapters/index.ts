@@ -1,35 +1,38 @@
 /**
- * Brain v0.2 - LLM Adapters (resolver + factory).
+ * Brain — LLM Adapters (resolver + factory).
  *
  * `createBrainAdapter(config)` picks the right adapter based on
  * declarative config + runtime signals. Resolution order when
  * `adapter: "auto"` (or `brain` config omitted entirely):
  *
- *   1. openai-oauth   — token present in the keychain
+ *   1. openai-oauth   — token (or ChatGPT session) present
  *   2. anthropic-oauth — token present in the keychain
- *   3. ollama          — daemon reachable at localhost:11434
- *   4. template        — always works (returns NoopAdapter; Brain
+ *   3. template        — final fallback (returns NoopAdapter; Brain
  *                        gracefully falls back to template analysis)
  *
- * `telemetryOptOut: true` disables every cloud tier — the resolver
- * skips straight to ollama/template regardless of stored tokens.
+ * The local-LLM (Ollama) tier was removed: Mandu standardised on
+ * cloud OAuth providers so every dev has the same baseline quality
+ * without managing a local daemon. CLI surfaces that *want* a brain
+ * (`mandu brain doctor`, `mandu deploy:plan --use-brain`) detect the
+ * `template` fallback and prompt the user to run
+ * `mandu brain login --provider=openai` instead of degrading silently.
  *
- * Explicit `adapter: "openai"` / `"anthropic"` / `"ollama"` /
- * `"template"` pins the choice; the resolver still degrades to the
- * NoopAdapter when the chosen provider is unreachable, so the caller
- * never explodes on a missing dependency.
+ * `telemetryOptOut: true` disables every cloud tier — the resolver
+ * skips straight to template regardless of stored tokens.
+ *
+ * Explicit `adapter: "openai"` / `"anthropic"` / `"template"` pins
+ * the choice; the resolver still degrades to the NoopAdapter when
+ * the chosen provider is unreachable, so the caller never explodes
+ * on a missing dependency.
  */
 
 export * from "./base";
-export * from "./ollama";
 export * from "./openai-oauth";
 export * from "./anthropic-oauth";
 export * from "./oauth-flow";
 export * from "./chatgpt-auth";
 
 import { type LLMAdapter, NoopAdapter } from "./base";
-import type { OllamaAdapter} from "./ollama";
-import { createOllamaAdapter } from "./ollama";
 import {
   OpenAIOAuthAdapter,
   createOpenAIOAuthAdapter,
@@ -53,13 +56,12 @@ import {
  * defaulted so downstream code does not repeat the same null checks.
  */
 export interface BrainAdapterConfig {
-  adapter: "auto" | "openai" | "anthropic" | "ollama" | "template";
+  adapter: "auto" | "openai" | "anthropic" | "template";
   openai?: { model?: string };
   anthropic?: { model?: string };
-  ollama?: { model?: string; baseUrl?: string };
   /**
    * When true, cloud adapters are disabled entirely. The resolver
-   * falls to ollama/template regardless of stored tokens.
+   * falls to template regardless of stored tokens.
    */
   telemetryOptOut?: boolean;
   /**
@@ -73,11 +75,6 @@ export interface BrainAdapterConfig {
   openaiOptions?: OpenAIOAuthAdapterOptions;
   /** Override Anthropic-specific adapter options (tests only). */
   anthropicOptions?: AnthropicOAuthAdapterOptions;
-  /**
-   * Override the ollama-reachability probe. When omitted we call
-   * `OllamaAdapter.isServerRunning()` which is the production path.
-   */
-  probeOllama?: (adapter: OllamaAdapter) => Promise<boolean>;
   /**
    * Override the keychain probe used by the auto-resolver. Returns
    * the stored token or null. Tests inject a deterministic stub; the
@@ -95,16 +92,25 @@ export interface BrainAdapterConfig {
 
 /**
  * Result of the resolver — returned so callers can log which tier
- * won (surfaced in `mandu brain status`).
+ * won (surfaced in `mandu brain status`) and detect the
+ * "needs-login" state.
  */
 export interface BrainAdapterResolution {
   adapter: LLMAdapter;
   /** Which tier the resolver picked. */
-  resolved: "openai" | "anthropic" | "ollama" | "template";
+  resolved: "openai" | "anthropic" | "template";
   /** Which tier the caller asked for (config value). */
   requested: BrainAdapterConfig["adapter"];
   /** Human-readable reason — useful for `mandu brain status`. */
   reason: string;
+  /**
+   * True when the resolver fell back to template ONLY because the
+   * user has no cloud token. Interactive CLIs should prompt
+   * `mandu brain login --provider=openai` instead of using the noop
+   * adapter. False when the user explicitly opted out (`telemetryOptOut`)
+   * or asked for `template` directly.
+   */
+  needsLogin: boolean;
 }
 
 /**
@@ -127,10 +133,6 @@ export async function resolveBrainAdapter(
   const probeToken =
     config.probeToken ?? ((provider) => store.load(provider));
 
-  const probeOllama =
-    config.probeOllama ??
-    (async (ollama: OllamaAdapter) => ollama.isServerRunning());
-
   const probeChatGPTAuth =
     config.probeChatGPTAuth ??
     (() => {
@@ -145,6 +147,7 @@ export async function resolveBrainAdapter(
       resolved: "template",
       requested,
       reason: "Explicit adapter: 'template' in config",
+      needsLogin: false,
     };
   }
 
@@ -159,6 +162,7 @@ export async function resolveBrainAdapter(
         requested,
         reason:
           "adapter: 'openai' requested but telemetryOptOut=true — forcing template",
+        needsLogin: false,
       };
     }
     // Primary: ChatGPT session token (written by `@openai/codex login`).
@@ -172,6 +176,7 @@ export async function resolveBrainAdapter(
         requested,
         reason:
           "adapter: 'openai' requested but no token found — run `mandu brain login --provider=openai`",
+        needsLogin: true,
       };
     }
     return {
@@ -186,6 +191,7 @@ export async function resolveBrainAdapter(
       reason: hasChatGPT
         ? "Explicit adapter: 'openai' + ChatGPT session token present"
         : "Explicit adapter: 'openai' + keychain token present",
+      needsLogin: false,
     };
   }
 
@@ -197,6 +203,7 @@ export async function resolveBrainAdapter(
         requested,
         reason:
           "adapter: 'anthropic' requested but telemetryOptOut=true — forcing template",
+        needsLogin: false,
       };
     }
     const token = await probeToken("anthropic");
@@ -207,6 +214,7 @@ export async function resolveBrainAdapter(
         requested,
         reason:
           "adapter: 'anthropic' requested but no token in keychain — run `mandu brain login --provider=anthropic`",
+        needsLogin: true,
       };
     }
     return {
@@ -219,24 +227,11 @@ export async function resolveBrainAdapter(
       resolved: "anthropic",
       requested,
       reason: "Explicit adapter: 'anthropic' + token present",
+      needsLogin: false,
     };
   }
 
-  if (requested === "ollama") {
-    const ollama = createOllamaAdapter({
-      model: config.ollama?.model,
-      baseUrl: config.ollama?.baseUrl,
-    });
-    return {
-      adapter: ollama,
-      resolved: "ollama",
-      requested,
-      reason: "Explicit adapter: 'ollama'",
-    };
-  }
-
-  // Auto — try cloud providers first (when allowed), then ollama,
-  // then template.
+  // Auto — try cloud providers first (when allowed), then template.
   if (!telemetryOptOut) {
     // Primary: ChatGPT session token (managed by `@openai/codex`).
     const cg2 = probeChatGPTAuth();
@@ -251,6 +246,7 @@ export async function resolveBrainAdapter(
         resolved: "openai",
         requested,
         reason: `auto: ChatGPT session token at ${cg2.path ?? "(unknown)"}`,
+        needsLogin: false,
       };
     }
     const openaiToken = await probeToken("openai");
@@ -265,6 +261,7 @@ export async function resolveBrainAdapter(
         resolved: "openai",
         requested,
         reason: "auto: OpenAI token found in keychain",
+        needsLogin: false,
       };
     }
     const anthropicToken = await probeToken("anthropic");
@@ -279,33 +276,22 @@ export async function resolveBrainAdapter(
         resolved: "anthropic",
         requested,
         reason: "auto: Anthropic token found in keychain",
+        needsLogin: false,
       };
     }
   }
 
-  const ollama = createOllamaAdapter({
-    model: config.ollama?.model,
-    baseUrl: config.ollama?.baseUrl,
-  });
-  const ollamaAlive = await probeOllama(ollama).catch(() => false);
-  if (ollamaAlive) {
-    return {
-      adapter: ollama,
-      resolved: "ollama",
-      requested,
-      reason: telemetryOptOut
-        ? "auto: telemetryOptOut=true, ollama daemon reachable"
-        : "auto: no cloud token, ollama daemon reachable",
-    };
-  }
-
+  // Final fallback. `needsLogin` distinguishes "user opted out" from
+  // "user has no token" so interactive CLIs can prompt login only in
+  // the latter case.
   return {
     adapter: new NoopAdapter(),
     resolved: "template",
     requested,
     reason: telemetryOptOut
-      ? "auto: telemetryOptOut=true and no local LLM — using template"
-      : "auto: no cloud token, no ollama daemon — using template",
+      ? "auto: telemetryOptOut=true — using template"
+      : "auto: no cloud token — run `mandu brain login --provider=openai`",
+    needsLogin: !telemetryOptOut,
   };
 }
 

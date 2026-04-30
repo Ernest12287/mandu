@@ -4,9 +4,11 @@
  * Covers:
  *   - openai tier → heal + doctor suggestion strings.
  *   - anthropic tier → same heal + doctor suggestions.
- *   - ollama tier → login-upgrade suggestion.
- *   - template tier → login-upgrade suggestion.
+ *   - template tier (with login prompt) → login-upgrade suggestion.
  *   - unknown / empty tier → empty list (no spurious suggestions).
+ *
+ * Issue #235 follow-up — the local Ollama tier was removed; the resolver
+ * now collapses every offline path to `template`.
  *
  * We test `buildBrainStatusSuggestions` directly so the tier → string
  * mapping is pinned without needing a credential store stub.
@@ -41,17 +43,18 @@ describe("mandu.brain.status — suggestions (#237 Concern 4)", () => {
     );
   });
 
-  test("ollama tier produces the login-upgrade suggestion", () => {
-    const suggestions = buildBrainStatusSuggestions("ollama");
+  test("template tier produces the login-upgrade suggestion", () => {
+    const suggestions = buildBrainStatusSuggestions("template");
     expect(suggestions.length).toBe(1);
     expect(suggestions[0]).toMatch(/mandu brain login/);
     expect(suggestions[0]).toMatch(/openai|anthropic/);
   });
 
-  test("template tier produces the login-upgrade suggestion", () => {
-    const suggestions = buildBrainStatusSuggestions("template");
-    expect(suggestions.length).toBe(1);
-    expect(suggestions[0]).toMatch(/mandu brain login/);
+  test("legacy ollama tier value yields no suggestions (tier removed in #235 follow-up)", () => {
+    // Sanity check — even if some old caller hands us "ollama" we must
+    // not reproduce the legacy login-upgrade copy targeted at the
+    // removed local-LLM path.
+    expect(buildBrainStatusSuggestions("ollama")).toEqual([]);
   });
 
   test("unknown tier returns an empty suggestion list (no spurious pointers)", () => {

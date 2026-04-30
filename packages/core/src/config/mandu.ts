@@ -644,20 +644,19 @@ export interface ManduConfig {
    * Fields:
    *   - `adapter`          — Which connector to use. Default `"auto"`.
    *                          Auto resolves in priority order:
-   *                          openai → anthropic → ollama → template.
-   *                          Explicit values pin the choice but still
-   *                          degrade to template when the dependency is
-   *                          unreachable (no hard failures).
-   *   - `openai.model`     — Override the OpenAI model (default
-   *                          `"gpt-4o-mini"`).
-   *   - `anthropic.model`  — Override the Anthropic model (default
-   *                          `"claude-haiku-4-5-20251001"`).
-   *   - `ollama.model`     — Override the local Ollama model (default
-   *                          `"ministral-3:3b"`).
+   *                          openai → anthropic → template. Explicit
+   *                          values pin the choice but still degrade
+   *                          to template when the dependency is
+   *                          unreachable (no hard failures). Interactive
+   *                          CLIs prompt `mandu brain login` when the
+   *                          fallback fires due to a missing token.
+   *   - `openai.model`     — Override the OpenAI model.
+   *   - `anthropic.model`  — Override the Anthropic model.
    *   - `telemetryOptOut`  — When `true`, cloud adapters are disabled
    *                          entirely regardless of stored tokens. The
-   *                          resolver falls to ollama/template. Use for
-   *                          privacy-strict environments.
+   *                          resolver falls to template silently (no
+   *                          login prompt). Use for privacy-strict
+   *                          environments.
    *
    * Omitting this block is equivalent to `{ adapter: "auto" }`.
    *
@@ -665,10 +664,9 @@ export interface ManduConfig {
    * @see `docs/brain/oauth-adapters.md` (when authored).
    */
   brain?: {
-    adapter?: "auto" | "openai" | "anthropic" | "ollama" | "template";
+    adapter?: "auto" | "openai" | "anthropic" | "template";
     openai?: { model?: string };
     anthropic?: { model?: string };
-    ollama?: { model?: string; baseUrl?: string };
     telemetryOptOut?: boolean;
   };
   /**

@@ -319,5 +319,133 @@ export async function brainAuthStatus(
 
   log("");
   log(`Fallback file: ${CredentialStore.fallbackPath()}`);
+  if (resolution.needsLogin) {
+    log("");
+    log("⚠ No cloud brain available — running with deterministic templates only.");
+    log("  Run `mandu brain login --provider=openai` to enable OAuth-backed inference.");
+  }
   return true;
+}
+
+/* -------------------------------------------------------------------- */
+/* ensureBrainLogin — used by any command that REQUIRES a cloud brain   */
+/* -------------------------------------------------------------------- */
+
+export interface EnsureBrainLoginOptions extends BrainAuthDeps {
+  /**
+   * Provider to log in with when no cloud token is found. Defaults to
+   * `"openai"` per the framework-wide preference for ChatGPT-OAuth as
+   * the canonical brain backend (Issue #235 follow-up).
+   */
+  provider?: BrainAuthProvider;
+  /**
+   * When `true`, do NOT prompt the user before launching the login
+   * flow — go straight into `mandu brain login`. The default `false`
+   * prompts `[y/N]` so non-interactive callers (CI, MCP) don't get
+   * stuck on stdin.
+   */
+  autoApprove?: boolean;
+  /**
+   * Prompt callback. Receives a y/n question; returns true on yes.
+   * Tests inject a deterministic stub. Production reads from stdin.
+   */
+  prompt?: (question: string) => Promise<boolean>;
+}
+
+/**
+ * Resolve the brain adapter and, if no cloud tier is available,
+ * trigger an interactive login flow.
+ *
+ * Resolution semantics:
+ *   - Already logged in (`needsLogin === false`) → returns immediately.
+ *   - User opted out (`telemetryOptOut: true`)  → returns immediately;
+ *     login would be incorrect.
+ *   - `needsLogin === true` AND interactive    → prompts to log in. On
+ *     `y` / `--auto-approve`, calls `brainLogin({ provider })` and re-
+ *     resolves. Returns `false` if the user declines or login fails.
+ *
+ * Callers (e.g. `mandu deploy:plan --use-brain`) treat `false` as
+ * "fall back to template / heuristic" rather than aborting outright,
+ * so the user can always proceed without OAuth.
+ */
+export async function ensureBrainLogin(
+  options: EnsureBrainLoginOptions = {},
+): Promise<boolean> {
+  const log = options.log ?? ((m: string) => console.log(m));
+  const error = options.error ?? ((m: string) => console.error(m));
+  const store = options.credentialStore ?? getCredentialStore();
+  const projectRoot = options.projectRoot ?? process.cwd();
+  const provider = options.provider ?? "openai";
+
+  const resolution = await resolveBrainAdapter({
+    adapter: "auto",
+    credentialStore: store,
+    projectRoot,
+  });
+
+  if (!resolution.needsLogin) return true;
+
+  log("");
+  log("Mandu Brain — no cloud adapter is logged in.");
+  log(`Reason: ${resolution.reason}`);
+  log("");
+
+  let approved = options.autoApprove === true;
+  if (!approved) {
+    const ask = options.prompt ?? defaultYesNoPrompt;
+    approved = await ask(
+      `Run \`mandu brain login --provider=${provider}\` now? [y/N]: `,
+    );
+  }
+
+  if (!approved) {
+    log("Skipping login — Brain will use deterministic templates.");
+    return false;
+  }
+
+  const ok = await brainLogin({
+    provider,
+    credentialStore: store,
+    projectRoot,
+    log,
+    error,
+    httpClient: options.httpClient,
+    endpoints: options.endpoints,
+    openBrowser: options.openBrowser,
+    simulateAuthorize: options.simulateAuthorize,
+    timeoutMs: options.timeoutMs,
+  });
+  if (!ok) {
+    error("Login flow did not complete. Brain falls back to templates.");
+    return false;
+  }
+
+  // Re-resolve to confirm the new token is reachable.
+  const next = await resolveBrainAdapter({
+    adapter: "auto",
+    credentialStore: store,
+    projectRoot,
+  });
+  return !next.needsLogin;
+}
+
+/**
+ * Default y/N prompt — reads one line from stdin.
+ * Returns `false` for any answer that doesn't start with `y` / `Y`.
+ */
+async function defaultYesNoPrompt(question: string): Promise<boolean> {
+  process.stdout.write(question);
+  return new Promise<boolean>((resolve) => {
+    let buf = "";
+    const onData = (chunk: Buffer) => {
+      buf += chunk.toString("utf8");
+      if (buf.includes("\n")) {
+        process.stdin.off("data", onData);
+        process.stdin.pause();
+        resolve(/^\s*y/i.test(buf));
+      }
+    };
+    process.stdin.resume();
+    process.stdin.on("data", onData);
+  });
 }

@@ -1,5 +1,6 @@
 /**
- * Local / generic prompt adapter (Ollama, LM Studio, llama.cpp, etc.).
+ * Local / generic prompt adapter for any OpenAI-compatible runtime
+ * (LM Studio, llama.cpp, vLLM, etc.).
  *
  * Most local runtimes accept OpenAI-compatible chat format, so we pass
  * through untouched. Systems are consolidated into a single leading
@@ -7,11 +8,14 @@
  *
  * Streaming behavior:
  *   - When `MANDU_LOCAL_BASE_URL` is set (or `options.baseUrl` is passed),
- *     the adapter hits `<baseUrl>/v1/chat/completions` in streaming mode —
- *     compatible with Ollama (`http://127.0.0.1:11434/v1`) and LM Studio.
+ *     the adapter hits `<baseUrl>/v1/chat/completions` in streaming mode.
  *   - Otherwise we emit a **deterministic dummy response** so `mandu ai`
  *     works offline for CI and dry-runs. The dummy response echoes the
  *     last user message and tags it with a stable preamble.
+ *
+ * Note: this adapter is intentionally generic — Mandu's brain resolver
+ * never picks it. It is reachable only via the explicit `local`
+ * provider on `mandu ai chat --provider=local` for offline development.
  */
 
 import type {
@@ -58,8 +62,8 @@ async function* streamDummy(
 /**
  * Wave R3 M-02 — SSRF guard for `MANDU_LOCAL_BASE_URL` / `OPENAI_BASE_URL`.
  *
- * The local adapter exists so Mandu can point at Ollama / LM Studio running
- * on the same machine. Without this gate a malicious `.env` could redirect
+ * The local adapter exists so Mandu can point at LM Studio / llama.cpp / vLLM
+ * running on the same machine. Without this gate a malicious `.env` could redirect
  * the chat loop to the AWS IMDS endpoint (`http://169.254.169.254`) or an
  * internal intranet host, and the returned body would be rendered as model
  * output. We therefore require:

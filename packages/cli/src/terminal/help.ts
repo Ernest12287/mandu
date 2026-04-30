@@ -248,7 +248,7 @@ export const MANDU_HELP: HelpDefinition = {
     { name: "contract", description: "Contract-First API development" },
     { name: "openapi", description: "Generate OpenAPI spec" },
     { name: "change", description: "Change transaction management" },
-    { name: "brain", description: "Setup local AI with Ollama" },
+    { name: "brain", description: "Manage Brain LLM adapter (OAuth login/logout/status)" },
     { name: "doctor", description: "Analyze Guard failures + suggest patches" },
     { name: "watch", description: "Real-time file watching" },
     { name: "monitor", description: "MCP Activity Monitor" },

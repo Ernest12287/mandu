@@ -20,7 +20,6 @@ import type {
 } from "./types";
 import { DEFAULT_BRAIN_POLICY } from "./types";
 import { type LLMAdapter, NoopAdapter } from "./adapters/base";
-import { createOllamaAdapter } from "./adapters/ollama";
 import type { SessionMemory} from "./memory";
 import { getSessionMemory } from "./memory";
 import {
@@ -96,15 +95,13 @@ export class Brain {
       ...options.config,
     };
 
-    // Set up adapter
-    if (options.adapter) {
-      this.adapter = options.adapter;
-    } else if (this.config.adapter) {
-      this.adapter = createOllamaAdapter(this.config.adapter);
-    } else {
-      // Default: Ollama with default settings
-      this.adapter = createOllamaAdapter();
-    }
+    // Set up adapter — sync default is NoopAdapter (template). The CLI
+    // constructs Brain with `options.adapter` populated by
+    // `resolveBrainAdapter()` so cloud tiers reach Brain. Surfaces that
+    // skip that resolver (server runtime, server-side imports of Brain)
+    // get the safe template fallback. Issue #235 removed the local
+    // Ollama tier; cloud OAuth is the only non-template adapter now.
+    this.adapter = options.adapter ?? new NoopAdapter();
 
     // Get session memory
     this.memory = getSessionMemory();
