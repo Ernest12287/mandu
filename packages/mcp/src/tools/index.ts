@@ -64,6 +64,7 @@ export { compositeTools, compositeToolDefinitions } from "./composite.js";
 export { runTestsTools, runTestsToolDefinitions } from "./run-tests.js";
 export { deployPreviewTools, deployPreviewToolDefinitions } from "./deploy-preview.js";
 export { deployPlanTools, deployPlanToolDefinitions } from "./deploy-plan.js";
+export { designTools, designToolDefinitions } from "./design.js";
 export { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
 export { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 // #243 — docs search/get for agents grounding answers in real framework docs
@@ -139,6 +140,7 @@ import { compositeTools, compositeToolDefinitions } from "./composite.js";
 import { runTestsTools, runTestsToolDefinitions } from "./run-tests.js";
 import { deployPreviewTools, deployPreviewToolDefinitions } from "./deploy-preview.js";
 import { deployPlanTools, deployPlanToolDefinitions } from "./deploy-plan.js";
+import { designTools, designToolDefinitions } from "./design.js";
 import { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
 import { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 import { docsTools, docsToolDefinitions } from "./docs.js";
@@ -258,6 +260,8 @@ const TOOL_MODULES: ToolModule[] = [
   { category: "deploy-preview", definitions: deployPreviewToolDefinitions, handlers: deployPreviewTools },
   // #250 — DeployIntent inspection / compile (Phase 1)
   { category: "deploy-plan", definitions: deployPlanToolDefinitions, handlers: deployPlanTools },
+  // #245 M4 — Design system discovery (DESIGN.md / Guard / component inventory)
+  { category: "design", definitions: designToolDefinitions, handlers: designTools },
   { category: "ai-brief", definitions: aiBriefToolDefinitions, handlers: aiBriefTools },
   { category: "loop-close", definitions: loopCloseToolDefinitions, handlers: loopCloseTools },
   { category: "docs", definitions: docsToolDefinitions, handlers: docsTools },

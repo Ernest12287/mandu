@@ -305,6 +305,45 @@ function truncate(s: string, max: number): string {
 }
 
 /**
+ * Run the same DESIGN_INLINE_CLASS scan against a single file —
+ * surface used by the MCP `mandu_design_check` wrapper so an agent
+ * can preview violations on a file it's about to edit, without
+ * walking the whole project tree. Returns the same `GuardViolation`
+ * shape as the project-wide checker.
+ */
+export async function checkFileForDesignInlineClasses(
+  rootDir: string,
+  filePath: string,
+  config: DesignGuardConfig | undefined,
+): Promise<GuardViolation[]> {
+  if (!config) return [];
+  const resolved = await resolveConfig(rootDir, config);
+  if (resolved.forbid.size === 0) return [];
+
+  const absolute = path.isAbsolute(filePath) ? filePath : path.join(rootDir, filePath);
+  const rel = path.relative(rootDir, absolute).replace(/\\/g, "/");
+  if (isExcluded(rel, resolved.exclude)) return [];
+
+  let content: string;
+  try {
+    content = await fs.readFile(absolute, "utf-8");
+  } catch {
+    return [];
+  }
+  const hits = scanContent(content, resolved.forbid);
+  return hits.map((hit) => ({
+    ruleId: "DESIGN_INLINE_CLASS",
+    file: rel,
+    line: hit.line,
+    message: buildMessage(hit, resolved.requireComponent),
+    suggestion: resolved.requireComponent[hit.token]
+      ? `Replace with ${resolved.requireComponent[hit.token]}.`
+      : "Extract this class into a component under src/client/shared/ui/ or src/client/widgets/, or remove the inline usage.",
+    severity: resolved.severity,
+  }));
+}
+
+/**
  * Run the design-inline-class checker against the project source.
  * Returns Guard violations using the standard `GuardViolation` shape
  * so the existing reporter formats them uniformly.
