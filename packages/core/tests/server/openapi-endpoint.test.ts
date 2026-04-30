@@ -23,8 +23,34 @@ import {
 import { invalidateOpenAPIEndpointCache } from "../../src/runtime/openapi-endpoint";
 import type { RoutesManifest } from "../../src/spec/schema";
 
+async function linkWorkspaceNodeModules(rootDir: string): Promise<void> {
+  const workspaceNodeModules = path.join(process.cwd(), "node_modules");
+  const fixtureNodeModules = path.join(rootDir, "node_modules");
+
+  try {
+    await fs.access(workspaceNodeModules);
+  } catch {
+    return;
+  }
+
+  try {
+    await fs.symlink(
+      workspaceNodeModules,
+      fixtureNodeModules,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+  } catch (error) {
+    try {
+      await fs.access(fixtureNodeModules);
+    } catch {
+      throw error;
+    }
+  }
+}
+
 async function buildFixture(): Promise<{ rootDir: string; manifest: RoutesManifest; cleanup: () => Promise<void> }> {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "mandu-openapi-ep-"));
+  await linkWorkspaceNodeModules(rootDir);
   const contractPath = "contracts/users.contract.ts";
   const contractAbs = path.join(rootDir, contractPath);
   await fs.mkdir(path.dirname(contractAbs), { recursive: true });

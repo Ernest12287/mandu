@@ -107,6 +107,7 @@ export async function loadDeployIntentCache(
   } catch (err) {
     throw new Error(
       `Deploy intent cache is not valid JSON (${file}): ${(err as Error).message}`,
+      { cause: err },
     );
   }
   return DeployIntentCache.parse(parsed);

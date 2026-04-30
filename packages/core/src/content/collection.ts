@@ -607,9 +607,8 @@ interface RenderedMarkdown {
  * remark/rehype plugin chain; when any piece is missing, falls back
  * to returning a `<pre>` shell so the caller gets a stable API.
  *
- * We go through `Function("return import(...)")` instead of a direct
- * dynamic `import()` so TS doesn't resolve the optional modules
- * during typecheck — they are NOT in `@mandujs/core` deps by design.
+ * We use a variable dynamic import so TS doesn't resolve the optional
+ * modules during typecheck — they are NOT in `@mandujs/core` deps by design.
  *
  * The `options.remarkPlugins` / `options.rehypePlugins` arrays let
  * docs sites add `rehype-slug`, `rehype-autolink-headings`, `shiki`,
@@ -621,12 +620,9 @@ async function renderMarkdownSafe(
 ): Promise<RenderedMarkdown> {
   const { remarkPlugins = [], rehypePlugins = [], silent = false } = options;
 
-  // Passing the module specifier through a Function-wrapped dynamic
-  // import keeps TypeScript from erroring on optional peer deps; if
-  // any module is missing we fall through to the raw-markdown path.
   const tryImport = async (id: string): Promise<unknown> => {
     try {
-      return await (Function("x", "return import(x)") as (x: string) => Promise<unknown>)(id);
+      return await import(id);
     } catch {
       return null;
     }

@@ -27,14 +27,13 @@
  * ```
  */
 
-import { z, type ZodType, type ZodObject, type ZodRawShape } from 'zod';
+import type { ZodType } from 'zod';
 import {
   getZodTypeName,
   getZodInnerType,
   getZodArrayElementType,
   getZodObjectShape,
   getZodEnumValues,
-  getZodChecks,
   isZodRequired,
 } from './zod-utils';
 
@@ -167,7 +166,7 @@ export function generateApiHandler<T extends ContractDefinition>(
     throw new Error(`Endpoint "${String(endpointName)}" not found in contract`);
   }
 
-  const { method, path, input, output, description } = endpoint;
+  const { method, path, input, description } = endpoint;
 
   return `
 import { Mandu } from '@mandujs/core';
@@ -345,7 +344,7 @@ export function generateOpenAPISpec<T extends ContractDefinition>(
   const paths: Record<string, Record<string, unknown>> = {};
 
   for (const [name, endpoint] of Object.entries(contract.__endpoints)) {
-    const { method, path, input, output, description, tags, errors } = endpoint;
+    const { method, path, input, description, tags, errors } = endpoint;
 
     if (!paths[path]) {
       paths[path] = {};

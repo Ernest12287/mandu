@@ -159,7 +159,7 @@ export function validateTimezone(tz: string): void {
   }
   try {
     // `Intl.DateTimeFormat` throws `RangeError` for unknown zones.
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    Intl.DateTimeFormat("en-US", { timeZone: tz });
   } catch {
     throw new Error(
       `[@mandujs/core/scheduler] unknown IANA timezone "${tz}". ` +

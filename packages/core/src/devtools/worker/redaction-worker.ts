@@ -212,6 +212,7 @@ const workerSelf = typeof self !== 'undefined' ? (self as unknown as WorkerSelf)
 if (workerSelf && typeof workerSelf.postMessage === 'function') {
   workerSelf.onmessage = (event: MessageEvent<WorkerRequest>) => {
     const response = handleMessage(event.data);
+    // oxlint-disable-next-line require-post-message-target-origin -- Worker.postMessage has no targetOrigin parameter.
     workerSelf.postMessage(response);
   };
 }

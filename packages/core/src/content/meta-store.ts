@@ -102,7 +102,7 @@ export class ContentMetaStore {
    */
   private autoSave(): void {
     if (this.options.autoSave && this.options.filePath) {
-      this.save();
+      void this.save();
     }
   }
 

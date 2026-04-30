@@ -161,7 +161,7 @@ export async function startLocalServer(
       // close before Bun tears down the server. Otherwise the pending
       // adapter iterations leak.
       runner.shutdown();
-      server.stop(true /* closeActiveConnections */);
+      void server.stop(true /* closeActiveConnections */);
     },
   };
 }

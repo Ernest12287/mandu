@@ -641,5 +641,5 @@ DELETE: async (ctx) => {
 
 - [API Reference: defineResource()](../api/defineResource.md)
 - [Architecture Overview](../resource-architecture.md)
-- [Troubleshooting Guide](./resource-troubleshooting.md)
+- [Draft: Troubleshooting Guide](./resource-troubleshooting.md)
 - [Demo Project](../../demo/resource-example/README.md)

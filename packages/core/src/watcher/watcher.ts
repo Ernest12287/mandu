@@ -158,17 +158,17 @@ export class FileWatcher {
 
     // Handle events (v5 passes absolute paths when watching absolute rootDir)
     this.chokidarWatcher.on("change", (filePath) => {
-      this.processFileEvent("modify", filePath);
+      void this.processFileEvent("modify", filePath);
     });
 
     this.chokidarWatcher.on("add", (filePath) => {
       this._fileCount++;
-      this.processFileEvent("create", filePath);
+      void this.processFileEvent("create", filePath);
     });
 
     this.chokidarWatcher.on("unlink", (filePath) => {
       this._fileCount = Math.max(0, this._fileCount - 1);
-      this.processFileEvent("delete", filePath);
+      void this.processFileEvent("delete", filePath);
     });
 
     this.chokidarWatcher.on("error", (error: unknown) => {
@@ -408,7 +408,7 @@ export function getWatcher(config?: WatcherConfig): FileWatcher | null {
  */
 export async function startWatcher(config: WatcherConfig): Promise<FileWatcher> {
   if (globalWatcher) {
-    globalWatcher.stop();
+    await globalWatcher.stop();
   }
 
   globalWatcher = createWatcher(config);

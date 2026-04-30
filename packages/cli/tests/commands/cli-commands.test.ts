@@ -35,9 +35,9 @@ describe("mandu info", () => {
   it("prints version and environment", async () => {
     const output = await runCLI("info");
     expect(output).toContain("Mandu Info");
-    expect(output).toContain("Bun:");
-    expect(output).toContain("OS:");
-    expect(output).toContain("Node:");
+    expect(output).toMatch(/\bBun\s+\S+/);
+    expect(output).toMatch(/\bOS\s+\S+/);
+    expect(output).toMatch(/\bNode\s+\S+/);
   });
 });
 

@@ -1488,7 +1488,7 @@ export async function renderWithDeferredData(
       }
     },
     cancel() {
-      reader.cancel();
+      void reader.cancel();
     },
   });
 

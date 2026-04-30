@@ -255,7 +255,7 @@ export class ContentLayer {
    */
   dispose(): void {
     this.dataStore.dispose();
-    this.watcher?.close();
+    void this.watcher?.close();
   }
 }
 

@@ -221,7 +221,7 @@ export async function start(options: StartOptions = {}): Promise<void> {
     });
     const address = await adapterServer.listen(port, serverConfig.hostname);
     actualPort = address.port;
-    stopFn = () => { adapterServer.close(); };
+    stopFn = () => { void adapterServer.close(); };
   } else {
     const server = startServer(manifest, serverOptions);
     actualPort = server.server.port ?? port;

@@ -323,6 +323,7 @@ export class WorkerManager {
 
       this.pendingRequests.set(id, { resolve, reject, timeout });
 
+      // oxlint-disable-next-line require-post-message-target-origin -- Worker.postMessage has no targetOrigin parameter.
       this.worker!.postMessage({ id, ...request });
     });
   }

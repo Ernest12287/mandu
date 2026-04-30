@@ -47,7 +47,7 @@ export class SSEConnection {
         this.pending = [];
       },
       cancel: () => {
-        this.close();
+        void this.close();
       },
     });
 

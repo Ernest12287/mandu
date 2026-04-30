@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun" alt="Bun" />
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6?logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/frontend-React-61dafb?logo=react" alt="React" />
-  <img src="https://img.shields.io/badge/tests-1728%20pass-success" alt="tests" />
+  <img src="https://img.shields.io/badge/package%20tests-passing-success" alt="package tests passing" />
   <img src="https://img.shields.io/badge/license-MPL--2.0-blue" alt="license" />
 </p>
 
@@ -1381,7 +1381,7 @@ mandu/
 
 | Area | Technology |
 |------|------------|
-| **Runtime** | Bun 1.0+ (`bun:sqlite`, `Bun.spawn`, `Bun.serve`) |
+| **Runtime** | Bun 1.3.12+ (`bun:sqlite`, `Bun.spawn`, `Bun.serve`, `Bun.cron`) |
 | **Language** | TypeScript 5.x |
 | **Frontend** | React 19 (Streaming SSR, Suspense, useTransition) |
 | **Validation** | Zod (Contract API) |
@@ -1550,19 +1550,15 @@ mandu/
 
 ## Test Coverage
 
-| Package | Tests | Files |
-|---------|-------|-------|
-| `@mandujs/core` (src) | 543 | 35 |
-| `@mandujs/core` (tests) | 874 | 62 |
-| `@mandujs/ate` | 242 | 19 |
-| `@mandujs/mcp` | 69 | 6 |
-| **Total** | **1728** | **122** |
+The package suite is script-driven so the README does not carry a stale static
+test count.
 
-```bash
-bun test                          # Run all tests
-bun test packages/core/src        # Test specific package
-bun test --watch                  # Watch mode
-```
+| Scope | Command |
+|-------|---------|
+| All maintained packages | `bun run test:packages` |
+| Template smoke tests | `bun run test:smoke` |
+| Publish readiness | `bun run check:publish` |
+| One-off Bun test run | `bun test <path>` |
 
 ---
 

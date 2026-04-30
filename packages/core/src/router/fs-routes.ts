@@ -454,8 +454,8 @@ export async function watchFSRoutes(
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
-      routesWatcher.close();
-      specWatcher.close();
+      void routesWatcher.close();
+      void specWatcher.close();
     },
     async rescan() {
       return triggerRescan();

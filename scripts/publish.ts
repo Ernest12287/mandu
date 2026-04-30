@@ -178,7 +178,7 @@ async function main() {
     const published = await getPublishedVersion(pkgJson.name);
     const alreadyOnNpm = published === pkgJson.version;
 
-    if (alreadyOnNpm && !GITHUB_TOKEN) {
+    if (!isDryRun && alreadyOnNpm && !GITHUB_TOKEN) {
       console.log(`⏭️  ${pkgJson.name}@${pkgJson.version} — already on npm, skipping`);
       continue;
     }
@@ -193,11 +193,14 @@ async function main() {
 
     try {
       // 1) npm 배포
-      if (alreadyOnNpm) {
-        console.log(`   ⏭️  npm: already published, skipping`);
-      } else if (isDryRun) {
+      if (isDryRun) {
+        if (alreadyOnNpm) {
+          console.log(`   🔎 npm: already published, still running dry-run package validation`);
+        }
         const result = await $`cd ${pkgPath} && bun publish --dry-run --registry=${NPM_REGISTRY}`.text();
         console.log(result);
+      } else if (alreadyOnNpm) {
+        console.log(`   ⏭️  npm: already published, skipping`);
       } else {
         const result = await $`cd ${pkgPath} && bun publish --access public --registry=${NPM_REGISTRY}`.text();
         console.log(`   ✅ Published to npm`);

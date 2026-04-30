@@ -91,7 +91,7 @@ export function Link({
 
       // Client-side 네비게이션
       event.preventDefault();
-      navigate(href, { replace, scroll });
+      void navigate(href, { replace, scroll });
     },
     [href, replace, scroll, onClick]
   );
@@ -103,7 +103,7 @@ export function Link({
     try {
       const url = new URL(href, window.location.origin);
       if (url.origin === window.location.origin) {
-        prefetch(href);
+        void prefetch(href);
         prefetchedRef.current = true;
       }
     } catch {

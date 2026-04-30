@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun" alt="Bun" />
   <img src="https://img.shields.io/badge/language-TypeScript-3178c6?logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/frontend-React-61dafb?logo=react" alt="React" />
-  <img src="https://img.shields.io/badge/tests-1728%20pass-success" alt="tests" />
+  <img src="https://img.shields.io/badge/package%20tests-passing-success" alt="package tests passing" />
   <img src="https://img.shields.io/badge/license-MPL--2.0-blue" alt="license" />
 </p>
 
@@ -32,7 +32,7 @@
 
 ### 사전 요구사항
 
-- **Bun** v1.0.0 이상 ([Bun 설치하기](https://bun.sh/docs/installation))
+- **Bun** v1.3.12 이상 ([Bun 설치하기](https://bun.sh/docs/installation))
 
 ```bash
 # Bun 버전 확인
@@ -259,7 +259,7 @@ bunx mandu guard arch --watch
 
 | 기술 | 버전 | 용도 |
 |------|------|------|
-| **Bun** | 1.0+ | JavaScript 런타임 & 패키지 매니저 |
+| **Bun** | 1.3.12+ | JavaScript 런타임 & 패키지 매니저 |
 | **React** | 19.x | UI 라이브러리 |
 | **TypeScript** | 5.x | 타입 안전성 |
 
@@ -1914,19 +1914,15 @@ Mandu는 자동으로 에러를 세 가지 유형으로 분류합니다:
 
 ## 테스트 커버리지
 
-| 패키지 | 테스트 수 | 파일 수 |
-|--------|----------|---------|
-| `@mandujs/core` (src) | 543 | 35 |
-| `@mandujs/core` (tests) | 874 | 62 |
-| `@mandujs/ate` | 242 | 19 |
-| `@mandujs/mcp` | 69 | 6 |
-| **총계** | **1728** | **122** |
+정적 테스트 수치는 금방 오래되기 때문에 README에는 검증 스크립트를 기준으로
+유지합니다.
 
-```bash
-bun test                          # 전체 테스트 실행
-bun test packages/core/src        # 특정 패키지만
-bun test --watch                  # watch 모드
-```
+| 범위 | 명령어 |
+|------|--------|
+| 유지보수 대상 전체 패키지 | `bun run test:packages` |
+| 템플릿 스모크 테스트 | `bun run test:smoke` |
+| 배포 준비 검증 | `bun run check:publish` |
+| 특정 경로 단독 실행 | `bun test <path>` |
 
 ---
 

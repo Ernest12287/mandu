@@ -22,18 +22,16 @@
  * ```
  */
 
-import { readFile, writeFile, mkdir, rename, unlink } from "fs/promises";
+import { readFile, writeFile, mkdir, unlink } from "fs/promises";
 import { existsSync } from "fs";
-import { dirname, join, relative, basename, extname, resolve, normalize } from "path";
+import { dirname, join, extname, resolve, normalize } from "path";
 import type {
   Violation,
   ViolationType,
   GuardConfig,
   GuardPreset,
-  LayerDefinition,
-  ViolationReport,
 } from "./types";
-import { generateSmartSuggestions, getDocumentationLink } from "./suggestions";
+import { getDocumentationLink } from "./suggestions";
 import { checkDirectory } from "./watcher";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -328,12 +326,11 @@ function generateHealingOptions(
  */
 function generateLayerViolationOptions(
   violation: Violation,
-  config: GuardConfig,
+  _config: GuardConfig,
   rootDir: string
 ): HealingOption[] {
   const options: HealingOption[] = [];
-  const { filePath, importPath, importStatement, fromLayer, toLayer, allowedLayers } =
-    violation;
+  const { filePath, importPath, importStatement, toLayer, allowedLayers } = violation;
 
   const targetModule = extractModuleName(importPath);
 
@@ -411,13 +408,11 @@ function generateLayerViolationOptions(
  */
 function generateCircularDependencyOptions(
   violation: Violation,
-  config: GuardConfig,
-  rootDir: string
+  _config: GuardConfig,
+  _rootDir: string
 ): HealingOption[] {
   const options: HealingOption[] = [];
-  const { fromLayer, toLayer, importPath } = violation;
-
-  const targetModule = extractModuleName(importPath);
+  const { fromLayer, toLayer } = violation;
 
   // 옵션 1: 공통 코드를 shared로 추출
   options.push({
@@ -448,8 +443,8 @@ function generateCircularDependencyOptions(
  */
 function generateCrossSliceOptions(
   violation: Violation,
-  config: GuardConfig,
-  rootDir: string
+  _config: GuardConfig,
+  _rootDir: string
 ): HealingOption[] {
   const options: HealingOption[] = [];
   const { fromLayer, importPath } = violation;
@@ -485,8 +480,8 @@ function generateCrossSliceOptions(
  */
 function generateDeepNestingOptions(
   violation: Violation,
-  config: GuardConfig,
-  rootDir: string
+  _config: GuardConfig,
+  _rootDir: string
 ): HealingOption[] {
   const options: HealingOption[] = [];
   const { filePath, importPath, importStatement } = violation;

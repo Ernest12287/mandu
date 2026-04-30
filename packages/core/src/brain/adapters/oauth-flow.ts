@@ -236,7 +236,7 @@ export function prepareLoopbackFlow(
     stopped = true;
     clearTimeout(timer);
     try {
-      server.stop(true);
+      void server.stop(true);
     } catch {
       /* best-effort */
     }

@@ -231,7 +231,7 @@ export function useFetch<T = unknown>(
   useEffect(() => {
     if (!immediate) return;
     if (data && dedupe) return;
-    fetchData();
+    void fetchData();
     return () => { abortRef.current?.abort(); };
   }, [fetchData, immediate, dedupe]);
 

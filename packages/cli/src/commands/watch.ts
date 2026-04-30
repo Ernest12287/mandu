@@ -57,8 +57,9 @@ export async function watch(options: WatchOptions = {}): Promise<boolean> {
     // Handle shutdown signals
     const shutdown = () => {
       printWatchStop();
-      stopWatcher();
-      process.exit(0);
+      void stopWatcher().finally(() => {
+        process.exit(0);
+      });
     };
 
     process.on("SIGINT", shutdown);

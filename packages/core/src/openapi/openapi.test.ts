@@ -20,6 +20,31 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+async function linkWorkspaceNodeModules(rootDir: string): Promise<void> {
+  const workspaceNodeModules = path.join(process.cwd(), "node_modules");
+  const fixtureNodeModules = path.join(rootDir, "node_modules");
+
+  try {
+    await fs.access(workspaceNodeModules);
+  } catch {
+    return;
+  }
+
+  try {
+    await fs.symlink(
+      workspaceNodeModules,
+      fixtureNodeModules,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+  } catch (error) {
+    try {
+      await fs.access(fixtureNodeModules);
+    } catch {
+      throw error;
+    }
+  }
+}
+
 describe("zodToOpenAPISchema", () => {
   describe("primitive types", () => {
     test("should convert ZodString", () => {
@@ -323,6 +348,7 @@ describe("Real-world contract conversion", () => {
  */
 async function buildFixture(): Promise<{ rootDir: string; manifest: RoutesManifest; cleanup: () => Promise<void> }> {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "mandu-openapi-"));
+  await linkWorkspaceNodeModules(rootDir);
   const contractPath = "contracts/users.contract.ts";
   const contractAbs = path.join(rootDir, contractPath);
   await fs.mkdir(path.dirname(contractAbs), { recursive: true });
@@ -535,6 +561,7 @@ async function buildSharedSchemaFixture(opts: {
   cleanup: () => Promise<void>;
 }> {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "mandu-openapi-hoist-"));
+  await linkWorkspaceNodeModules(rootDir);
   const [nameA, nameB] = opts.contractNames ?? ["users", "admins"];
   const bodyB =
     opts.secondBody ??
@@ -644,6 +671,7 @@ describe("hoistSharedSchemas", () => {
   test("one-off schema stays inline (no hoist, no components.schemas entry for it)", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "mandu-openapi-oneoff-"));
     try {
+      await linkWorkspaceNodeModules(rootDir);
       await fs.mkdir(path.join(rootDir, "contracts"), { recursive: true });
       await fs.writeFile(
         path.join(rootDir, "contracts/solo.contract.ts"),
@@ -818,6 +846,7 @@ export default {
   test("enum / primitive schemas are never hoisted", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "mandu-openapi-enum-"));
     try {
+      await linkWorkspaceNodeModules(rootDir);
       await fs.mkdir(path.join(rootDir, "contracts"), { recursive: true });
       const contractBody = `import { z } from "zod";
 export default {

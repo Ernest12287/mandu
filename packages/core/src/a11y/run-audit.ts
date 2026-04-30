@@ -66,7 +66,7 @@ interface AxeRunResult {
 /** Minimal structural typing for the DOM provider handle. */
 interface DomProvider {
   kind: "jsdom" | "happy-dom";
-  fromHtml(html: string, url: string): Promise<{ window: unknown; dispose: () => void }>;
+  fromHtml(html: string, url: string): Promise<{ window: unknown; dispose: () => Promise<void> }>;
 }
 
 const DEFAULT_MAX_FILES = 500;
@@ -139,7 +139,7 @@ async function resolveDomProvider(options: RunAuditOptions): Promise<DomProvider
           const window = (instance as { window: unknown }).window;
           return {
             window,
-            dispose() {
+            async dispose() {
               const w = window as { close?: () => void };
               if (typeof w.close === "function") {
                 try { w.close(); } catch { /* no-op */ }
@@ -170,9 +170,9 @@ async function resolveDomProvider(options: RunAuditOptions): Promise<DomProvider
           window.document.close();
           return {
             window,
-            dispose() {
+            async dispose() {
               if (typeof window.close === "function") {
-                try { window.close(); } catch { /* no-op */ }
+                try { await window.close(); } catch { /* no-op */ }
               }
             },
           };
@@ -235,7 +235,7 @@ async function auditFile(
   }
 
   const pageUrl = "file://" + absFile.replace(/\\/g, "/");
-  let handle: { window: unknown; dispose: () => void };
+  let handle: { window: unknown; dispose: () => void | Promise<void> };
   try {
     handle = await dom.fromHtml(html, pageUrl);
   } catch {
@@ -265,7 +265,7 @@ async function auditFile(
   } catch {
     return null;
   } finally {
-    handle.dispose();
+    await handle.dispose();
   }
 }
 

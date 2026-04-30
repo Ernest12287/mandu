@@ -2,8 +2,8 @@
  * Playground execution adapters.
  *
  * Three implementations:
- *  1. {@link CloudflareSandboxAdapter} — production. Talks to the CF
- *     Sandboxes SDK (Phase 16.2 live). NEVER instantiated in tests.
+ *  1. {@link CloudflareSandboxAdapter} — production scaffold. Throws until
+ *     the CF Sandboxes SDK call sites are wired. NEVER instantiated in tests.
  *  2. {@link FlyMachineAdapter} — fallback if CF pricing tightens or
  *     egress rules change. STUB — TODO before enabling.
  *  3. {@link MockAdapter} — local dev + CI. Uses `Bun.spawn` inside the
@@ -161,11 +161,11 @@ export interface MockAdapterOptions {
 }
 
 // -----------------------------------------------------------------------------
-// Cloudflare Sandbox adapter — production. NEVER imported by tests.
+// Cloudflare Sandbox adapter — production scaffold. NEVER imported by tests.
 // -----------------------------------------------------------------------------
 
 /**
- * Real execution backend: Cloudflare Sandboxes SDK.
+ * Planned real execution backend: Cloudflare Sandboxes SDK.
  *
  * This class lives behind {@link selectAdapter} and is instantiated ONLY
  * when `env.ADAPTER_MODE === "cloudflare"`. Tests set `ADAPTER_MODE=mock`
@@ -181,10 +181,9 @@ export interface MockAdapterOptions {
  *      { timeout: wallClockMs })` → stream stdout/stderr.
  *   5. Egress intercept: outbound proxy checks {@link isAllowedEgress}.
  *
- * The actual SDK call sites are TODO placeholders — we're not importing
- * `@cloudflare/sandbox` at runtime because bundling CF-specific deps into
- * the npm package would break `bun test`. The operator's `wrangler deploy`
- * step (not tested in CI) pulls the SDK.
+ * The actual SDK call sites are TODO placeholders. Until those calls are
+ * implemented, this adapter throws on every run. Keep this package private
+ * and do not describe the Cloudflare path as live public execution.
  */
 export class CloudflareSandboxAdapter implements PlaygroundAdapter {
   readonly name = "cloudflare-sandbox" as const;
@@ -288,7 +287,7 @@ export class FlyMachineAdapter implements PlaygroundAdapter {
  *  - `env.ADAPTER_MODE === "mock"`   → MockAdapter (dev + CI)
  *  - `env.ADAPTER_MODE === "docker"` → DockerSandboxAdapter (self-host)
  *  - `env.ADAPTER_MODE === "fly"`    → FlyMachineAdapter (stubbed, errors)
- *  - default                         → CloudflareSandboxAdapter (prod CF)
+ *  - default                         → CloudflareSandboxAdapter (CF scaffold)
  *
  * **Self-host detection**: in addition to explicit `ADAPTER_MODE`, the
  * host process may also set `MANDU_PLAYGROUND_ADAPTER=docker` on the
@@ -318,7 +317,7 @@ export function selectAdapter(env: WorkerBindings): PlaygroundAdapter {
  * Resolve the adapter mode using (in priority order):
  *   1. explicit `env.ADAPTER_MODE` (Worker binding)
  *   2. ambient `process.env.MANDU_PLAYGROUND_ADAPTER` (self-host, local-server)
- *   3. fallback to `"cloudflare"` (default production CF Worker path)
+ *   3. fallback to `"cloudflare"` (default CF Worker scaffold path)
  *
  * Exposed so `local-server.ts` can reuse the exact same resolution.
  */

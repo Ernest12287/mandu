@@ -406,7 +406,7 @@ function handlePopState(event: PopStateEvent): void {
 
   if (state?.routeId) {
     // Mandu로 방문한 페이지 - 데이터 다시 fetch
-    navigate(window.location.pathname + window.location.search, {
+    void navigate(window.location.pathname + window.location.search, {
       replace: true,
       scroll: false,
     });
@@ -578,7 +578,7 @@ function handleLinkClick(event: MouseEvent): void {
   // string (relative paths, fragments, query strings) so the router
   // can normalize as needed.
   event.preventDefault();
-  navigate(href);
+  void navigate(href);
 }
 
 // ========== Prefetch ==========

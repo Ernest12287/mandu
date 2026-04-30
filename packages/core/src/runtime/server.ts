@@ -1,4 +1,4 @@
-import type { Server, ServerWebSocket } from "bun";
+import type { BunFile, Server, ServerWebSocket } from "bun";
 import type { RoutesManifest, RouteSpec, HydrationConfig, StaticParamSetSchema } from "../spec/schema";
 import type { BundleManifest } from "../bundler/types";
 import type { ManduFilling, RenderMode } from "../filling/filling";
@@ -14,16 +14,14 @@ import {
   type GenerateMetadata,
 } from "../seo";
 import { type ErrorFallbackProps } from "./boundary";
-import React, { type ReactNode } from "react";
+import React from "react";
 import path from "path";
 import fs from "fs/promises";
 import { PORTS } from "../constants";
 import {
   type CacheStore,
   type CacheStoreStats,
-  type CacheLookupResult,
   type CacheConfig,
-  MemoryCacheStore,
   lookupCache,
   createCacheEntry,
   createCachedResponse,
@@ -53,7 +51,12 @@ import {
 } from "./cors";
 import { validateImportPath } from "./security";
 import { KITCHEN_PREFIX, KitchenHandler, recordRequest } from "../kitchen/kitchen-handler";
-import { eventBus } from "../observability/event-bus";
+import {
+  eventBus,
+  type EventType,
+  type ObservabilityEvent,
+  type ObservabilitySeverity,
+} from "../observability/event-bus";
 import {
   HEAP_ENDPOINT,
   METRICS_ENDPOINT,
@@ -66,6 +69,7 @@ import {
   handleOpenAPIRequest,
   isOpenAPIEndpointEnabled,
   resolveOpenAPIEndpointSettings,
+  type OpenAPIEndpointSettings,
 } from "./openapi-endpoint";
 // Phase 18.ψ — user-facing perf marks dashboard append. We include a
 // `perf` block on the `/_mandu/heap` payload when the feature is active
@@ -77,8 +81,7 @@ import { collectPerfSnapshot } from "../perf/user-marks";
 // `startServer()`; `runWithSpan` is used at the absolute TOP of the
 // request handler so every downstream await (middleware, filling
 // loader, SSR render) inherits the active span via AsyncLocalStorage.
-import type {
-  Tracer} from "../observability/tracing";
+import type { Tracer } from "../observability/tracing";
 import {
   createTracerFromConfig,
   runWithSpan,
@@ -99,10 +102,10 @@ import type { Middleware } from "../middleware/define";
 // Phase 18.λ — scheduler wiring (statically imported so `startServer` stays
 // synchronous; the cost of unused code is trivial — `defineCron` is a thin
 // wrapper around `Bun.cron`).
-import { defineCron as schedulerDefineCron } from "../scheduler";
+import { defineCron as schedulerDefineCron, type CronDef, type CronRegistration } from "../scheduler";
 import { setActiveSchedulerRegistration } from "../middleware/scheduler-cron";
 import { createFetchHandler } from "./handler";
-import { wrapBunWebSocket, type WSUpgradeData } from "../filling/ws";
+import { wrapBunWebSocket, type WSHandlers, type WSUpgradeData } from "../filling/ws";
 import { handleImageRequest } from "./image-handler";
 import { extractShellHtml, createPPRResponse } from "./ppr";
 import { isRedirectResponse } from "./redirect";
@@ -115,7 +118,11 @@ import {
   dispatchRpc,
   registerRpc,
   clearRpcRegistry,
+  type RpcDefinition,
+  type RpcProcedureRecord,
 } from "../contract/rpc";
+import type { GuardConfig } from "../guard/types";
+import type { ManduHooks, ManduPlugin } from "../plugins/hooks";
 import { handleMetadataRoute as dispatchMetadataRoute } from "../routes/metadata-routes";
 import {
   DEFAULT_PRERENDER_DIR,
@@ -419,7 +426,7 @@ export interface ServerOptions {
   /**
    * Guard config for Kitchen dev dashboard (dev mode only)
    */
-  guardConfig?: import("../guard/types").GuardConfig | null;
+  guardConfig?: GuardConfig | null;
   /**
    * SSR 캐시 설정 (ISR/SWR 용).
    *
@@ -575,8 +582,8 @@ export interface ServerOptions {
    * `options.middleware` so they run BEFORE user-declared layers. Both
    * fields are optional; omission is a zero-overhead passthrough.
    */
-  plugins?: readonly import("../plugins/hooks").ManduPlugin[];
-  configHooks?: Partial<import("../plugins/hooks").ManduHooks>;
+  plugins?: readonly ManduPlugin[];
+  configHooks?: Partial<ManduHooks>;
   /**
    * Phase 18.κ — tRPC-like typed RPC endpoints.
    *
@@ -589,7 +596,7 @@ export interface ServerOptions {
    * Typically threaded from `ManduConfig.rpc.endpoints`.
    */
   rpc?: {
-    endpoints?: Record<string, import("../contract/rpc").RpcDefinition<import("../contract/rpc").RpcProcedureRecord>>;
+    endpoints?: Record<string, RpcDefinition<RpcProcedureRecord>>;
   };
   /**
    * Phase 18.λ — declarative cron scheduler.
@@ -605,7 +612,7 @@ export interface ServerOptions {
    * Typically threaded from `ManduConfig.scheduler`.
    */
   scheduler?: {
-    jobs?: import("../scheduler").CronDef[];
+    jobs?: CronDef[];
     disabled?: boolean;
   };
   /**
@@ -816,7 +823,7 @@ export interface ServerRegistrySettings {
    * tracing is disabled (the hot path is branch-free). When set, every
    * request opens a root span via `tracer.startSpanFromRequest()`.
    */
-  tracer?: import("../observability/tracing").Tracer;
+  tracer?: Tracer;
   /**
    * Production OpenAPI endpoint — resolved from `ServerOptions.openapi`.
    * `undefined` means the endpoint is disabled (hot path branch-free).
@@ -824,7 +831,7 @@ export interface ServerRegistrySettings {
    * `<basePath>.json` / `<basePath>.yaml` short-circuits before route
    * dispatch to serve the cached spec body.
    */
-  openapi?: import("./openapi-endpoint").OpenAPIEndpointSettings;
+  openapi?: OpenAPIEndpointSettings;
   /**
    * Phase 18 — resolved prerender pass-through state. `undefined`
    * means the feature is disabled for this server instance.
@@ -910,7 +917,7 @@ export class ServerRegistry {
   /** Layout slot 파일 경로 캐시 (모듈 경로 → slot 경로 | null) */
   readonly layoutSlotPaths: Map<string, string | null> = new Map();
   /** WebSocket 핸들러 (라우트 ID → WSHandlers) */
-  readonly wsHandlers: Map<string, import("../filling/ws").WSHandlers> = new Map();
+  readonly wsHandlers: Map<string, WSHandlers> = new Map();
   /**
    * Metadata API 캐시 (#186)
    * - pageMetadata: routeId → page 모듈의 static `metadata` export
@@ -918,10 +925,10 @@ export class ServerRegistry {
    * - layoutMetadata: layout 모듈 경로 → static `metadata` export (null = 시도했지만 없음)
    * - layoutGenerateMetadata: layout 모듈 경로 → `generateMetadata` 함수
    */
-  readonly pageMetadata: Map<string, import("../seo").Metadata> = new Map();
-  readonly pageGenerateMetadata: Map<string, import("../seo").GenerateMetadata> = new Map();
-  readonly layoutMetadata: Map<string, import("../seo").Metadata | null> = new Map();
-  readonly layoutGenerateMetadata: Map<string, import("../seo").GenerateMetadata> = new Map();
+  readonly pageMetadata: Map<string, Metadata> = new Map();
+  readonly pageGenerateMetadata: Map<string, GenerateMetadata> = new Map();
+  readonly layoutMetadata: Map<string, Metadata | null> = new Map();
+  readonly layoutGenerateMetadata: Map<string, GenerateMetadata> = new Map();
   settings: ServerRegistrySettings = {
     isDev: false,
     rootDir: process.cwd(),
@@ -1270,7 +1277,7 @@ export function registerNotFoundHandler(handler: PageHandler): void {
   defaultRegistry.registerNotFoundHandler(handler);
 }
 
-export function registerWSHandler(routeId: string, handlers: import("../filling/ws").WSHandlers): void {
+export function registerWSHandler(routeId: string, handlers: WSHandlers): void {
   defaultRegistry.wsHandlers.set(routeId, handlers);
 }
 
@@ -1356,7 +1363,7 @@ function handleEventsStreamRequest(req: Request): Response {
   const filterSource = url.searchParams.get("source") || undefined;
   const filterTrace = url.searchParams.get("trace") || undefined;
 
-  const matches = (e: import("../observability/event-bus").ObservabilityEvent): boolean => {
+  const matches = (e: ObservabilityEvent): boolean => {
     if (filterType && e.type !== filterType) return false;
     if (filterSeverity && e.severity !== filterSeverity) return false;
     if (filterSource && e.source !== filterSource) return false;
@@ -1437,8 +1444,8 @@ function handleEventsRecentRequest(req: Request): Response {
   const events = eventBus.getRecent(
     count ? Number(count) : undefined,
     {
-      type: type as import("../observability/event-bus").EventType | undefined,
-      severity: severity as import("../observability/event-bus").ObservabilitySeverity | undefined,
+      type: type as EventType | undefined,
+      severity: severity as ObservabilitySeverity | undefined,
     },
   );
   const stats = eventBus.getStats(windowMs);
@@ -1544,7 +1551,7 @@ function evictEtagCacheIfNeeded(): void {
  */
 async function computeStrongEtag(
   filePath: string,
-  file: import("bun").BunFile,
+  file: BunFile,
 ): Promise<string> {
   const size = file.size;
   const mtime = file.lastModified;
@@ -4678,7 +4685,7 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
   // Kitchen dev dashboard (dev mode only)
   if (isDev) {
     const kitchen = new KitchenHandler({ rootDir, manifest, guardConfig });
-    kitchen.start();
+    void kitchen.start();
     registry.kitchen = kitchen;
   }
 
@@ -4862,7 +4869,7 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
   // other boot errors rather than aborting the server. `startServer` is
   // synchronous by contract, so we use the already-imported scheduler
   // module rather than `await import`.
-  let schedulerRegistration: import("../scheduler").CronRegistration | null = null;
+  let schedulerRegistration: CronRegistration | null = null;
   const jobDefs = schedulerOption?.jobs ?? [];
   const schedulerDisabled = schedulerOption?.disabled === true;
   if (jobDefs.length > 0 && !schedulerDisabled) {
@@ -4914,7 +4921,7 @@ export function startServer(manifest: RoutesManifest, options: ServerOptions = {
             console.error("[scheduler] shutdown error:", err);
           });
       }
-      server.stop();
+      void server.stop();
     },
   };
 }

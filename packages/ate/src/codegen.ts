@@ -293,12 +293,12 @@ export function generatePlaywrightSpecs(repoRoot: string, opts?: { onlyRoutes?: 
     const desiredConfig = `import { defineConfig } from "@playwright/test";\n\nexport default defineConfig({\n  // NOTE: resolved relative to this config file (tests/e2e).\n  testDir: ".",\n  timeout: 60_000,\n  use: {\n    baseURL: process.env.BASE_URL ?? "http://127.0.0.1:3333",\n    trace: process.env.CI ? "on-first-retry" : "retain-on-failure",\n    video: process.env.CI ? "retain-on-failure" : "off",\n    screenshot: "only-on-failure",\n  },\n  reporter: [\n    ["html", { outputFolder: "../../.mandu/reports/latest/playwright-html", open: "never" }],\n    ["json", { outputFile: "../../.mandu/reports/latest/playwright-report.json" }],\n    ["junit", { outputFile: "../../.mandu/reports/latest/junit.xml" }],\n  ],\n});\n`;
 
     if (!existsSync(configPath)) {
-      Bun.write(configPath, desiredConfig);
+      writeFileSync(configPath, desiredConfig, "utf8");
     } else {
       // migrate older auto-generated config that used testDir: "tests/e2e" (breaks because config is already under tests/e2e)
       const current = readFileSync(configPath, "utf8");
       if (current.includes('testDir: "tests/e2e"')) {
-        Bun.write(configPath, desiredConfig);
+        writeFileSync(configPath, desiredConfig, "utf8");
       }
     }
   } catch (err: unknown) {

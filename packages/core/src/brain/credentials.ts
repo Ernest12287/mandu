@@ -157,7 +157,7 @@ async function runWithStdin(
       stdout: "pipe",
       stderr: "pipe",
     });
-    proc.stdin.write(stdin);
+    await proc.stdin.write(stdin);
     await proc.stdin.end();
     const [stdout, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),

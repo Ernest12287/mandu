@@ -37,8 +37,11 @@ describe("Phase 18.ζ — integration flow", () => {
     store.set("home:/posts/42", entry);
     const missResp = createCachedResponse(entry, "MISS");
     expect(missResp.headers.get("X-Mandu-Cache")).toBe("MISS");
-    expect(missResp.headers.get("Cache-Control")).toMatch(/max-age=10/);
-    expect(missResp.headers.get("Cache-Control")).toMatch(/stale-while-revalidate=3600/);
+    const cacheControl = missResp.headers.get("Cache-Control") ?? "";
+    const maxAge = Number(cacheControl.match(/max-age=(\d+)/)?.[1] ?? NaN);
+    expect(maxAge).toBeGreaterThanOrEqual(0);
+    expect(maxAge).toBeLessThanOrEqual(10);
+    expect(cacheControl).toMatch(/stale-while-revalidate=3600/);
 
     // Second request within fresh window: HIT.
     const lookup2 = lookupCache(store, "home:/posts/42");

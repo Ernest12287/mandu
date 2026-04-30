@@ -272,7 +272,7 @@ export function createGuardWatcher(options: WatcherOptions): GuardWatcher {
 
     close(): void {
       if (watcher) {
-        watcher.close();
+        void watcher.close();
         watcher = null;
       }
       clearAnalysisCache();

@@ -110,7 +110,7 @@ function noopDispose(): Disposer {
  */
 function scheduleLoad(hydrate: () => void): Disposer {
   let cancelled = false;
-  Promise.resolve().then(() => {
+  void Promise.resolve().then(() => {
     if (!cancelled) hydrate();
   });
   return () => {

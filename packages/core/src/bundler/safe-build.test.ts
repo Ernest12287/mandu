@@ -163,7 +163,8 @@ describe("safeBuild", () => {
     // of landing inside it). The strict assertion is still `peak <= max`.
     let stop = false;
     const sample = async () => {
-      while (!stop) {
+      for (;;) {
+        if (stop) break;
         const { active } = _getConcurrencyState();
         if (active > peak) peak = active;
         samples++;

@@ -107,13 +107,10 @@ function createFakeCtor(): { Ctor: BunSqlCtor; state: FakeState } {
     return Object.assign(call, methods);
   }
 
-  class FakeBunSql {
-    constructor(config: Record<string, unknown>) {
-      state.ctorCalls.push(config);
-      // Return the callable instance — NOT a class instance. Returning a
-      // non-this value from a constructor replaces the default return.
-      return makeFakeSqlInstance(false) as FakeBunSql;
-    }
+  function FakeBunSql(config: Record<string, unknown>) {
+    state.ctorCalls.push(config);
+    // Return the callable instance — NOT the default constructed object.
+    return makeFakeSqlInstance(false);
   }
 
   return {

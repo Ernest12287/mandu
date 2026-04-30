@@ -29,9 +29,9 @@ This guide helps you migrate existing Mandu projects from manifest-first to reso
 
 ## Prerequisites
 
-- Mandu CLI >= <!-- TODO: add version from Phase 2 -->
+- Mandu CLI from this repository, run with Bun 1.3.12+
 - Backup your project (`git commit` or manual backup)
-- Read [Comparison Guide](../comparison/manifest-vs-resource.md)
+- Read [Draft: Comparison Guide](../comparison/manifest-vs-resource.md)
 
 ---
 
@@ -386,7 +386,7 @@ Keep both manifest and resource versions temporarily.
 
 **Cause:** Logic was outside slot markers
 
-**Solution:** See [Troubleshooting Guide](../guides/resource-troubleshooting.md#slot-preservation-issues)
+**Solution:** See [Draft: Troubleshooting Guide](../guides/resource-troubleshooting.md#slot-preservation-issues)
 
 ---
 
@@ -458,7 +458,7 @@ Keep both manifest and resource versions temporarily.
 
 ## Related Documentation
 
-- [Comparison: Manifest vs Resource](../comparison/manifest-vs-resource.md)
+- [Draft: Comparison: Manifest vs Resource](../comparison/manifest-vs-resource.md)
 - [Resource Architecture](../resource-architecture.md)
-- [Tutorial: Resource Workflow](../guides/resource-workflow.md)
-- [Troubleshooting](../guides/resource-troubleshooting.md)
+- [Draft: Resource Workflow Tutorial](../guides/resource-workflow.md)
+- [Draft: Troubleshooting](../guides/resource-troubleshooting.md)

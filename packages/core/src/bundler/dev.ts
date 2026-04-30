@@ -1450,14 +1450,14 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
         // Refresh the changed file's imports so the reverse graph
         // tracks refactors (a new import added to an SSR module).
         await refreshReverseGraphEdges(path.resolve(rootDir, changedFile));
-        onSSRChange(normalizedPath);
+        await Promise.resolve(onSSRChange(normalizedPath));
         return;
       }
       // API 모듈 변경 감지 (route.ts)
       if (onAPIChange && apiModuleSet.has(normalizedPath)) {
         console.log(`\n🔄 API route changed: ${path.basename(changedFile)}`);
         await refreshReverseGraphEdges(path.resolve(rootDir, changedFile));
-        onAPIChange(normalizedPath);
+        await Promise.resolve(onAPIChange(normalizedPath));
         return;
       }
       // Phase 7.0 R2 Agent D — route middleware change.
@@ -1469,7 +1469,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       if (onAPIChange && isRouteMiddlewareFile(normalizedPath)) {
         console.log(`\n🔄 Middleware changed: ${path.basename(changedFile)}`);
         await refreshReverseGraphEdges(path.resolve(rootDir, changedFile));
-        onAPIChange(normalizedPath);
+        await Promise.resolve(onAPIChange(normalizedPath));
         return;
       }
       // #189 — reverse import-graph fallback.
@@ -2190,7 +2190,7 @@ export function createHMRServer(
         }
       }
       clients.clear();
-      server.stop();
+      void server.stop();
     },
     setRestartHandler: (handler: () => Promise<void>) => {
       restartHandler = handler;

@@ -597,7 +597,7 @@ project/
    - Remove `routes.manifest.json`
    - Fully resource-based
 
-**See:** [Migration Guide](./migration/to-resources.md) for detailed steps.
+**See:** [Draft: Migration Guide](./migration/to-resources.md) for detailed steps.
 
 ---
 
@@ -650,6 +650,6 @@ The resource system is fully integrated with MCP tools for AI agent workflows:
 ## Related Documentation
 
 - [API Reference: defineResource()](./api/defineResource.md)
-- [Tutorial: Resource Workflow](./guides/resource-workflow.md)
-- [Migration Guide](./migration/to-resources.md)
-- [Comparison: Manifest vs Resource](./comparison/manifest-vs-resource.md)
+- [Draft: Resource Workflow Tutorial](./guides/resource-workflow.md)
+- [Draft: Migration Guide](./migration/to-resources.md)
+- [Draft: Comparison: Manifest vs Resource](./comparison/manifest-vs-resource.md)

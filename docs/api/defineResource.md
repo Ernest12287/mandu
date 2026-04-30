@@ -78,7 +78,37 @@ fields: {
 
 ### Custom Validators
 
-<!-- TODO: Explain custom validation support -->
+Use `schema` when a built-in field type is not specific enough for the
+runtime shape you want to enforce. The `type` value remains the resource
+metadata used by generators, DDL planning, and documentation; `schema`
+holds the Zod validator for the stricter application-level rule.
+
+```typescript
+import { defineResource } from "@mandujs/core";
+import { z } from "zod";
+
+export default defineResource({
+  name: "user",
+  fields: {
+    username: {
+      type: "string",
+      required: true,
+      schema: z.string().min(3).max(20).regex(/^[a-z0-9_]+$/),
+      description: "Lowercase username, 3-20 characters"
+    },
+    tags: {
+      type: "array",
+      schema: z.array(z.string().min(1)).max(10)
+    }
+  }
+});
+```
+
+Custom schemas are stored on the in-memory `ResourceDefinition`. Generated
+source files cannot serialize arbitrary Zod objects, so the contract generator
+emits a `z.unknown() /* Custom schema */` placeholder for those fields. Keep
+hand-written contract or slot validation beside the generated file when the
+custom rule must be enforced from emitted source.
 
 ---
 
@@ -557,5 +587,5 @@ try {
 ## Related Documentation
 
 - [Architecture Overview](../resource-architecture.md)
-- [Tutorial: Resource Workflow](../guides/resource-workflow.md)
-- [Troubleshooting](../guides/resource-troubleshooting.md)
+- [Draft: Resource Workflow Tutorial](../guides/resource-workflow.md)
+- [Draft: Troubleshooting](../guides/resource-troubleshooting.md)

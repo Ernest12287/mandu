@@ -497,7 +497,7 @@ export function brainTools(projectRoot: string, server?: Server, monitor?: Activ
           mcpWarningUnsubscribe = null;
         }
 
-        stopWatcher();
+        await stopWatcher();
 
         return {
           success: true,

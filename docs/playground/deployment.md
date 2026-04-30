@@ -15,12 +15,13 @@ related:
 
 | Mode | File | Audience | Cost | Isolation |
 |---|---|---|---|---|
-| **Option 1: Cloudflare production** | `src/worker.ts` | Public mandujs.com visitors | ~$8/mo at 30k runs | CF Sandboxes container |
+| **Option 1: Cloudflare production scaffold** | `src/worker.ts` | Future public mandujs.com visitors | ~$8/mo at 30k runs | CF Sandboxes container |
 | **Option 2: Local dev server** | `src/local-server.ts` | Your laptop / a teammate's | Free | `Bun.spawn` + loopback bind |
 
-- **Option 1** — §§1–11 below. The full Cloudflare deploy. Until all steps
-  are complete, the scaffold's `CloudflareSandboxAdapter` throws a visible
-  error on every request — intentional, to prevent silent partial deploys.
+- **Option 1** — §§1–11 below. The Cloudflare deploy scaffold. Until all
+  live SDK wiring steps are complete, the scaffold's
+  `CloudflareSandboxAdapter` throws a visible error on every request —
+  intentional, to prevent silent partial deploys.
 - **Option 2** — [§0 Local dev](#0-option-2--local-dev-server) just below.
   Two commands, no CF account, no Wrangler.
 
@@ -110,7 +111,9 @@ the only safe path.
 
 ---
 
-The remainder of this document covers **Option 1 (CF production)**.
+The remainder of this document covers **Option 1 (CF production scaffold)**.
+Do not expose it as a public playground until §5 is complete and verified
+against a real Cloudflare account.
 
 ## 1. Prerequisites
 

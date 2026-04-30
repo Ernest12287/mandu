@@ -1,14 +1,14 @@
 # @mandujs/playground-runner
 
-Cloudflare Worker + Durable Object + adapter layer that runs user-submitted
-Mandu code in isolated sandboxes. Powers the live playground on
-**mandujs.com** (Phase 16.2).
+Private scaffold for Mandu playground execution. It includes a working local
+mock server, a self-host Docker adapter, and the Cloudflare Worker + Durable
+Object shape for future isolated sandbox execution.
 
 **Status**: `private: true`, scaffolding landed 2026-04-19. Not published to
 npm. Deploying to a real CF account requires:
 1. Finishing `CloudflareSandboxAdapter` wiring in `src/adapter.ts`
 2. Authoring `vendor/mandu-test-runner.ts`
-3. Running `wrangler deploy`
+3. Running `wrangler deploy` after those pieces are complete
 
 See `docs/playground/deployment.md` for the step-by-step runbook.
 
@@ -42,7 +42,7 @@ bun run dev        # starts the server on 127.0.0.1:8788
 Expected startup log:
 
 ```
-🎮 Playground dev server at http://127.0.0.1:8788 (local-only, MockAdapter)
+[playground] dev server at http://127.0.0.1:8788 — MockAdapter (loopback dev-only)
 ```
 
 Stop with `Ctrl+C` — in-flight runs are aborted, SSE streams close cleanly,
@@ -104,20 +104,20 @@ The local server runs user code on **your own machine**, via
   forwarding, no ngrok).
 - The `code` you're running is code you wrote / code you trust.
 
-If you need isolation from untrusted input, deploy the Cloudflare Worker
-path (Option 1). The CF Sandboxes SDK provides the container isolation
-that `MockAdapter` does not.
+If you need isolation from untrusted input, finish the Cloudflare Worker
+path (Option 1) before accepting public traffic. The CF Sandboxes SDK is the
+planned container isolation layer that `MockAdapter` does not provide.
 
 ### When to use which mode
 
-|  | Option 1 (CF production) | Option 2 (local dev) |
+|  | Option 1 (CF production scaffold) | Option 2 (local dev) |
 |---|---|---|
 | **Audience** | Public mandujs.com visitors | Your laptop |
 | **Isolation** | CF Sandboxes container | `Bun.spawn` in-process |
 | **Cost** | ~$8/month @ 30k runs | Free |
 | **Setup time** | ~45 min (CF account, KV, Turnstile, domain) | `bun run dev` |
 | **Rate limit + Turnstile** | Yes | No (trust boundary = localhost) |
-| **File** | `src/worker.ts` | `src/local-server.ts` |
+| **File** | `src/worker.ts` (scaffold until SDK wiring lands) | `src/local-server.ts` |
 
 ## Architecture
 
@@ -125,7 +125,7 @@ that `MockAdapter` does not.
 Client (mandujs.com)
   │ POST /api/playground/run  { code, example, turnstileToken }
   ▼
-Cloudflare Worker  (src/worker.ts)
+Cloudflare Worker  (src/worker.ts, scaffold)
   │ 1. rate-limit check (KV)
   │ 2. Turnstile (after 5 runs/15min/IP)
   │ 3. idFromName(runId) → stub.fetch
@@ -136,7 +136,7 @@ Durable Object  (src/durable-object.ts)
   │ 3. return SSE ReadableStream
   ▼
 Adapter  (src/adapter.ts)
-  │ CloudflareSandboxAdapter → writeFile → exec → stream stdout
+  │ CloudflareSandboxAdapter → TODO: writeFile → exec → stream stdout
   │ MockAdapter               → Bun.spawn locally (CI only)
   │ FlyMachineAdapter         → TODO fallback
   ▼
@@ -187,12 +187,13 @@ by `env.ADAPTER_MODE === "mock"` in the test harness.
 2. **Config**: `cp wrangler.toml.template wrangler.toml` → fill placeholders
 3. **Turnstile secret**: `wrangler secret put TURNSTILE_SECRET`
 4. **Sandbox image**: `wrangler sandbox push -f Dockerfile.sandbox`
-5. **Deploy**: `wrangler deploy`
+5. **Deploy**: `wrangler deploy` only after the SDK wiring is complete
 6. **Verify**: `curl https://<worker>.workers.dev/api/playground/health`
 7. **Spend cap**: CF dashboard → Billing → Alerts → cap $25/mo
 
 Expected cost at 30k runs/month (R0 model): **~$8/month** (Workers Paid $5 +
-CF Containers ~$3). See `docs/bun/phase-16-diagnostics/playground-runtime.md
+CF Containers ~$3). This is a planning estimate until the Cloudflare adapter
+is wired and measured live. See `docs/bun/phase-16-diagnostics/playground-runtime.md
 §2.1` for the economic model.
 
 ## Package layout

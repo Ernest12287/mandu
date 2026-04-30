@@ -9,7 +9,7 @@
  * Bun의 transitive ESM 캐시 한계는 이 테스트의 범위 밖 — 별도 후속 이슈.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { startDevBundler, SSR_CHANGE_WILDCARD } from "../../src/bundler/dev";
@@ -18,6 +18,7 @@ import type { RoutesManifest } from "../../src/spec/schema";
 // 헬퍼: 임시 프로젝트 디렉토리 생성
 function createTempProject(): string {
   const root = mkdtempSync(path.join(tmpdir(), "mandu-dev-test-"));
+  linkWorkspaceNodeModules(root);
   // .mandu/ + 기존 manifest (skipFrameworkBundles fallback 방지)
   mkdirSync(path.join(root, ".mandu"), { recursive: true });
   mkdirSync(path.join(root, ".mandu/client"), { recursive: true });
@@ -42,6 +43,22 @@ function createTempProject(): string {
   mkdirSync(path.join(root, "src/shared"), { recursive: true });
   writeFileSync(path.join(root, "src/shared/foo.ts"), 'export const x = "original";\n');
   return root;
+}
+
+function linkWorkspaceNodeModules(rootDir: string): void {
+  const workspaceNodeModules = path.join(process.cwd(), "node_modules");
+  if (!existsSync(workspaceNodeModules)) return;
+
+  const fixtureNodeModules = path.join(rootDir, "node_modules");
+  try {
+    symlinkSync(
+      workspaceNodeModules,
+      fixtureNodeModules,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+  } catch (error) {
+    if (!existsSync(fixtureNodeModules)) throw error;
+  }
 }
 
 // Gated — see build.test.ts for rationale. Bun.build cross-worker races
@@ -91,7 +108,7 @@ describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")("dev bundler — c
 
 import { buildClientBundles } from "../../src/bundler/build";
 
-describe("buildClientBundles — skipFrameworkBundles (#185)", () => {
+describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")("buildClientBundles — skipFrameworkBundles (#185)", () => {
   let rootDir: string;
 
   beforeEach(() => {

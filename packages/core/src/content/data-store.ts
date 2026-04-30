@@ -131,7 +131,7 @@ export class ContentDataStore {
       }
 
       this.saveTimer = setTimeout(() => {
-        this.save();
+        void this.save();
       }, this.options.saveDebounce);
     }
   }
@@ -217,7 +217,7 @@ export class ContentDataStore {
 
     // 남은 변경사항 저장
     if (this.dirty && this.options.filePath) {
-      this.save();
+      void this.save();
     }
   }
 

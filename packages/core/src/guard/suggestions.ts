@@ -80,7 +80,7 @@ interface SuggestionContext {
  * 스마트 제안 생성
  */
 export function generateSmartSuggestions(context: SuggestionContext): string[] {
-  const { type, fromLayer, toLayer, importPath, allowedLayers, layers, preset, slice } = context;
+  const { type } = context;
   const suggestions: string[] = [];
 
   switch (type) {
@@ -153,7 +153,7 @@ function generateLayerViolationSuggestions(context: SuggestionContext): string[]
  * 순환 의존 제안 생성
  */
 function generateCircularDependencySuggestions(context: SuggestionContext): string[] {
-  const { fromLayer, toLayer, importPath } = context;
+  const { fromLayer, toLayer } = context;
   const suggestions: string[] = [];
 
   suggestions.push(

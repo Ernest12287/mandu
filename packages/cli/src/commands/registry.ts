@@ -782,7 +782,7 @@ registerCommand({
     return monitor({
       summary: ctx.options.summary === "true",
       since: ctx.options.since,
-      follow: ctx.options.follow === "false" ? false : true,
+      follow: ctx.options.follow !== "false",
       file: ctx.options.file,
       type: ctx.options.type as import("./monitor").EventType | undefined,
       severity: ctx.options.severity as import("./monitor").SeverityLevel | undefined,

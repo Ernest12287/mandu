@@ -150,7 +150,7 @@ export async function watchConfig(
 
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      doReload(changedPath);
+      void doReload(changedPath);
     }, debounceMs);
   };
 

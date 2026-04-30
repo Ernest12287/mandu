@@ -210,7 +210,7 @@ export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
       }
 
       // Start reading in a properly-yielding async loop
-      (async () => {
+      void (async () => {
         const reader = body.getReader();
         const decoder = new TextDecoder();
 
@@ -218,7 +218,7 @@ export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
           while (true) {
             // Check for abort
             if (controller.signal.aborted) {
-              reader.cancel();
+              await reader.cancel();
               break;
             }
 
@@ -227,7 +227,7 @@ export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
 
             // Check for abort again (may have been aborted during read)
             if (controller.signal.aborted) {
-              reader.cancel();
+              await reader.cancel();
               break;
             }
 
@@ -342,7 +342,7 @@ export async function readStreamWithYield(
   try {
     while (true) {
       if (signal?.aborted) {
-        reader.cancel();
+        await reader.cancel();
         break;
       }
 
@@ -350,7 +350,7 @@ export async function readStreamWithYield(
       if (done) break;
 
       if (signal?.aborted) {
-        reader.cancel();
+        await reader.cancel();
         break;
       }
 
