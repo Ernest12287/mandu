@@ -1,5 +1,12 @@
 # mandu-auth-starter
 
+## 0.1.44
+
+### Patch Changes
+
+- Updated dependencies [[`fcaa77d`](https://github.com/konamgil/mandu/commit/fcaa77d7d01353fd63a1c69f0a61bde674a78d4f)]:
+  - @mandujs/core@0.48.0
+
 ## 0.1.43
 
 ### Patch Changes
