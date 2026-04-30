@@ -1639,16 +1639,37 @@ async function isPathSafe(filePath: string, allowedDir: string): Promise<boolean
 }
 
 /**
+ * Issue #251 — public 폴더의 자산을 root URL로도 서빙하기 위한 화이트리스트.
+ *
+ * `mandu build --static` 은 `public/*` 을 dist 루트로 평탄화하므로 prod 에서는
+ * `/images/foo.webp` 가 동작한다. dev 에서는 평탄화가 없어서 같은 URL 이 404
+ * 였다 — 작성자는 `/public/...` (dev OK, prod 도 vercel rewrite 로 OK) 또는
+ * `/...` (dev 깨짐, prod OK) 중 하나를 골라야 했다. 이제 dev 도 자산 확장자가
+ * 있는 경로에 한해 `public/<path>` 를 fallback 으로 시도한다.
+ *
+ * 자산 확장자만 fallback 하므로 `/api/foo` 같은 라우트가 가려질 위험은 없다.
+ * 파일이 없으면 `{ handled: false }` 를 반환해 라우터가 정상 매칭하도록 한다.
+ */
+const PUBLIC_FLAT_ASSET_EXTENSIONS = new Set<string>([
+  ".webp", ".avif", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+  ".pdf", ".zip", ".mp4", ".webm", ".mp3", ".wav",
+  ".woff", ".woff2", ".ttf", ".otf", ".eot",
+  ".css", ".js", ".map",
+]);
+
+/**
  * 정적 파일 서빙
  * - /.mandu/client/* : 클라이언트 번들 (Island hydration)
  * - /public/* : 정적 에셋 (이미지, CSS 등)
  * - /favicon.ico : 파비콘
+ * - /<asset>.<ext> : public/<asset>.<ext> fallback (issue #251)
  *
  * 보안: Path traversal 공격 방지를 위해 모든 경로를 검증합니다.
  */
 async function serveStaticFile(pathname: string, settings: ServerRegistrySettings, request?: Request): Promise<StaticFileResult> {
   let filePath: string | null = null;
   let isBundleFile = false;
+  let isPublicFlatFallback = false;
   let allowedBaseDir: string;
   let relativePath: string;
 
@@ -1678,6 +1699,12 @@ async function serveStaticFile(pathname: string, settings: ServerRegistrySetting
   ) {
     relativePath = path.basename(pathname);
     allowedBaseDir = path.join(settings.rootDir, settings.publicDir);
+  }
+  // 5. Public flat fallback (#251) — `mandu build --static` 의 평탄화와 dev 패리티
+  else if (PUBLIC_FLAT_ASSET_EXTENSIONS.has(path.extname(pathname).toLowerCase())) {
+    relativePath = pathname.slice(1);
+    allowedBaseDir = path.join(settings.rootDir, settings.publicDir);
+    isPublicFlatFallback = true;
   } else {
     return { handled: false }; // 정적 파일이 아님
   }
@@ -1717,6 +1744,9 @@ async function serveStaticFile(pathname: string, settings: ServerRegistrySetting
     const exists = await file.exists();
 
     if (!exists) {
+      // #251 — flat fallback 은 라우트와 path 충돌이 가능하므로 미존재 시
+      // 404 대신 라우터로 흘려보낸다 (e.g. `/foo.json` 라우트가 가려지지 않도록).
+      if (isPublicFlatFallback) return { handled: false };
       return { handled: true, response: createStaticErrorResponse(404) };
     }
 
