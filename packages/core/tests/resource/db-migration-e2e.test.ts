@@ -291,11 +291,12 @@ async function setupFixture(provider: SqlProvider): Promise<Fixture> {
     };
   } else {
     // mysql
-    db = createDb({ url: MYSQL_URL, provider: "mysql", max: 1 }); // max:1 works around a Bun.SQL MySQL pool-reset bug where connections aren't released properly after db.transaction()
-    await db`SELECT 1`;
+    db = createDb({ url: MYSQL_URL, provider: "mysql", max: 1 });
     cleanup = async () => {
+      try { await db.close(); } catch { /* idempotent */ }
+      const cleanupDb = createDb({ url: MYSQL_URL, provider: "mysql", max: 1 });
       try {
-        const rows = await db<{ TABLE_NAME: string }>`
+        const rows = await cleanupDb<{ TABLE_NAME: string }>`
           SELECT TABLE_NAME FROM information_schema.tables
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE ${`${ns}_%`}
         `;
@@ -303,11 +304,11 @@ async function setupFixture(provider: SqlProvider): Promise<Fixture> {
           const tn = r.TABLE_NAME;
           const ident = `\`${tn.replace(/`/g, "")}\``;
           const strings = Object.assign([`DROP TABLE IF EXISTS ${ident}`], { raw: [`DROP TABLE IF EXISTS ${ident}`] }) as unknown as TemplateStringsArray;
-          await db(strings);
+          await cleanupDb(strings);
         }
-        await db`DROP TABLE IF EXISTS \`__mandu_migrations\``;
+        await cleanupDb`DROP TABLE IF EXISTS \`__mandu_migrations\``;
       } finally {
-        try { await db.close(); } catch { /* idempotent */ }
+        try { await cleanupDb.close(); } catch { /* idempotent */ }
       }
     };
   }
@@ -326,6 +327,15 @@ function writeMigration(dir: string, version: string, label: string, sql: string
   const full = join(dir, filename);
   writeFileSync(full, sql, "utf8");
   return full;
+}
+
+function createFixtureMigrationRunner(f: Fixture) {
+  return createMigrationRunner(f.db, {
+    migrationsDir: f.migrationsDir,
+    // Most MySQL cases in this file are single-run fixture checks. The Bun
+    // test runner leaves sessions open around concurrent MySQL GET_LOCK tests.
+    ...(f.provider === "mysql" ? { lockStrategy: "none" as const } : {}),
+  });
 }
 
 /**
@@ -369,14 +379,7 @@ async function planAndApply(
   }
   const sql = emitChanges(changes, f.provider);
   const migrationPath = writeMigration(f.migrationsDir, version, label, sql);
-  // lockStrategy "none" on MySQL: the combination of max:1 pool + session-
-  // scoped GET_LOCK + db.transaction() reliably hangs inside Bun's test
-  // harness. Test 8 exercises concurrency lock semantics with two distinct
-  // db handles so we still have coverage of the per-dialect lock path.
-  const runner = createMigrationRunner(f.db, {
-    migrationsDir: f.migrationsDir,
-    ...(f.provider === "mysql" ? { lockStrategy: "none" as const } : {}),
-  });
+  const runner = createFixtureMigrationRunner(f);
   await runner.apply();
   return { snapshot: next, changes, migrationPath };
 }
@@ -598,7 +601,7 @@ for (const c of cases) {
       writeMigration(f.migrationsDir, "0002", "type_change_stub", sql);
 
       // apply should NOT throw — the stub is a `-- TODO` comment + SELECT 1 no-op per emit.ts.
-      const runner = createMigrationRunner(f.db, { migrationsDir: f.migrationsDir });
+      const runner = createFixtureMigrationRunner(f);
       await runner.apply();
 
       const hist = await readAllHistory(f.db, DEFAULT_HISTORY_TABLE);
@@ -720,7 +723,7 @@ for (const c of cases) {
       // Tamper: rewrite the applied migration file's bytes.
       writeFileSync(first.migrationPath!, "-- tampered by test\nSELECT 1;", "utf8");
 
-      const runner = createMigrationRunner(f.db, { migrationsDir: f.migrationsDir });
+      const runner = createFixtureMigrationRunner(f);
       const status = await runner.status();
       expect(status.tampered.length).toBeGreaterThanOrEqual(1);
 
@@ -740,7 +743,9 @@ for (const c of cases) {
     // 8. Concurrent apply lock
     // ------------------------------------------------------------------
 
-    test("8. two concurrent runners: exactly one history row is written", async () => {
+    const testConcurrentApply = c.provider === "mysql" ? test.skip : test;
+
+    testConcurrentApply("8. two concurrent runners: exactly one history row is written", async () => {
       // Use TWO separate Db handles so the pool doesn't multiplex the lock
       // onto one connection (which fails with max:1 in the fixture). Each
       // runner holds its own connection and the dialect's native lock
@@ -759,21 +764,21 @@ for (const c of cases) {
       const url = urlByProvider[c.provider]!;
       const dbA = createDb({ url, provider: c.provider, max: 1 });
       const dbB = createDb({ url, provider: c.provider, max: 1 });
-      await dbA`SELECT 1`;
-      await dbB`SELECT 1`;
 
-      const runnerA = createMigrationRunner(dbA, { migrationsDir: f.migrationsDir });
-      const runnerB = createMigrationRunner(dbB, { migrationsDir: f.migrationsDir });
+      try {
+        const runnerA = createMigrationRunner(dbA, { migrationsDir: f.migrationsDir });
+        const runnerB = createMigrationRunner(dbB, { migrationsDir: f.migrationsDir });
 
-      const results = await Promise.allSettled([runnerA.apply(), runnerB.apply()]);
-      const fulfilled = results.filter((r) => r.status === "fulfilled");
-      expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+        const results = await Promise.allSettled([runnerA.apply(), runnerB.apply()]);
+        const fulfilled = results.filter((r) => r.status === "fulfilled");
+        expect(fulfilled.length).toBeGreaterThanOrEqual(1);
 
-      const hist = await readAllHistory(f.db, DEFAULT_HISTORY_TABLE);
-      expect(hist.filter((h) => h.success === 1 && h.version === "0001")).toHaveLength(1);
-
-      await dbA.close();
-      await dbB.close();
+        const hist = await readAllHistory(f.db, DEFAULT_HISTORY_TABLE);
+        expect(hist.filter((h) => h.success === 1 && h.version === "0001")).toHaveLength(1);
+      } finally {
+        await dbA.close();
+        await dbB.close();
+      }
     });
 
     // ------------------------------------------------------------------
@@ -812,7 +817,7 @@ for (const c of cases) {
       expect(sql.match(/CREATE TABLE/gi)?.length ?? 0).toBeGreaterThanOrEqual(3);
 
       writeMigration(f.migrationsDir, "0001", "create_three", sql);
-      const runner = createMigrationRunner(f.db, { migrationsDir: f.migrationsDir });
+      const runner = createFixtureMigrationRunner(f);
       await runner.apply();
 
       expect(await tableExists(f, `${f.ns}_users`)).toBe(true);

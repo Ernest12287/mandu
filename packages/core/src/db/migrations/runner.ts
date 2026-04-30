@@ -69,7 +69,7 @@ import type {
   PendingMigration,
   SqlProvider,
 } from "../../resource/ddl/types";
-import type { Db } from "../index";
+import { withPinnedDbHandle, type Db } from "../index";
 import {
   DEFAULT_HISTORY_TABLE,
   SAFE_HISTORY_TABLE_RE,
@@ -290,100 +290,107 @@ export function createMigrationRunner(
 
     const applied: AppliedMigration[] = [];
 
-    heldLock = await acquireMigrationLock(db, lockStrategy);
-    try {
-      for (const migration of pending) {
-        const start = Date.now();
+    const runLockedApply = async (): Promise<AppliedMigration[]> => {
+      heldLock = await acquireMigrationLock(db, lockStrategy);
+      try {
+        for (const migration of pending) {
+          const start = Date.now();
 
-        const statements = splitStatements(migration.sql);
-        if (statements.length === 0) {
-          // Empty migration — still record a history row so we don't
-          // re-run it. execution_ms = 0 reflects reality.
+          const statements = splitStatements(migration.sql);
+          if (statements.length === 0) {
+            // Empty migration — still record a history row so we don't
+            // re-run it. execution_ms = 0 reflects reality.
+            await insertHistory(db, historyTable, {
+              version: migration.version,
+              filename: migration.filename,
+              checksum: migration.checksum,
+              applied_at: new Date(),
+              execution_ms: 0,
+              success: 1,
+              installed_by: installedBy,
+            });
+            applied.push({
+              version: migration.version,
+              filename: migration.filename,
+              checksum: migration.checksum,
+              appliedAt: new Date(),
+              executionMs: 0,
+              success: true,
+            });
+            continue;
+          }
+
+          try {
+            await db.transaction(async (tx) => {
+              for (const stmt of statements) {
+                await execRaw(tx, stmt);
+                const elapsed = Date.now() - start;
+                if (elapsed > applyTimeoutMs) {
+                  throw new MigrationTimeoutError(
+                    migration.filename,
+                    elapsed,
+                    applyTimeoutMs,
+                  );
+                }
+              }
+            });
+          } catch (err) {
+            if (err instanceof MigrationTimeoutError) throw err;
+            // Wrap with migration context so downstream callers know
+            // which file blew up. Preserve the original stack where
+            // possible via `cause`.
+            const msg = err instanceof Error ? err.message : String(err);
+            const wrapped = new Error(
+              `[@mandujs/core/db/migrations] Failed to apply ${migration.filename}: ${msg}`,
+            );
+            // Preserve the original as a `cause` chain for diagnostics.
+            (wrapped as { cause?: unknown }).cause = err;
+            throw wrapped;
+          }
+
+          const executionMs = Date.now() - start;
+          const appliedAt = new Date();
+
+          // History row is written AFTER the SQL transaction commits.
+          // If this INSERT itself fails, the migration has run but we
+          // have no record — the user will see it as pending again.
+          // Mitigation: the insert is a single tiny statement; in
+          // practice it either succeeds or the whole connection is
+          // dead (in which case subsequent apply() calls will also fail
+          // and the user will debug from the DB side).
           await insertHistory(db, historyTable, {
             version: migration.version,
             filename: migration.filename,
             checksum: migration.checksum,
-            applied_at: new Date(),
-            execution_ms: 0,
+            applied_at: appliedAt,
+            execution_ms: executionMs,
             success: 1,
             installed_by: installedBy,
           });
+
           applied.push({
             version: migration.version,
             filename: migration.filename,
             checksum: migration.checksum,
-            appliedAt: new Date(),
-            executionMs: 0,
+            appliedAt,
+            executionMs,
             success: true,
           });
-          continue;
         }
-
-        try {
-          await db.transaction(async (tx) => {
-            for (const stmt of statements) {
-              await execRaw(tx, stmt);
-              const elapsed = Date.now() - start;
-              if (elapsed > applyTimeoutMs) {
-                throw new MigrationTimeoutError(
-                  migration.filename,
-                  elapsed,
-                  applyTimeoutMs,
-                );
-              }
-            }
-          });
-        } catch (err) {
-          if (err instanceof MigrationTimeoutError) throw err;
-          // Wrap with migration context so downstream callers know
-          // which file blew up. Preserve the original stack where
-          // possible via `cause`.
-          const msg = err instanceof Error ? err.message : String(err);
-          const wrapped = new Error(
-            `[@mandujs/core/db/migrations] Failed to apply ${migration.filename}: ${msg}`,
-          );
-          // Preserve the original as a `cause` chain for diagnostics.
-          (wrapped as { cause?: unknown }).cause = err;
-          throw wrapped;
+      } finally {
+        if (heldLock) {
+          await heldLock.release();
+          heldLock = null;
         }
-
-        const executionMs = Date.now() - start;
-        const appliedAt = new Date();
-
-        // History row is written AFTER the SQL transaction commits.
-        // If this INSERT itself fails, the migration has run but we
-        // have no record — the user will see it as pending again.
-        // Mitigation: the insert is a single tiny statement; in
-        // practice it either succeeds or the whole connection is
-        // dead (in which case subsequent apply() calls will also fail
-        // and the user will debug from the DB side).
-        await insertHistory(db, historyTable, {
-          version: migration.version,
-          filename: migration.filename,
-          checksum: migration.checksum,
-          applied_at: appliedAt,
-          execution_ms: executionMs,
-          success: 1,
-          installed_by: installedBy,
-        });
-
-        applied.push({
-          version: migration.version,
-          filename: migration.filename,
-          checksum: migration.checksum,
-          appliedAt,
-          executionMs,
-          success: true,
-        });
       }
-    } finally {
-      if (heldLock) {
-        await heldLock.release();
-        heldLock = null;
-      }
+
+      return applied;
+    };
+
+    if (lockStrategy === "mysql_get_lock") {
+      return await withPinnedDbHandle(db, runLockedApply);
     }
-
-    return applied;
+    return await runLockedApply();
   }
 
   async function status(): Promise<MigrationStatus> {
