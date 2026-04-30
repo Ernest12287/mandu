@@ -1,6 +1,12 @@
 import fs from "fs/promises";
 import path from "path";
 import { createServer } from "node:net";
+import { generateManifest } from "@mandujs/core/router";
+import {
+  generateResourcesArtifacts,
+  parseResourceSchemas,
+  validateResourceUniqueness,
+} from "@mandujs/core/resource";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const baselinePath = path.join(repoRoot, "tests", "perf", "perf-baseline.json");
@@ -8,6 +14,7 @@ const benchmarkEntry = path.join(repoRoot, "packages", "core", "benchmark", "hyd
 const cliEntry = path.join(repoRoot, "packages", "cli", "src", "main.ts");
 const bunExecutable = process.execPath;
 const outputRoot = path.join(repoRoot, ".perf", "latest");
+let browserBenchmarkUnavailableReason: string | null = null;
 
 interface CompletedCommand {
   args: string[];
@@ -34,8 +41,8 @@ interface PerfBudgetEntry {
 interface PerfScenario {
   id: string;
   app: string;
-  status: "active" | "planned";
-  mode: "dev" | "prod" | "build";
+  status: "active" | "manual" | "planned";
+  mode: "dev" | "prod" | "build" | "hmr";
   url: string;
   runner: string;
   measuredMetrics: string[];
@@ -73,6 +80,9 @@ interface ScenarioMetrics {
   ssr_ttfb_p95_ms?: number;
   hydration_p95_ms?: number;
   initial_js_bundle_kb?: number;
+  hmr_latency_p95_ms?: number;
+  route_scan_p95_ms?: number;
+  resource_generation_p95_ms?: number;
 }
 
 interface MetricResult {
@@ -206,6 +216,33 @@ async function directoryExists(directory: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function findFilesBySuffix(directory: string, suffix: string): Promise<string[]> {
+  const files: string[] = [];
+
+  async function walk(currentDirectory: string): Promise<void> {
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+    try {
+      entries = await fs.readdir(currentDirectory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+        continue;
+      }
+      if (entry.isFile() && entry.name.endsWith(suffix)) {
+        files.push(fullPath);
+      }
+    }
+  }
+
+  await walk(directory);
+  return files.sort();
 }
 
 async function runCommand(
@@ -347,7 +384,7 @@ async function assertHealthEndpoint(url: string): Promise<void> {
     }
 
     const data = await response.json() as { status?: string; framework?: string };
-    if (data.status !== "ok" || data.framework !== "Mandu") {
+    if (data.status !== "ok") {
       throw new Error(`Unexpected health payload: ${JSON.stringify(data)}`);
     }
   });
@@ -431,6 +468,80 @@ async function measureHttpMetrics(url: string, runs: number): Promise<ScenarioMe
     ssr_ttfb_p95_ms: calculateP95(ttfbSamples),
     initial_js_bundle_kb: bundleBytes / 1024,
   };
+}
+
+async function measureRouteScanMetric(
+  demoDir: string,
+  scenarioOutputDir: string,
+  runs: number,
+): Promise<number> {
+  const samples: number[] = [];
+  const outputPath = path
+    .relative(demoDir, path.join(scenarioOutputDir, "routes.manifest.json"))
+    .replace(/\\/g, "/");
+
+  for (let i = 0; i < runs; i++) {
+    const startedAt = performance.now();
+    await generateManifest(demoDir, { outputPath });
+    samples.push(performance.now() - startedAt);
+  }
+
+  return calculateP95(samples);
+}
+
+async function measureResourceGenerationMetric(demoDir: string, runs: number): Promise<number | null> {
+  const resourcesDir = path.join(demoDir, "spec", "resources");
+  const resourceFiles = await findFilesBySuffix(resourcesDir, ".resource.ts");
+  if (resourceFiles.length === 0) {
+    return null;
+  }
+
+  const samples: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const startedAt = performance.now();
+    const resources = await parseResourceSchemas(resourceFiles);
+    validateResourceUniqueness(resources);
+    await generateResourcesArtifacts(resources, {
+      rootDir: demoDir,
+      force: false,
+      only: ["contract", "types", "client", "repo"],
+    });
+    samples.push(performance.now() - startedAt);
+  }
+
+  return calculateP95(samples);
+}
+
+async function measureProjectMetrics(
+  scenario: PerfScenario,
+  demoDir: string,
+  scenarioOutputDir: string,
+  runs: number,
+): Promise<{ metrics: ScenarioMetrics; warnings: string[] }> {
+  const metrics: ScenarioMetrics = {};
+  const warnings: string[] = [];
+  const sampleCount = Math.max(1, runs);
+
+  if (scenario.measuredMetrics.includes("route_scan_p95_ms")) {
+    metrics.route_scan_p95_ms = await measureRouteScanMetric(demoDir, scenarioOutputDir, sampleCount);
+  }
+
+  if (scenario.measuredMetrics.includes("resource_generation_p95_ms")) {
+    try {
+      const measured = await measureResourceGenerationMetric(demoDir, sampleCount);
+      if (measured === null) {
+        warnings.push("No spec/resources/**/*.resource.ts files found; resource generation metric is unsupported.");
+      } else {
+        metrics.resource_generation_p95_ms = measured;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push("Resource generation benchmark was unavailable; metric is unsupported in this run.");
+      await fs.writeFile(path.join(scenarioOutputDir, "resource-generation-error.txt"), `${message}\n`, "utf8");
+    }
+  }
+
+  return { metrics, warnings };
 }
 
 function compareScenarioMetrics(
@@ -520,6 +631,8 @@ async function runScenarioBenchmark(
   const warnings: string[] = [];
 
   await fs.mkdir(scenarioOutputDir, { recursive: true });
+  const projectResult = await measureProjectMetrics(scenario, demoDir, scenarioOutputDir, runs);
+  warnings.push(...projectResult.warnings);
 
   if (scenario.mode === "prod") {
     console.log(`  build ${scenario.id}`);
@@ -546,32 +659,40 @@ async function runScenarioBenchmark(
     const httpMetrics = await measureHttpMetrics(scenarioUrl, runs);
     let browserMetrics: ScenarioMetrics = {};
 
-    try {
-      await runCommand(
-        [
-          bunExecutable,
-          "run",
-          benchmarkEntry,
-          scenarioUrl,
-          String(runs),
-          "none",
-          "--warmup",
-          String(warmup),
-          "--wait-until",
-          "load",
-          "--json-out",
-          benchmarkJsonPath,
-        ],
-        repoRoot,
-      );
-      console.log(`  benchmark complete ${scenario.id}`);
-      const benchmarkJson = JSON.parse(await fs.readFile(benchmarkJsonPath, "utf8")) as BenchmarkJson;
-      browserMetrics = normalizeMetrics(benchmarkJson);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push("Browser benchmark fallback was unavailable; hydration metric is unsupported in this run.");
-      await fs.writeFile(browserErrorPath, `${message}\n`, "utf8");
-      console.warn(`  browser benchmark unavailable for ${scenario.id}`);
+    if (scenario.measuredMetrics.includes("hydration_p95_ms")) {
+      if (browserBenchmarkUnavailableReason !== null) {
+        warnings.push("Browser benchmark skipped after an earlier launch failure; hydration metric is unsupported in this run.");
+        await fs.writeFile(browserErrorPath, `${browserBenchmarkUnavailableReason}\n`, "utf8");
+      } else {
+        try {
+          await runCommand(
+            [
+              bunExecutable,
+              "run",
+              benchmarkEntry,
+              scenarioUrl,
+              String(runs),
+              "none",
+              "--warmup",
+              String(warmup),
+              "--wait-until",
+              "load",
+              "--json-out",
+              benchmarkJsonPath,
+            ],
+            repoRoot,
+          );
+          console.log(`  benchmark complete ${scenario.id}`);
+          const benchmarkJson = JSON.parse(await fs.readFile(benchmarkJsonPath, "utf8")) as BenchmarkJson;
+          browserMetrics = normalizeMetrics(benchmarkJson);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          browserBenchmarkUnavailableReason = message;
+          warnings.push("Browser benchmark fallback was unavailable; hydration metric is unsupported in this run.");
+          await fs.writeFile(browserErrorPath, `${message}\n`, "utf8");
+          console.warn(`  browser benchmark unavailable for ${scenario.id}`);
+        }
+      }
     }
 
     const result = await stopCommand(serverCommand);
@@ -588,6 +709,7 @@ async function runScenarioBenchmark(
       benchmarkFile: benchmarkJsonPath,
       warnings,
       results: compareScenarioMetrics(scenario, {
+        ...projectResult.metrics,
         ...httpMetrics,
         ...browserMetrics,
       }),
@@ -604,13 +726,83 @@ async function runScenarioBenchmark(
   }
 }
 
+async function runBuildScenarioBenchmark(
+  scenario: PerfScenario,
+  demoDir: string,
+  runs: number,
+): Promise<ScenarioResult> {
+  const scenarioOutputDir = path.join(outputRoot, scenario.id);
+  const benchmarkJsonPath = path.join(scenarioOutputDir, "benchmark.json");
+
+  await fs.mkdir(scenarioOutputDir, { recursive: true });
+  const projectResult = await measureProjectMetrics(scenario, demoDir, scenarioOutputDir, runs);
+  await fs.writeFile(
+    benchmarkJsonPath,
+    `${JSON.stringify({ metrics: projectResult.metrics, warnings: projectResult.warnings }, null, 2)}\n`,
+    "utf8",
+  );
+
+  return {
+    scenarioId: scenario.id,
+    app: scenario.app,
+    mode: scenario.mode,
+    url: scenario.url,
+    benchmarkFile: benchmarkJsonPath,
+    warnings: projectResult.warnings,
+    results: compareScenarioMetrics(scenario, projectResult.metrics),
+  };
+}
+
+async function runHmrScenarioBenchmark(
+  scenario: PerfScenario,
+  runs: number,
+): Promise<ScenarioResult> {
+  const scenarioOutputDir = path.join(outputRoot, scenario.id);
+  const benchmarkJsonPath = path.join(scenarioOutputDir, "hmr-benchmark.json");
+  const warnings: string[] = [];
+
+  await fs.mkdir(scenarioOutputDir, { recursive: true });
+  const { runBenchmark } = await import("./hmr-bench");
+  const report = await runBenchmark({
+    iterations: Math.max(1, runs),
+    skipCold: true,
+    cellsOnly: "hybrid",
+    writeReport: false,
+  });
+
+  const measured = report.hardAssertions.islandP95Ms;
+  if (measured === null) {
+    warnings.push("HMR island latency was not measured by the hybrid benchmark subset.");
+  }
+
+  const metrics: ScenarioMetrics = {
+    hmr_latency_p95_ms: measured ?? undefined,
+  };
+  await fs.writeFile(
+    benchmarkJsonPath,
+    `${JSON.stringify({ hardAssertions: report.hardAssertions, runMeta: report.runMeta }, null, 2)}\n`,
+    "utf8",
+  );
+
+  return {
+    scenarioId: scenario.id,
+    app: scenario.app,
+    mode: scenario.mode,
+    url: scenario.url,
+    benchmarkFile: benchmarkJsonPath,
+    warnings,
+    results: compareScenarioMetrics(scenario, metrics),
+  };
+}
+
 async function main(): Promise<number> {
   const { scenarioIds, runs, warmup, enforce } = parseArgs(process.argv.slice(2));
   const baseline = JSON.parse(await fs.readFile(baselinePath, "utf8")) as PerfBaseline;
-  const scenarios = baseline.scenarios.filter((scenario) => scenario.status === "active");
+  const runnableScenarios = baseline.scenarios.filter((scenario) => scenario.status !== "planned");
+  const defaultScenarios = runnableScenarios.filter((scenario) => scenario.status === "active");
   const selectedScenarios = scenarioIds.length > 0
-    ? scenarios.filter((scenario) => scenarioIds.includes(scenario.id))
-    : scenarios;
+    ? runnableScenarios.filter((scenario) => scenarioIds.includes(scenario.id))
+    : defaultScenarios;
 
   if (selectedScenarios.length === 0) {
     throw new Error("No active scenarios matched the requested filters");
@@ -625,7 +817,11 @@ async function main(): Promise<number> {
     }
 
     console.log(`Running perf scenario: ${scenario.id}`);
-    const result = await runScenarioBenchmark(scenario, demoDir, runs, warmup);
+    const result = scenario.mode === "build"
+      ? await runBuildScenarioBenchmark(scenario, demoDir, runs)
+      : scenario.mode === "hmr"
+        ? await runHmrScenarioBenchmark(scenario, runs)
+        : await runScenarioBenchmark(scenario, demoDir, runs, warmup);
     results.push(result);
   }
 

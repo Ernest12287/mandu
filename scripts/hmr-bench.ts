@@ -1001,6 +1001,7 @@ export interface RunBenchOptions {
   iterations?: number;
   skipCold?: boolean;
   cellsOnly?: ProjectForm | "";
+  writeReport?: boolean;
 }
 
 /**
@@ -1116,7 +1117,9 @@ export async function runBenchmark(
   console.log(`  Total duration: ${durationSec.toFixed(1)}s`);
   console.log(``);
 
-  writeReport(report);
+  if (opts.writeReport !== false) {
+    writeReport(report);
+  }
   return report;
 }
 

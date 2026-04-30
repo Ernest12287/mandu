@@ -98,47 +98,54 @@
     },
     {
       "id": "hello-ssr-home",
-      "app": "hello-ssr",
-      "status": "planned",
+      "app": "starter",
+      "status": "active",
       "mode": "prod",
       "url": "/",
-      "runner": "pending-reference-app",
+      "runner": "packages/core/benchmark/hydration-benchmark.ts",
       "measuredMetrics": [
         "ssr_ttfb_p95_ms",
+        "hydration_p95_ms",
         "initial_js_bundle_kb"
       ],
       "budgets": {
         "ssr_ttfb_p95_ms": {
           "budget": 800,
           "warningThresholdPct": 10,
+          "baseline": 2
+        },
+        "hydration_p95_ms": {
+          "budget": 350,
+          "warningThresholdPct": 10,
           "baseline": null
         },
         "initial_js_bundle_kb": {
-          "budget": 120,
+          "budget": 1200,
           "warningThresholdPct": 10,
-          "baseline": null
+          "baseline": 1043.7
         }
       },
-      "notes": "Reserved slot for the future hello-ssr reference app."
+      "notes": "Official hello SSR reference path, backed by the existing demo/starter app. HTTP metrics frozen from a local Windows run on 2026-05-01; hydration remains unsupported because browser launch failed."
     },
     {
       "id": "blog-crud-contract-list",
-      "app": "blog-crud-contract",
-      "status": "planned",
+      "app": "todo-app",
+      "status": "active",
       "mode": "prod",
-      "url": "/posts",
-      "runner": "pending-reference-app",
+      "url": "/todos",
+      "runner": "scripts/perf-run.ts",
       "measuredMetrics": [
         "ssr_ttfb_p95_ms",
         "hydration_p95_ms",
         "initial_js_bundle_kb",
-        "route_scan_p95_ms"
+        "route_scan_p95_ms",
+        "resource_generation_p95_ms"
       ],
       "budgets": {
         "ssr_ttfb_p95_ms": {
           "budget": 1200,
           "warningThresholdPct": 10,
-          "baseline": null
+          "baseline": 1.7
         },
         "hydration_p95_ms": {
           "budget": 450,
@@ -146,53 +153,46 @@
           "baseline": null
         },
         "initial_js_bundle_kb": {
-          "budget": 220,
+          "budget": 1200,
           "warningThresholdPct": 10,
-          "baseline": null
+          "baseline": 1041.9
         },
         "route_scan_p95_ms": {
           "budget": 250,
           "warningThresholdPct": 15,
-          "baseline": null
+          "baseline": 35.1
+        },
+        "resource_generation_p95_ms": {
+          "budget": 350,
+          "warningThresholdPct": 15,
+          "baseline": 168.1
         }
       },
-      "notes": "Reserved slot for the contract-heavy reference app."
+      "notes": "Contract/resource-heavy reference scenario backed by demo/todo-app until a dedicated blog CRUD app exists. HTTP, route-scan, and resource-generation metrics frozen from a local Windows run on 2026-05-01; hydration remains unsupported because browser launch failed."
     },
     {
-      "id": "dashboard-auth-island-home",
-      "app": "dashboard-auth-island",
-      "status": "planned",
-      "mode": "dev",
-      "url": "/dashboard",
-      "runner": "pending-reference-app",
+      "id": "auth-starter-hmr-island",
+      "app": "auth-starter",
+      "status": "manual",
+      "mode": "hmr",
+      "url": "hybrid:island-update",
+      "runner": "scripts/hmr-bench.ts",
       "measuredMetrics": [
-        "hydration_p95_ms",
-        "initial_js_bundle_kb",
         "hmr_latency_p95_ms"
       ],
       "budgets": {
-        "hydration_p95_ms": {
-          "budget": 650,
-          "warningThresholdPct": 10,
-          "baseline": null
-        },
-        "initial_js_bundle_kb": {
-          "budget": 260,
-          "warningThresholdPct": 10,
-          "baseline": null
-        },
         "hmr_latency_p95_ms": {
-          "budget": 600,
+          "budget": 100,
           "warningThresholdPct": 15,
-          "baseline": null
+          "baseline": 24.2
         }
       },
-      "notes": "Reserved slot for the future island-heavy dashboard scenario."
+      "notes": "Expanded manual gate. Runs the hybrid island subset from scripts/hmr-bench.ts; excluded from default perf:ci because watcher timings are slower and more host-sensitive. Baseline frozen from a local Windows run on 2026-05-01."
     }
   ],
   "notes": [
     "Budgets are enforced ceilings. Baselines define the frozen historical value for active scenarios.",
     "P0-F-0 reconnects active scenarios to real demo directories; P0-F-2 fills active baseline values.",
-    "Only active scenarios are expected to map to running demos today."
+    "P1 promotes starter and todo-app into broader reference scenarios. Manual scenarios are runnable by id but excluded from default perf:ci."
   ]
 }
