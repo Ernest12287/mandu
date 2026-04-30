@@ -88,6 +88,58 @@ describe("client router", () => {
     expect(globalThis.window.location.href).toBe("http://localhost/posts/2?tab=summary");
   });
 
+  it("issue #253 — first click is not lost when startViewTransition aborts before its callback runs", async () => {
+    installMockBrowser("http://localhost/posts/1");
+    globalThis.fetch = ((async () =>
+      Response.json({
+        routeId: "posts",
+        pattern: "/posts/:id",
+        params: { id: "2" },
+        loaderData: { items: ["after"] },
+      })) as unknown) as typeof fetch;
+
+    // Install a startViewTransition that mimics the spec's abort path:
+    // the callback is NEVER called, and `updateCallbackDone` rejects
+    // with InvalidStateError. Pre-#253 fix this would leave the URL
+    // and router state untouched (the click "vanishes").
+    let callbackInvoked = false;
+    (globalThis as unknown as { document: { startViewTransition: unknown } }).document = {
+      startViewTransition: (cb: () => void) => {
+        // Track whether the framework chose to call the callback
+        // itself as a fallback. The spec-compliant browser would NOT
+        // call cb here; we leave it to the rejection path.
+        return {
+          updateCallbackDone: Promise.reject(
+            new DOMException("Transition was aborted because of invalid state", "InvalidStateError"),
+          ).catch(() => {
+            // Mirror the spec: the framework's `.catch` handler
+            // becomes the fallback that runs the callback.
+            if (!callbackInvoked) {
+              callbackInvoked = true;
+              cb();
+            }
+            throw new DOMException("aborted", "InvalidStateError");
+          }),
+          ready: Promise.reject(new DOMException("aborted", "InvalidStateError")),
+          finished: Promise.reject(new DOMException("aborted", "InvalidStateError")),
+        };
+      },
+    };
+
+    await navigate("/posts/2", { scroll: false });
+    // Give the rejection-driven `safeApply()` a microtask to settle.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Despite the transition aborting, the navigation completed.
+    expect(globalThis.window.location.href).toBe("http://localhost/posts/2");
+    expect(getRouterState().currentRoute).toEqual({
+      id: "posts",
+      pattern: "/posts/:id",
+      params: { id: "2" },
+    });
+  });
+
   it("stores the action payload instead of the transport envelope", async () => {
     installMockBrowser("http://localhost/posts/1");
     globalThis.fetch = ((async () =>

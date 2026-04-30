@@ -341,26 +341,47 @@ export async function navigate(
       if (scroll) window.scrollTo(0, 0);
     };
 
-    // View Transitions API — 브라우저 지원 시 URL + DOM 전환을 동기화
-    if (!replace && "startViewTransition" in document) {
-      // `startViewTransition` is part of the View Transitions API which
-      // is not yet in every lib.dom.d.ts. Narrow the cast to the only
-      // method we call rather than widening to `any`.
-      const transition = (document as Document & {
-        startViewTransition: (callback: () => void) => {
-          finished?: Promise<unknown>;
-          ready?: Promise<unknown>;
-          updateCallbackDone?: Promise<unknown>;
-        };
-      }).startViewTransition(applyUpdate);
-      // ViewTransition.finished/ready reject with InvalidStateError when a
-      // newer transition aborts this one (rapid navigation, popstate, etc.).
-      // Swallow those — they are expected and not actionable for the app.
-      transition?.finished?.catch(() => {});
-      transition?.ready?.catch(() => {});
-      transition?.updateCallbackDone?.catch(() => {});
-    } else {
+    // View Transitions API — 브라우저 지원 시 URL + DOM 전환을 동기화.
+    //
+    // Issue #253 (regression fix on top of #252): when the transition
+    // aborts (rapid navigation, popstate races, the user clicks a
+    // second link before the first transition finishes), the browser
+    // SKIPS the callback we passed in — meaning `applyUpdate` never
+    // runs and the click is silently lost. The user sees "first click
+    // does nothing, second click works".
+    //
+    // Track whether `applyUpdate` actually ran. If any of the three
+    // ViewTransition promises (`updateCallbackDone`, `ready`,
+    // `finished`) reject before it does, run `applyUpdate` directly.
+    // The `applied` flag prevents double-apply when the transition
+    // completes normally (the callback runs and the promises resolve).
+    let applied = false;
+    const safeApply = () => {
+      if (applied) return;
+      applied = true;
       applyUpdate();
+    };
+    if (!replace && "startViewTransition" in document) {
+      try {
+        const transition = (document as Document & {
+          startViewTransition: (callback: () => void) => {
+            finished?: Promise<unknown>;
+            ready?: Promise<unknown>;
+            updateCallbackDone?: Promise<unknown>;
+          };
+        }).startViewTransition(safeApply);
+        // Each of these rejects with InvalidStateError when the
+        // transition aborts before our callback gets to run. Tying
+        // `safeApply` to all three is belt-and-braces — whichever
+        // rejects first wakes up the navigation we owe the user.
+        transition?.updateCallbackDone?.catch(() => safeApply());
+        transition?.ready?.catch(() => safeApply());
+        transition?.finished?.catch(() => safeApply());
+      } catch {
+        safeApply();
+      }
+    } else {
+      safeApply();
     }
   } catch (error) {
     // abort된 네비게이션은 조용히 무시 (새 네비게이션이 대체함)
