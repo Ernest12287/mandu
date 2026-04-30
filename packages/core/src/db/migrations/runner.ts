@@ -128,6 +128,24 @@ export class MigrationTimeoutError extends Error {
   }
 }
 
+function assertNoTamperedHistory(
+  history: HistoryRow[],
+  diskByVersion: Map<string, PendingMigration>,
+): void {
+  for (const row of history) {
+    if (row.success !== 1) continue;
+    const disk = diskByVersion.get(row.version);
+    if (!disk) continue; // orphan on the history side — surfaced via status(), not apply()
+    if (disk.checksum !== row.checksum) {
+      throw new MigrationTamperedError(
+        disk.filename,
+        row.checksum,
+        disk.checksum,
+      );
+    }
+  }
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /** Options for {@link createMigrationRunner}. */
@@ -246,34 +264,18 @@ export function createMigrationRunner(
   async function apply(
     opts: { dryRun?: boolean } = {},
   ): Promise<AppliedMigration[]> {
-    await ensureReady();
-
-    // Tamper check BEFORE acquiring the lock so the fast-fail path
-    // doesn't hold the advisory lock longer than necessary.
-    const history = await readAllHistory(db, historyTable);
     const diskFiles = await readMigrationsFromDisk(migrationsDir);
     const diskByVersion = new Map(diskFiles.map((f) => [f.version, f]));
-    for (const row of history) {
-      if (row.success !== 1) continue;
-      const disk = diskByVersion.get(row.version);
-      if (!disk) continue; // orphan on the history side — surfaced via status(), not apply()
-      if (disk.checksum !== row.checksum) {
-        throw new MigrationTamperedError(
-          disk.filename,
-          row.checksum,
-          disk.checksum,
-        );
-      }
-    }
 
-    const appliedVersions = new Set(
-      history.filter((h) => h.success === 1).map((h) => h.version),
-    );
-    const pending = diskFiles.filter((f) => !appliedVersions.has(f.version));
-    if (pending.length === 0) return [];
-
-    // Dry-run: report what we WOULD apply, no IO, no history.
     if (opts.dryRun === true) {
+      await ensureReady();
+      const history = await readAllHistory(db, historyTable);
+      assertNoTamperedHistory(history, diskByVersion);
+
+      const appliedVersions = new Set(
+        history.filter((h) => h.success === 1).map((h) => h.version),
+      );
+      const pending = diskFiles.filter((f) => !appliedVersions.has(f.version));
       return pending.map<AppliedMigration>((p) => ({
         version: p.version,
         filename: p.filename,
@@ -293,7 +295,15 @@ export function createMigrationRunner(
     const runLockedApply = async (): Promise<AppliedMigration[]> => {
       heldLock = await acquireMigrationLock(db, lockStrategy);
       try {
-        for (const migration of pending) {
+        await ensureReady();
+        const lockedHistory = await readAllHistory(db, historyTable);
+        assertNoTamperedHistory(lockedHistory, diskByVersion);
+        const lockedAppliedVersions = new Set(
+          lockedHistory.filter((h) => h.success === 1).map((h) => h.version),
+        );
+        const lockedPending = diskFiles.filter((f) => !lockedAppliedVersions.has(f.version));
+
+        for (const migration of lockedPending) {
           const start = Date.now();
 
           const statements = splitStatements(migration.sql);

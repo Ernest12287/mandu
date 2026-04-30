@@ -158,7 +158,16 @@ export interface Db {
    * Closes the connection pool. Subsequent queries reject with a clear
    * "pool closed" error. Calling `close()` twice is a no-op (idempotent).
    */
-  close(): Promise<void>;
+  close(options?: DbCloseOptions): Promise<void>;
+}
+
+/** Options forwarded to Bun.SQL pool shutdown. */
+export interface DbCloseOptions {
+  /**
+   * Maximum seconds to wait for in-flight queries before closing the pool.
+   * `0` asks Bun.SQL to close immediately.
+   */
+  timeout?: number;
 }
 
 // ─── Bun runtime surface (structural; no `any`) ─────────────────────────────
@@ -186,7 +195,7 @@ interface BunSqlInstance {
     T[] & { count?: number; command?: string }
   >;
   begin<R>(fn: (tx: BunSqlInstance) => Promise<R>): Promise<R>;
-  close(): Promise<void>;
+  close(options?: DbCloseOptions): Promise<void>;
   readonly options?: BunSqlOptions;
 }
 
@@ -449,11 +458,13 @@ function buildDbHandle(bunSql: BunSqlInstance, provider: SqlProvider): Db {
       });
     };
 
-  (db as { close: Db["close"] }).close = async function close(): Promise<void> {
+  (db as { close: Db["close"] }).close = async function close(
+    options?: DbCloseOptions,
+  ): Promise<void> {
     if (closed) return; // idempotent
     closed = true;
     try {
-      await bunSql.close();
+      await bunSql.close(options);
     } catch (err) {
       // Bun.SQL can throw if already-closed under the hood (mostly from a
       // racing concurrent close). We already flipped our flag so subsequent
@@ -511,7 +522,7 @@ export function createDb(config: DbConfig): Db {
     if (closed || !real) return;
     const db = real;
     real = null;
-    await db.close();
+    await db.close({ timeout: 0 });
   }
 
   async function recycleMysqlHandle(db: Db): Promise<void> {
@@ -521,7 +532,7 @@ export function createDb(config: DbConfig): Db {
       return;
     }
     real = null;
-    await db.close();
+    await db.close({ timeout: 0 });
   }
 
   const forward = async function forwardCall<T extends Row = Row>(
@@ -559,14 +570,16 @@ export function createDb(config: DbConfig): Db {
         await recycleMysqlHandle(db);
       }
     };
-  (forward as { close: Db["close"] }).close = async function close(): Promise<void> {
+  (forward as { close: Db["close"] }).close = async function close(
+    options?: DbCloseOptions,
+  ): Promise<void> {
     if (closed) return;
     closed = true;
     // If no query ever ran, materialize() was never called — nothing to close.
     if (!real) return;
     const db = real;
     real = null;
-    await db.close();
+    await db.close(options);
   };
   Object.defineProperty(forward, PIN_DB_HANDLE, {
     value: async function withPinnedHandle<R>(fn: () => Promise<R>): Promise<R> {

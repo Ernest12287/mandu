@@ -7,7 +7,7 @@
  *   2. diffSnapshots(old, next) → Change[]
  *   3. emitChanges(changes, provider) → SQL migration body
  *   4. Write NNNN_auto_*.sql file to migrations directory
- *   5. createMigrationRunner(db, opts).apply() → executes SQL + writes __mandu_migrations
+ *   5. createMigrationRunner(db, opts).apply() → executes SQL + writes migration history
  *   6. Verify schema matches via dialect-specific introspection
  *   7. Instantiate the generated repo factory → findById / findMany / create / update / delete
  *   8. Tamper + concurrent-apply + empty-diff edge cases
@@ -33,24 +33,13 @@
  * Each test gets a fresh database. For SQLite that's a scratch file in
  * `os.tmpdir()`. For Postgres/MySQL tables are prefixed with a unique
  * per-fixture namespace so parallel runs against the same shared server
- * can't step on each other. Tables are dropped in afterEach regardless
- * of outcome.
+ * can't step on each other. Postgres tables are dropped in afterEach; MySQL
+ * relies on the namespace because Bun.SQL can leave DROP TABLE unresolved
+ * under bun:test on Windows.
  *
- * ## R1/R2 gaps surfaced by this test suite (reported, not fixed)
- *
- * - [R2] `generator-repo.ts` omits the primary key from the INSERT
- *   column list unconditionally (see `resolveColumns` — `omitOnInsert = primary`).
- *   For UUID-PK columns WITHOUT a DB-side default this means a
- *   `NOT NULL` violation on SQLite and a NULL PK silently accepted on
- *   SQLite (`id` becomes NULL instead of the user-supplied UUID). Our
- *   test 6 works around this by using `db` directly for `create` and
- *   verifying the repo's read/update/delete methods.
- * - [R1] `emitChanges` for an `add-column` whose field is `indexed: true`
- *   does NOT also emit a `CREATE INDEX` — only the CREATE TABLE path
- *   emits auto-indexes. Adding an indexed field via ALTER TABLE will
- *   add the column but no index. Our test 4 verifies the column gets
- *   added; explicit index creation is exercised via
- *   `persistence.indexes[]` in test 4b.
+ * The suite intentionally exercises generated repo `create()` and indexed
+ * add-column migrations end-to-end so Phase 4c regressions fail at the
+ * pipeline level, not only in unit tests.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -66,7 +55,6 @@ import {
   computeMigrationChecksum,
 } from "@mandujs/core/db/migrations/runner";
 import {
-  DEFAULT_HISTORY_TABLE,
   readAllHistory,
 } from "@mandujs/core/db/migrations/history-table";
 import {
@@ -143,6 +131,18 @@ function userResourceWithAvatar(provider: SqlProvider): ResourceDefinition {
     fields: {
       ...base.fields,
       avatar: { type: "string", required: false },
+    },
+  };
+}
+
+/** user + extra indexed `avatar` column — used by add-column auto-index diff. */
+function userResourceWithIndexedAvatar(provider: SqlProvider): ResourceDefinition {
+  const base = userResource(provider);
+  return {
+    ...base,
+    fields: {
+      ...base.fields,
+      avatar: { type: "string", required: false, indexed: true } as ResourceDefinition["fields"][string],
     },
   };
 }
@@ -293,23 +293,11 @@ async function setupFixture(provider: SqlProvider): Promise<Fixture> {
     // mysql
     db = createDb({ url: MYSQL_URL, provider: "mysql", max: 1 });
     cleanup = async () => {
-      try { await db.close(); } catch { /* idempotent */ }
-      const cleanupDb = createDb({ url: MYSQL_URL, provider: "mysql", max: 1 });
-      try {
-        const rows = await cleanupDb<{ TABLE_NAME: string }>`
-          SELECT TABLE_NAME FROM information_schema.tables
-          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE ${`${ns}_%`}
-        `;
-        for (const r of rows) {
-          const tn = r.TABLE_NAME;
-          const ident = `\`${tn.replace(/`/g, "")}\``;
-          const strings = Object.assign([`DROP TABLE IF EXISTS ${ident}`], { raw: [`DROP TABLE IF EXISTS ${ident}`] }) as unknown as TemplateStringsArray;
-          await cleanupDb(strings);
-        }
-        await cleanupDb`DROP TABLE IF EXISTS \`__mandu_migrations\``;
-      } finally {
-        try { await cleanupDb.close(); } catch { /* idempotent */ }
-      }
+      // Bun.SQL's MySQL adapter can leave DROP TABLE promises unresolved under
+      // bun:test on Windows even after the server marks the session idle. The
+      // namespace keeps tests isolated; close the connection and let the test
+      // database reset handle old `t*` tables.
+      try { await db.close({ timeout: 0 }); } catch { /* idempotent */ }
     };
   }
 
@@ -329,14 +317,20 @@ function writeMigration(dir: string, version: string, label: string, sql: string
   return full;
 }
 
+function historyTableName(f: Fixture): string {
+  return `${f.ns}_mandu_migrations`;
+}
+
 function createFixtureMigrationRunner(f: Fixture) {
   return createMigrationRunner(f.db, {
     migrationsDir: f.migrationsDir,
-    // Most MySQL cases in this file are single-run fixture checks. The Bun
-    // test runner leaves sessions open around concurrent MySQL GET_LOCK tests.
+    historyTable: historyTableName(f),
+    // Most MySQL cases in this file are single-run fixture checks. Test 8 uses
+    // the default strategy to cover concurrent MySQL GET_LOCK behavior.
     ...(f.provider === "mysql" ? { lockStrategy: "none" as const } : {}),
   });
 }
+
 
 /**
  * Inject the namespace prefix into a ResourceDefinition's table. This lets
@@ -504,7 +498,7 @@ for (const c of cases) {
       const plural = `${f.ns}_users`;
       expect(await tableExists(f, plural)).toBe(true);
 
-      const hist = await readAllHistory(f.db, DEFAULT_HISTORY_TABLE);
+      const hist = await readAllHistory(f.db, historyTableName(f));
       expect(hist.filter((h) => h.success === 1)).toHaveLength(1);
 
       expect(snapshot.resources.find((r) => r.name === plural)).toBeDefined();
@@ -546,13 +540,6 @@ for (const c of cases) {
 
     // ------------------------------------------------------------------
     // 4a. Add an explicit index (via persistence.indexes)
-    //
-    // Uses persistence.indexes[] so the diff produces an add-index Change
-    // and emit → CREATE INDEX lands on the DB. Inline `field.indexed: true`
-    // on NEW columns does NOT emit an index via ALTER TABLE in v1 (only
-    // CREATE TABLE's auto-index path respects it) — this is a known R1
-    // gap. Instead, users declare indexes explicitly via
-    // `persistence.indexes` which this test verifies works end-to-end.
     // ------------------------------------------------------------------
 
     test("4a. explicit persistence.indexes entry → add-index change applies", async () => {
@@ -583,6 +570,19 @@ for (const c of cases) {
       expect(await indexExists(f, `${f.ns}_users`, indexName)).toBe(true);
     });
 
+    test("4b. indexed:true on a newly added field creates the auto index", async () => {
+      const baseline = [makeParsed(nsTable(userResource(c.provider), f.ns))];
+      const first = await planAndApply(f, baseline, null, "0001", "create_users");
+
+      const indexed = [makeParsed(nsTable(userResourceWithIndexedAvatar(c.provider), f.ns))];
+      const second = await planAndApply(f, indexed, first.snapshot, "0002", "add_indexed_avatar");
+
+      expect(second.changes).toHaveLength(1);
+      expect(second.changes[0]!.kind).toBe("add-column");
+      expect(await columnExists(f, `${f.ns}_users`, "avatar")).toBe(true);
+      expect(await indexExists(f, `${f.ns}_users`, `idx_${f.ns}_users_avatar`)).toBe(true);
+    });
+
     // ------------------------------------------------------------------
     // 5. Stub for alter-column-type
     // ------------------------------------------------------------------
@@ -604,22 +604,15 @@ for (const c of cases) {
       const runner = createFixtureMigrationRunner(f);
       await runner.apply();
 
-      const hist = await readAllHistory(f.db, DEFAULT_HISTORY_TABLE);
+      const hist = await readAllHistory(f.db, historyTableName(f));
       expect(hist.filter((h) => h.success === 1)).toHaveLength(2);
     });
 
     // ------------------------------------------------------------------
     // 6. Generated repo CRUD roundtrip
-    //
-    // R2 gap note: `generator-repo.ts` omits the PK from the INSERT column
-    // list unconditionally when the field is marked `primary: true` — this
-    // works for MySQL (AUTO_INCREMENT) and PG (`SERIAL` or `DEFAULT
-    // gen_random_uuid()` columns with a default), but NOT for UUID PK
-    // columns without a DB-side default. We seed rows via `f.db` directly
-    // so we can exercise the repo's read / update / delete methods.
     // ------------------------------------------------------------------
 
-    test("6. generated repo: findById / findMany / update / delete roundtrip (seeded)", async () => {
+    test("6. generated repo: create / findById / findMany / update / delete roundtrip", async () => {
       const parsed = makeParsed(nsTable(userResource(c.provider), f.ns));
       await planAndApply(f, [parsed], null, "0001", "create_users");
 
@@ -627,91 +620,51 @@ for (const c of cases) {
       expect(source).not.toBeNull();
       expect(source).toContain("export function create");
 
-      const table = `${f.ns}_users`;
       const id = crypto.randomUUID();
       // MySQL's DATETIME(6) does NOT accept ISO strings (`2026-04-18T03:56:40.102Z`).
       // Pass a Date object for MySQL; PG/SQLite accept strings or Dates transparently.
       const now: string | Date = c.provider === "mysql" ? new Date() : new Date().toISOString();
 
-      // Seed a row directly via `f.db` using tagged-template parameter binding.
-      // Works around two R2 gaps documented at file top:
-      //   (a) generator-repo.ts omits the PK from the INSERT column list even
-      //       when there is no DB-side default.
-      //   (b) For MySQL the generated source is invalid TypeScript because
-      //       quoteIdent returns identifiers wrapped in backticks which
-      //       collide with the outer tagged-template's backtick boundary.
-      //       We therefore cannot dynamic-eval the generator's output via a
-      //       data URL import on MySQL — we only verify the source string
-      //       contains the factory declaration.
-      if (c.provider === "mysql") {
-        const q = `INSERT INTO \`${table}\` (\`id\`, \`email\`, \`name\`, \`created_at\`) VALUES (`;
-        const strings = Object.assign([q, ",", ",", ",", ")"], { raw: [q, ",", ",", ",", ")"] }) as unknown as TemplateStringsArray;
-        await f.db(strings, id, "alice@example.test", "Alice", now);
-      } else {
-        const q = `INSERT INTO "${table}" ("id", "email", "name", "created_at") VALUES (`;
-        const strings = Object.assign([q, ",", ",", ",", ")"], { raw: [q, ",", ",", ",", ")"] }) as unknown as TemplateStringsArray;
-        await f.db(strings, id, "alice@example.test", "Alice", now);
-      }
+      const stripped = source!.replace(/import type \{ Db \} from "[^"]+";\s*/m, "");
+      const dataUrl = `data:text/tsx;base64,${Buffer.from(stripped, "utf8").toString("base64")}`;
+      const mod = (await import(dataUrl)) as Record<string, unknown>;
+      const repoFactoryKey = Object.keys(mod).find((k) => /^create.*Repo$/.test(k));
+      expect(repoFactoryKey).toBeDefined();
+      const factory = mod[repoFactoryKey!] as (db: Db) => {
+        create: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        findById: (id: string) => Promise<Record<string, unknown> | null>;
+        findMany: (limit?: number, offset?: number) => Promise<Record<string, unknown>[]>;
+        update: (id: string, patch: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
+        delete: (id: string) => Promise<boolean>;
+      };
+      const repo = factory(f.db);
+      const created = await repo.create({
+        id,
+        email: "alice@example.test",
+        name: "Alice",
+        createdAt: now,
+      });
+      expect(created.id).toBe(id);
 
-      // On PG/SQLite we can eval the generated source and exercise the
-      // real repo methods. On MySQL we verify generation then exercise the
-      // same CRUD semantics via direct `f.db` calls.
-      if (c.provider !== "mysql") {
-        const stripped = source!.replace(/import type \{ Db \} from "[^"]+";\s*/m, "");
-        const dataUrl = `data:text/tsx;base64,${Buffer.from(stripped, "utf8").toString("base64")}`;
-        const mod = (await import(dataUrl)) as Record<string, unknown>;
-        const repoFactoryKey = Object.keys(mod).find((k) => /^create.*Repo$/.test(k));
-        expect(repoFactoryKey).toBeDefined();
-        const factory = mod[repoFactoryKey!] as (db: Db) => {
-          findById: (id: string) => Promise<Record<string, unknown> | null>;
-          findMany: (limit?: number, offset?: number) => Promise<Record<string, unknown>[]>;
-          update: (id: string, patch: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
-          delete: (id: string) => Promise<boolean>;
-        };
-        const repo = factory(f.db);
-        const fetched = await repo.findById(id);
-        expect(fetched).not.toBeNull();
-        expect((fetched as { id: string }).id).toBe(id);
-        expect((fetched as { email: string }).email).toBe("alice@example.test");
+      const fetched = await repo.findById(id);
+      expect(fetched).not.toBeNull();
+      expect((fetched as { id: string }).id).toBe(id);
+      expect((fetched as { email: string }).email).toBe("alice@example.test");
 
-        const all = await repo.findMany(10, 0);
-        expect(all.length).toBeGreaterThanOrEqual(1);
+      const all = await repo.findMany(10, 0);
+      expect(all.length).toBeGreaterThanOrEqual(1);
 
-        const updated = await repo.update(id, { name: "Alice Cooper" });
-        expect(updated).not.toBeNull();
-        expect((updated as { name: string }).name).toBe("Alice Cooper");
+      const updated = await repo.update(id, { name: "Alice Cooper" });
+      expect(updated).not.toBeNull();
+      expect((updated as { name: string }).name).toBe("Alice Cooper");
 
-        const deleted = await repo.delete(id);
-        expect(deleted).toBe(true);
-        const afterDel = await repo.findById(id);
-        expect(afterDel).toBeNull();
-      } else {
-        // MySQL: verify CRUD semantics via raw db. Same shape as the repo
-        // would do internally, but skips the broken code-eval path.
-        const qSel = `SELECT \`id\`, \`email\`, \`name\`, \`created_at\` AS \`createdAt\` FROM \`${table}\` WHERE \`id\` = `;
-        const selStrings = Object.assign([qSel, ""], { raw: [qSel, ""] }) as unknown as TemplateStringsArray;
-        const rows = await f.db(selStrings, id) as Array<{ id: string; email: string; name: string }>;
-        expect(rows.length).toBe(1);
-        expect(rows[0]!.email).toBe("alice@example.test");
-
-        const qUpd = `UPDATE \`${table}\` SET \`name\` = `;
-        const qUpdTail = ` WHERE \`id\` = `;
-        const updStrings = Object.assign([qUpd, qUpdTail, ""], { raw: [qUpd, qUpdTail, ""] }) as unknown as TemplateStringsArray;
-        await f.db(updStrings, "Alice Cooper", id);
-
-        const rows2 = await f.db(selStrings, id) as Array<{ id: string; name: string }>;
-        expect(rows2[0]!.name).toBe("Alice Cooper");
-
-        const qDel = `DELETE FROM \`${table}\` WHERE \`id\` = `;
-        const delStrings = Object.assign([qDel, ""], { raw: [qDel, ""] }) as unknown as TemplateStringsArray;
-        await f.db(delStrings, id);
-
-        const rows3 = await f.db(selStrings, id) as Array<unknown>;
-        expect(rows3.length).toBe(0);
-      }
+      const deleted = await repo.delete(id);
+      expect(deleted).toBe(true);
+      const afterDel = await repo.findById(id);
+      expect(afterDel).toBeNull();
     });
 
-        // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
     // 7. Migration file checksum tamper
     // ------------------------------------------------------------------
 
@@ -743,9 +696,7 @@ for (const c of cases) {
     // 8. Concurrent apply lock
     // ------------------------------------------------------------------
 
-    const testConcurrentApply = c.provider === "mysql" ? test.skip : test;
-
-    testConcurrentApply("8. two concurrent runners: exactly one history row is written", async () => {
+    test("8. two concurrent runners: exactly one history row is written", async () => {
       // Use TWO separate Db handles so the pool doesn't multiplex the lock
       // onto one connection (which fails with max:1 in the fixture). Each
       // runner holds its own connection and the dialect's native lock
@@ -764,22 +715,33 @@ for (const c of cases) {
       const url = urlByProvider[c.provider]!;
       const dbA = createDb({ url, provider: c.provider, max: 1 });
       const dbB = createDb({ url, provider: c.provider, max: 1 });
+      let handlesClosed = false;
 
       try {
-        const runnerA = createMigrationRunner(dbA, { migrationsDir: f.migrationsDir });
-        const runnerB = createMigrationRunner(dbB, { migrationsDir: f.migrationsDir });
+        const runnerA = createMigrationRunner(dbA, {
+          migrationsDir: f.migrationsDir,
+          historyTable: historyTableName(f),
+        });
+        const runnerB = createMigrationRunner(dbB, {
+          migrationsDir: f.migrationsDir,
+          historyTable: historyTableName(f),
+        });
 
         const results = await Promise.allSettled([runnerA.apply(), runnerB.apply()]);
+        await Promise.allSettled([dbA.close({ timeout: 0 }), dbB.close({ timeout: 0 })]);
+        handlesClosed = true;
+
         const fulfilled = results.filter((r) => r.status === "fulfilled");
         expect(fulfilled.length).toBeGreaterThanOrEqual(1);
 
-        const hist = await readAllHistory(f.db, DEFAULT_HISTORY_TABLE);
+        const hist = await readAllHistory(f.db, historyTableName(f));
         expect(hist.filter((h) => h.success === 1 && h.version === "0001")).toHaveLength(1);
       } finally {
-        await dbA.close();
-        await dbB.close();
+        if (!handlesClosed) {
+          await Promise.allSettled([dbA.close({ timeout: 0 }), dbB.close({ timeout: 0 })]);
+        }
       }
-    });
+    }, 30_000);
 
     // ------------------------------------------------------------------
     // 9. Empty migration

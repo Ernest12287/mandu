@@ -574,7 +574,7 @@ describe("generateRepoSource — emission shape", () => {
     expect(generateRepoSource(nonPersistent, { enable: false })).toBeNull();
   });
 
-  test("postgres/sqlite emit INSERT ... RETURNING, mysql emits INSERT + SELECT LAST_INSERT_ID", () => {
+  test("postgres/sqlite emit INSERT ... RETURNING, mysql emits INSERT + primary-key re-select", () => {
     // Assert on SQL in the emitted code rather than on comments —
     // comments reference "RETURNING" as prose across all three providers.
     // The discriminator we check is the actual SQL keyword on an insert
@@ -587,17 +587,34 @@ describe("generateRepoSource — emission shape", () => {
 
     const mysql = generateRepoSource(persistentResource("user", "mysql"))!;
     expect(mysql).not.toMatch(/INSERT INTO[\s\S]*?RETURNING/);
-    expect(mysql).toContain("LAST_INSERT_ID()");
+    expect(mysql).toContain("WHERE \\`id\\` = ${input.id}");
+    expect(mysql).not.toContain("WHERE \\`id\\` = LAST_INSERT_ID()");
   });
 
-  test("mysql repo uses backtick identifiers, postgres uses double quotes", () => {
+  test("mysql repo escapes backtick identifiers for generated template literals, postgres uses double quotes", () => {
     const mysql = generateRepoSource(persistentResource("user", "mysql"))!;
-    expect(mysql).toContain("`users`");
+    expect(mysql).toContain("\\`users\\`");
     expect(mysql).not.toContain(`"users"`);
 
     const pg = generateRepoSource(persistentResource("user", "postgres"))!;
     expect(pg).toContain(`"users"`);
-    expect(pg).not.toContain("`users`");
+    expect(pg).not.toContain("\\`users\\`");
+  });
+
+  test("create input includes primary key unless the primary key has a DB default", () => {
+    const callerSuppliedPk = generateRepoSource(persistentResource("user", "postgres"))!;
+    expect(callerSuppliedPk).toContain("async create(input: User)");
+    expect(callerSuppliedPk).toContain("${input.id}");
+    expect(callerSuppliedPk).not.toContain('async create(input: Omit<User, "id">)');
+
+    const dbGeneratedPk = persistentResource("token", "postgres");
+    dbGeneratedPk.definition.fields.id = {
+      ...dbGeneratedPk.definition.fields.id,
+      default: "gen_random_uuid()",
+    };
+    const src = generateRepoSource(dbGeneratedPk)!;
+    expect(src).toContain('async create(input: Omit<Token, "id">)');
+    expect(src).not.toMatch(/INSERT INTO[\s\S]*"id"[\s\S]*VALUES/);
   });
 
   test("shouldEmitRepo returns true only when persistence is declared", () => {
