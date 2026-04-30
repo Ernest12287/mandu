@@ -555,6 +555,46 @@ export async function prerenderRoutes(
     }
   }
 
+  // 5.5. Issue #254 — emit `404.html` at the dist root when the project
+  // declares an `app/not-found.tsx`. Static hosts (Vercel, Netlify,
+  // Cloudflare Pages, Firebase Hosting) auto-serve `dist/404.html` for
+  // unmatched URLs; without this, visitors hit the platform's plain-
+  // text default.
+  //
+  // The probe path is multi-segment + sentinel-prefixed so it doesn't
+  // collide with single-segment dynamic routes (e.g. `[lang]`). Catch-
+  // all routes at the root (`[...slug]`) WILL still catch this — those
+  // projects own their own 404 surface anyway, so the probe falls
+  // through and we surface a clear warning instead of writing a wrong
+  // 404.html.
+  if (await hasAppNotFound(rootDir)) {
+    const probePath =
+      "/__mandu_not_found_probe_38f17a2c__/__inner_38f17a2c__";
+    try {
+      const request = new Request(`http://localhost${probePath}`);
+      const response = await fetchHandler(request);
+      if (response.status === 404) {
+        const html = await response.text();
+        const filePath = path.join(outputDir, "404.html");
+        await fs.writeFile(filePath, html, "utf-8");
+        pages.push({ path: "/404", size: html.length, duration: 0 });
+        // Not added to pageIndex — `/404` is a host-level fallback,
+        // not a routable page. The runtime keeps using its registered
+        // handler for live SSR.
+      } else {
+        // A catch-all route matched the probe. Skip the 404 emit and
+        // tell the user how to handle it themselves — emitting the
+        // catch-all body as 404.html would be wrong.
+        errors.push(
+          `[404.html] not emitted: probe path matched a catch-all route (HTTP ${response.status}). ` +
+            `Add an explicit 404 page or a sentinel route, or write \`dist/404.html\` from a postbuild script.`,
+        );
+      }
+    } catch (err) {
+      errors.push(`[404.html] ${describeError(err)}`);
+    }
+  }
+
   // 6. Emit runtime index.
   if (writeIndex) {
     const indexContents: PrerenderIndex = {
@@ -873,4 +913,27 @@ function toPosix(p: string): string {
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/**
+ * Issue #254 — true when the project ships an `app/not-found.tsx`
+ * (or one of its non-TSX variants). Used by the prerender step to
+ * decide whether to emit a `404.html` fallback at the dist root.
+ */
+async function hasAppNotFound(rootDir: string): Promise<boolean> {
+  const candidates = [
+    "app/not-found.tsx",
+    "app/not-found.ts",
+    "app/not-found.jsx",
+    "app/not-found.js",
+  ];
+  for (const rel of candidates) {
+    try {
+      await fs.access(path.join(rootDir, rel));
+      return true;
+    } catch {
+      // try next
+    }
+  }
+  return false;
 }
