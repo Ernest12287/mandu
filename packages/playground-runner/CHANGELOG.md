@@ -1,5 +1,12 @@
 # @mandujs/playground-runner
 
+## 21.0.0
+
+### Patch Changes
+
+- Updated dependencies [[`e41e3af`](https://github.com/konamgil/mandu/commit/e41e3af8cf6f7cb5fb552ca3a402c3e9cf1a89e7)]:
+  - @mandujs/core@0.50.0
+
 ## 20.0.0
 
 ### Patch Changes
