@@ -17,6 +17,14 @@ const SLOTS_DIR = "slots";
 const HISTORY_DIR = "history";
 const SNAPSHOTS_DIR = "snapshots";
 
+function reverseCopy<T>(items: readonly T[]): T[] {
+  const reversed: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    reversed.push(items[index] as T);
+  }
+  return reversed;
+}
+
 /**
  * 스냅샷 ID 생성 (YYYYMMDD-HHmmss-xxx)
  */
@@ -250,10 +258,11 @@ export async function listSnapshotIds(rootDir: string): Promise<string[]> {
       })
     );
 
-    return entries
-      .map((entry) => entry.replace(".snapshot.json", ""))
-      .sort()
-      .reverse(); // 최신 순
+    return reverseCopy(
+      entries
+        .map((entry) => entry.replace(".snapshot.json", ""))
+        .sort()
+    ); // 최신 순
   } catch {
     return [];
   }

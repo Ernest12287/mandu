@@ -424,7 +424,7 @@ export function createViteMiddleware(projectRoot: string) {
       res.setHeader('Cache-Control', 'no-store');
       res.statusCode = result.success ? 200 : 400;
       res.end(JSON.stringify(result));
-    } catch (error) {
+    } catch  {
       res.statusCode = 500;
       res.end(JSON.stringify({
         success: false,

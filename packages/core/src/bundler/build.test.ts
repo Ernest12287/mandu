@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import { pathToFileURL } from "url";
-import { spawn } from "node:child_process";
 
 // 모든 테스트가 하나의 빌드 결과를 공유 — 병렬 Bun.build 충돌 방지
 let rootDir: string;
@@ -34,40 +33,38 @@ async function runBuildInSubprocess(root: string): Promise<{
     "__tests__",
     "build-runner.ts",
   );
-  return new Promise((resolve) => {
-    const proc = spawn(process.execPath, ["run", runner, root], {
+  try {
+    const proc = Bun.spawn([process.execPath, "run", runner, root], {
       cwd: path.resolve(import.meta.dir, "..", ".."),
-      stdio: ["ignore", "pipe", "inherit"],
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "inherit",
     });
-    let out = "";
-    proc.stdout.on("data", (chunk: Buffer) => {
-      out += chunk.toString("utf-8");
-    });
-    proc.on("close", () => {
-      // Find the final JSON line — the runner may log Mandu dev banners
-      // (e.g. "[Mandu] DevTools …") before emitting the payload. The
-      // contract is: last non-empty line is the JSON blob.
-      const lines = out.split(/\r?\n/).filter((l) => l.trim().length > 0);
-      const last = lines[lines.length - 1] ?? "";
-      try {
-        const parsed = JSON.parse(last);
-        resolve({
-          success: parsed.success === true,
-          errors: Array.isArray(parsed.errors) ? parsed.errors : [],
-        });
-      } catch (e) {
-        resolve({
-          success: false,
-          errors: [
-            `build-runner output could not be parsed as JSON: ${String(e)}\nLast stdout line: ${last}`,
-          ],
-        });
-      }
-    });
-    proc.on("error", (err) => {
-      resolve({ success: false, errors: [`spawn failed: ${String(err)}`] });
-    });
-  });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+
+    // Find the final JSON line — the runner may log Mandu dev banners
+    // (e.g. "[Mandu] DevTools …") before emitting the payload. The
+    // contract is: last non-empty line is the JSON blob.
+    const lines = out.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const last = lines[lines.length - 1] ?? "";
+    try {
+      const parsed = JSON.parse(last);
+      return {
+        success: parsed.success === true,
+        errors: Array.isArray(parsed.errors) ? parsed.errors : [],
+      };
+    } catch (e) {
+      return {
+        success: false,
+        errors: [
+          `build-runner output could not be parsed as JSON: ${String(e)}\nLast stdout line: ${last}`,
+        ],
+      };
+    }
+  } catch (err) {
+    return { success: false, errors: [`spawn failed: ${String(err)}`] };
+  }
 }
 
 beforeAll(async () => {

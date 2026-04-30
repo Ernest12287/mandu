@@ -12,9 +12,9 @@
 
 import type { Loader, GlobLoaderOptions, ParsedMarkdown } from "./types";
 import type { LoaderContext, DataEntry } from "../types";
-import { LoaderError, ParseError } from "../types";
+import { ParseError } from "../types";
 import { generateFileDigest, combineDigests } from "../digest";
-import { inferParser, MARKDOWN_EXTENSIONS } from "./types";
+import { inferParser } from "./types";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -108,7 +108,7 @@ export function glob(options: GlobLoaderOptions): Loader {
     name: "glob",
 
     async load(context: LoaderContext): Promise<void> {
-      const { store, config, logger, parseData, renderMarkdown, watcher } = context;
+      const { store, config, logger, parseData: _parseData, renderMarkdown: _renderMarkdown, watcher } = context;
 
       // 기본 디렉토리
       const baseDir = base
@@ -181,7 +181,7 @@ async function processFile(
   context: LoaderContext,
   filePath: string,
   id: string,
-  baseDir: string
+  _baseDir: string
 ): Promise<void> {
   const { store, parseData, renderMarkdown, logger } = context;
 

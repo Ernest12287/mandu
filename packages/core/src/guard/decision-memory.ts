@@ -25,8 +25,8 @@
  * ```
  */
 
-import { join, basename, extname } from "path";
-import { mkdir, readdir, readFile, writeFile, stat } from "fs/promises";
+import { join, extname } from "path";
+import { mkdir, readdir, readFile, writeFile } from "fs/promises";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types

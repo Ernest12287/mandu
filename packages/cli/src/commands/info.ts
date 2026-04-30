@@ -40,7 +40,6 @@ import {
   loadManduConfig,
   scanRoutes,
   type ManduConfig,
-  type ScannedFileType,
 } from "@mandujs/core";
 import {
   runExtendedDiagnose,

@@ -12,8 +12,6 @@ import {
   validateLockfile,
   validateWithPolicy,
   detectMode,
-  type ManduLockfile,
-  type LockfileValidationResult,
   type LockfileMode,
 } from "../lockfile";
 import type { ConfigDiff } from "../utils/differ";

@@ -98,7 +98,7 @@ export function file(options: FileLoaderOptions): Loader {
     name: "file",
 
     async load(context: LoaderContext): Promise<void> {
-      const { store, config, logger, parseData, generateDigest } = context;
+      const { store, config, logger, parseData, generateDigest: _generateDigest } = context;
 
       // 절대 경로 계산
       const absolutePath = path.isAbsolute(filePath)

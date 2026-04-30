@@ -319,7 +319,7 @@ async function runValidate(target: string): Promise<boolean> {
   if (spec.title) console.log(`   Title: ${spec.title}`);
   console.log("");
 
-  const ok = result.issues.filter((i) => i.kind !== "missing").length;
+  const _ok = result.issues.filter((i) => i.kind !== "missing").length;
   const present = Object.values(spec.sections).filter((s) => s.present).length;
   console.log(`Sections: ${present}/9 present, ${result.issues.length} issue(s)`);
   console.log("");

@@ -28,7 +28,7 @@ import { mcpToolRegistry } from "./registry/mcp-tool-registry.js";
 import { registerBuiltinTools, getToolsSummary } from "./tools/index.js";
 
 // DNA-007: 에러 처리
-import { createToolResponse, logToolError } from "./executor/error-handler.js";
+
 import type { ToolExecutor} from "./executor/tool-executor.js";
 import { createToolExecutor } from "./executor/tool-executor.js";
 
@@ -36,7 +36,7 @@ import { createToolExecutor } from "./executor/tool-executor.js";
 import { setupMcpLogging, teardownMcpLogging } from "./logging/mcp-transport.js";
 
 // DNA-016: 훅 시스템
-import { mcpHookRegistry, registerDefaultMcpHooks, type McpToolContext } from "./hooks/mcp-hooks.js";
+import { mcpHookRegistry, registerDefaultMcpHooks } from "./hooks/mcp-hooks.js";
 
 // DNA-006: 설정 핫 리로드
 import { startMcpConfigWatcher, type McpConfigWatcher } from "./hooks/config-watcher.js";
@@ -50,7 +50,7 @@ import { manduResourceDefinitions, manduResourceHandlers } from "./new-resources
 // 기존 컴포넌트
 import { resourceHandlers, resourceDefinitions } from "./resources/handlers.js";
 import { findProjectRoot } from "./utils/project.js";
-import { applyWarningInjection } from "./utils/withWarnings.js";
+
 import { ActivityMonitor } from "./activity-monitor.js";
 import { type McpProfile, isValidProfile } from "./profiles.js";
 

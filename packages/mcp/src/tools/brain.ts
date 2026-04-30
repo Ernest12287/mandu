@@ -17,7 +17,6 @@ import {
   loadManifest,
   runGuardCheck,
   analyzeViolations,
-  generateJsonReport,
   initializeBrain,
   getBrain,
   startWatcher,

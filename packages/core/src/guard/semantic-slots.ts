@@ -22,7 +22,7 @@
  */
 
 import { readFile } from "fs/promises";
-import { join, relative, normalize } from "path";
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -460,7 +460,7 @@ function safeRegexTest(
 export async function validateSlotConstraints(
   filePath: string,
   constraints: SlotConstraints,
-  rootDir?: string
+  _rootDir?: string
 ): Promise<SemanticSlotValidationResult> {
   const violations: ConstraintViolation[] = [];
   const suggestions: string[] = [];

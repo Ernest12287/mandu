@@ -93,7 +93,7 @@ function parseEnvFile(content: string): Record<string, string> {
 /**
  * 파일이 존재하는지 확인
  */
-async function fileExists(filePath: string): Promise<boolean> {
+async function _fileExists(filePath: string): Promise<boolean> {
   try {
     const file = Bun.file(filePath);
     return await file.exists();

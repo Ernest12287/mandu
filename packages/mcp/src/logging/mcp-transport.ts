@@ -101,7 +101,7 @@ export function teardownMcpLogging(): void {
  * ActivityMonitor에서 이 함수를 호출하여 로그 통합
  */
 export function dispatchMonitorEvent(event: MonitorEvent): void {
-  const record = monitorEventToRecord(event);
+  const _record = monitorEventToRecord(event);
 
   // 직접 transport로 전달하지 않고,
   // 다른 transport들도 받을 수 있도록 registry를 통해 dispatch

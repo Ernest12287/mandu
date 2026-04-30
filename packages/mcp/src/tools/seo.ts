@@ -1,7 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   renderMetadata,
-  createDefaultMetadata,
   resolveMetadata,
   renderSitemap,
   renderRobots,
@@ -20,7 +19,7 @@ import {
   type RobotsFile,
   type JsonLd,
 } from "@mandujs/core";
-import { getProjectPaths, readJsonFile, writeJsonFile } from "../utils/project.js";
+import { getProjectPaths } from "../utils/project.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -167,7 +166,7 @@ export const seoToolDefinitions: Tool[] = [
 ];
 
 export function seoTools(projectRoot: string) {
-  const paths = getProjectPaths(projectRoot);
+  const _paths = getProjectPaths(projectRoot);
 
   const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
     "mandu.seo.preview": async (args: Record<string, unknown>) => {
@@ -304,7 +303,7 @@ export function seoTools(projectRoot: string) {
     },
 
     "mandu.seo.write": async (args: Record<string, unknown>) => {
-      const { fileType, config } = args as {
+      const { fileType, config: _config } = args as {
         fileType: "sitemap" | "robots";
         config?: Record<string, unknown>;
       };
@@ -369,7 +368,7 @@ export default function robots(): RobotsFile {
     },
 
     "mandu.seo.analyze": async (args: Record<string, unknown>) => {
-      const { metadata, url } = args as { metadata: Metadata; url?: string };
+      const { metadata, url: _url } = args as { metadata: Metadata; url?: string };
 
       const issues: Array<{ severity: "error" | "warning" | "info"; message: string }> = [];
       const recommendations: string[] = [];

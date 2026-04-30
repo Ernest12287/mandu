@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { getAtePaths, ensureDir, writeJson } from "./fs";
 import { createDefaultOracle } from "./oracle";
 import type { SummaryJson, OracleLevel } from "./types";
-import { generateHtmlReport, type HtmlReportOptions } from "./reporter/html";
+import { generateHtmlReport } from "./reporter/html";
 
 export function composeSummary(params: {
   repoRoot: string;

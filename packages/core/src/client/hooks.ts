@@ -7,10 +7,6 @@ import { useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 
 import {
   subscribe,
   getRouterState,
-  getCurrentRoute,
-  getLoaderData,
-  getActionData,
-  getNavigationState,
   navigate,
   submitAction,
   type RouteInfo,

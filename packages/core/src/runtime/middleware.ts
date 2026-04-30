@@ -1,3 +1,4 @@
+import type * as __ManduFsTypes0 from "fs";
 /**
  * Mandu Global Middleware
  * 라우트 매칭 전에 실행되는 글로벌 미들웨어 시스템
@@ -227,7 +228,7 @@ export async function loadMiddleware(
 export function loadMiddlewareSync(
   rootDir: string
 ): { fn: MiddlewareFn; config: MiddlewareConfig | null } | null {
-  const fs = require("fs") as typeof import("fs");
+  const fs = require("fs") as typeof __ManduFsTypes0;
   const possiblePaths = [
     `${rootDir}/middleware.ts`,
     `${rootDir}/middleware.js`,

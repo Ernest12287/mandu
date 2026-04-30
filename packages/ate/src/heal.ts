@@ -196,7 +196,7 @@ function generateTestCodeDiff(
   context: string,
 ): string | null {
   // Escape special regex characters
-  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const _escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   // Try to infer the line content from context
   const contextLine = context.trim();

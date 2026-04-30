@@ -7,7 +7,6 @@
  */
 
 import {
-  MCP_SERVER_STATUS,
   type McpServerStatusMetadata,
 } from "./symbols.js";
 

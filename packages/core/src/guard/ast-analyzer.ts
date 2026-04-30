@@ -382,14 +382,14 @@ export function extractImportsAST(content: string): ImportInfo[] {
 
       let namedImports: string[] | undefined;
       let defaultImport: string | undefined;
-      let namespaceImport: string | undefined;
-      let isTypeOnly = false;
+      let _namespaceImport: string | undefined;
+      let _isTypeOnly = false;
 
       // Check for type-only import
       if (is("keyword", "type")) {
         consume("keyword", "type");
         skip();
-        isTypeOnly = true;
+        _isTypeOnly = true;
       }
 
       // Side-effect import: import '...'
@@ -427,7 +427,7 @@ export function extractImportsAST(content: string): ImportInfo[] {
           consume("keyword", "as");
           skip();
           if (is("identifier")) {
-            namespaceImport = consume("identifier")!.value;
+            _namespaceImport = consume("identifier")!.value;
             skip();
           }
         }
@@ -777,7 +777,7 @@ export interface ModuleAnalysis {
   /** Public API 여부 (index 파일) */
   isPublicAPI: boolean;
   /** 순수 타입 모듈 여부 */
-  isTypeOnly: boolean;
+  _isTypeOnly: boolean;
 }
 
 /**
@@ -795,12 +795,12 @@ export function analyzeModuleAST(content: string, filePath: string): ModuleAnaly
   // 타입만 있는 모듈인지 확인
   const hasRuntimeExport = exports.some((e) => e.type !== "type");
   const hasRuntimeImport = imports.some((i) => !i.statement.includes("import type"));
-  const isTypeOnly = !hasRuntimeExport && !hasRuntimeImport && exports.length > 0;
+  const _isTypeOnly = !hasRuntimeExport && !hasRuntimeImport && exports.length > 0;
 
   return {
     imports,
     exports,
     isPublicAPI,
-    isTypeOnly,
+    _isTypeOnly,
   };
 }

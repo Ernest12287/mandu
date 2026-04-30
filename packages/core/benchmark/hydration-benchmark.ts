@@ -254,7 +254,7 @@ async function measureHydration(page: Page): Promise<{
   return page.evaluate(() => {
     return new Promise((resolve) => {
       const startTime = performance.now();
-      let hydratedCount = 0;
+      let _hydratedCount = 0;
       const totalIslands = document.querySelectorAll("[data-mandu-island]").length;
 
       if (totalIslands === 0) {

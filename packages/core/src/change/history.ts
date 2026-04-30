@@ -114,7 +114,7 @@ export async function pruneHistory(
 /**
  * History 설정 로드 (향후 mandu.config.json에서 로드)
  */
-export async function loadHistoryConfig(rootDir: string): Promise<HistoryConfig> {
+export async function loadHistoryConfig(_rootDir: string): Promise<HistoryConfig> {
   // 향후 mandu.config.json에서 로드하도록 확장
   // 현재는 기본값 반환
   return DEFAULT_HISTORY_CONFIG;

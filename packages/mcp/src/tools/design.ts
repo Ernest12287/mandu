@@ -1,3 +1,4 @@
+import type * as __ManduNodeFsTypes0 from "node:fs";
 /**
  * MCP design discovery tools — Issue #245 M4 (Team C).
  *
@@ -27,7 +28,6 @@ import {
   extractDesignTokens,
   fetchUpstreamDesignMd,
   parseDesignMd,
-  patchDesignMd,
   patchDesignMdBatch,
   type DesignSpec,
   type DesignSectionId,
@@ -314,7 +314,7 @@ async function componentList(
 async function collectFiles(root: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(dir: string): Promise<void> {
-    let names: import("node:fs").Dirent[];
+    let names: __ManduNodeFsTypes0.Dirent[];
     try {
       names = await fs.readdir(dir, { withFileTypes: true });
     } catch {

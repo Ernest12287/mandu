@@ -44,7 +44,7 @@ function sortFindings(findings: ReviewFinding[]): ReviewFinding[] {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function _isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 

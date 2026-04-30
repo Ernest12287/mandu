@@ -62,7 +62,7 @@
  */
 
 import { isPerfEnabled } from "./index";
-import { getTracer, getActiveSpan, runWithSpan, type Span } from "../observability/tracing";
+import { getTracer, runWithSpan, type Span } from "../observability/tracing";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

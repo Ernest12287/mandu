@@ -14,7 +14,7 @@ import {
   detectCoverageGaps,
   precommitCheck,
 } from "@mandujs/ate";
-import type { OracleLevel, AteMonitorEvent, FailureV1 } from "@mandujs/ate";
+import type { OracleLevel, AteMonitorEvent } from "@mandujs/ate";
 import { eventBus } from "@mandujs/core/observability";
 import {
   writePartialResults,

@@ -13,8 +13,6 @@ import type {
   CheckImportResult,
   ProjectStructure,
   FolderInfo,
-  FolderRule,
-  ImportRule,
 } from "./types";
 import { getBrain } from "../brain";
 import path from "path";

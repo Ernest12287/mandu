@@ -17,10 +17,9 @@ import {
   initializePersistence,
   destroyPersistence,
   getStateManager,
-  getPersistenceManager,
 } from './client';
 import { initializeWorkerManager, destroyWorkerManager } from './worker';
-import { getContextBuilder, resetContextBuilder, getMCPConnector, destroyMCPConnector } from './ai';
+import { getContextBuilder, resetContextBuilder, destroyMCPConnector } from './ai';
 
 // ============================================================================
 // Types
@@ -134,7 +133,7 @@ export function initManduKitchen(config: DevToolsConfig = {}): KitchenInstance {
     });
 
     // 6. v1.1: AI Context Builder 초기화
-    const contextBuilder = getContextBuilder({ config });
+    const _contextBuilder = getContextBuilder({ config });
 
     // 7. UI 마운트
     mountKitchen(config);

@@ -1,3 +1,4 @@
+import type * as __ManduNodeFsTypes0 from "node:fs";
 /**
  * Guard rule — `DESIGN_INLINE_CLASS` (Issue #245).
  *
@@ -92,7 +93,7 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 async function* walk(rootDir: string): AsyncIterable<string> {
-  let entries: import("node:fs").Dirent[];
+  let entries: __ManduNodeFsTypes0.Dirent[];
   try {
     entries = await fs.readdir(rootDir, { withFileTypes: true });
   } catch {

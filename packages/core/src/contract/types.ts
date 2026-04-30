@@ -14,7 +14,7 @@ import type {
 /**
  * Extract inferred type from Zod schema
  */
-type InferZod<T> = T extends z.ZodTypeAny ? z.infer<T> : never;
+type _InferZod<T> = T extends z.ZodTypeAny ? z.infer<T> : never;
 
 /**
  * Extract inferred type from response schema (supports ResponseSchemaWithExamples)

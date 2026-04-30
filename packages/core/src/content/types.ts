@@ -110,7 +110,7 @@ export interface LoaderContext {
 /**
  * parseData 옵션
  */
-export interface ParseDataOptions<T> {
+export interface ParseDataOptions<_T> {
   /** 엔트리 ID */
   id: string;
   /** 원본 데이터 */

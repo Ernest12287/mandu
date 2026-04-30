@@ -1,3 +1,4 @@
+import type * as __ManduMandujsCoreTypes0 from "@mandujs/core";
 /**
  * mandu start - Production server
  *
@@ -209,7 +210,7 @@ export async function start(options: StartOptions = {}): Promise<void> {
   let actualPort: number;
   let stopFn: () => void;
 
-  const adapter = (config as Record<string, unknown>).adapter as import("@mandujs/core").ManduAdapter | undefined;
+  const adapter = (config as Record<string, unknown>).adapter as __ManduMandujsCoreTypes0.ManduAdapter | undefined;
 
   if (adapter) {
     console.log(`🔌 Using adapter: ${adapter.name}`);

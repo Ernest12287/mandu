@@ -13,7 +13,7 @@
  */
 import fg from "fast-glob";
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname } from "node:path";
 
 export type ZodFieldKind = "string" | "number" | "boolean" | "array" | "object" | "unknown";
 

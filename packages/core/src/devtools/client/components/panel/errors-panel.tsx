@@ -159,7 +159,7 @@ export interface ErrorsPanelProps {
 export function ErrorsPanel({
   errors,
   onErrorClick,
-  onErrorIgnore,
+  onErrorIgnore: _onErrorIgnore,
   onClearAll,
 }: ErrorsPanelProps): React.ReactElement {
   const formatTime = useCallback((timestamp: number): string => {

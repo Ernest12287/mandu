@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { resolve, relative, extname, basename, dirname } from "node:path";
+import { resolve, extname, basename } from "node:path";
 import { getAtePaths, readJson } from "./fs";
 import type { InteractionGraph, InteractionNode } from "./types";
 import { buildDependencyGraph, findDependents } from "./dep-graph";

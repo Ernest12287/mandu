@@ -21,6 +21,14 @@ import path from "path";
 
 export const KITCHEN_PREFIX = "/__kitchen";
 
+function reverseCopy<T>(items: readonly T[]): T[] {
+  const reversed: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    reversed.push(items[index] as T);
+  }
+  return reversed;
+}
+
 export interface KitchenOptions {
   rootDir: string;
   manifest: RoutesManifest;
@@ -75,7 +83,7 @@ export function recordRequest(entry: RequestEntry): void {
 }
 
 export function getRecentRequests(): RequestEntry[] {
-  return [...recentRequests].reverse();
+  return reverseCopy(recentRequests);
 }
 
 /** Parse a window string like "5m", "30s", "1h" into milliseconds. */
@@ -325,7 +333,7 @@ export class KitchenHandler {
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
       const busEvents = eventBus.getRecent(limit, { type: "http" });
       if (busEvents.length > 0) {
-        return Response.json({ requests: busEvents.slice().reverse() });
+        return Response.json({ requests: reverseCopy(busEvents) });
       }
       return Response.json({ requests: getRecentRequests().slice(0, limit) });
     }
@@ -346,7 +354,7 @@ export class KitchenHandler {
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
       const busEvents = eventBus.getRecent(limit, { type: "mcp" });
       if (busEvents.length > 0) {
-        return Response.json({ events: busEvents.slice().reverse() });
+        return Response.json({ events: reverseCopy(busEvents) });
       }
       const events = await this.readRecentActivity();
       return Response.json({ events });
@@ -490,7 +498,7 @@ export class KitchenHandler {
     try {
       const content = await fs.readFile(logPath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
-      return lines.slice(-50).reverse().map((line) => {
+      return reverseCopy(lines.slice(-50)).map((line) => {
         try { return JSON.parse(line); } catch { return null; }
       }).filter(Boolean);
     } catch { return []; }

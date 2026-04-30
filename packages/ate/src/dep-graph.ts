@@ -1,4 +1,5 @@
-import { normalize, resolve, relative, dirname, sep } from "node:path";
+import type * as __ManduTsMorphTypesTypes0 from "./ts-morph-types";
+import { resolve, dirname } from "node:path";
 
 /**
  * Dependency graph: file → Set of files it depends on
@@ -38,10 +39,10 @@ function normalizePath(path: string, rootDir: string): string {
  * Resolve import specifier to file path
  */
 function resolveImport(
-  sourceFile: import("./ts-morph-types").SourceFile,
+  sourceFile: __ManduTsMorphTypesTypes0.SourceFile,
   importSpecifier: string,
   rootDir: string,
-  project: import("./ts-morph-types").Project
+  project: __ManduTsMorphTypesTypes0.Project
 ): string | null {
   // Skip external modules (no relative/absolute path)
   if (!importSpecifier.startsWith(".") && !importSpecifier.startsWith("/")) {

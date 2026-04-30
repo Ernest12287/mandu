@@ -1,3 +1,4 @@
+import type * as __ManduFsTypes0 from "fs";
 /**
  * Mandu Image Handler
  * /_mandu/image?url=...&w=...&q=... 엔드포인트
@@ -76,7 +77,7 @@ export async function handleImageRequest(
   // realpath로 symlink를 해석한 후 allowedBaseDir 내부인지 검증
   let resolvedPath: string;
   try {
-    const realFs = require("fs") as typeof import("fs");
+    const realFs = require("fs") as typeof __ManduFsTypes0;
     resolvedPath = realFs.realpathSync(filePath);
     const resolvedBase = realFs.realpathSync(allowedBaseDir);
     if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {

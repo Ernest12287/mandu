@@ -28,7 +28,7 @@
 let installed = false;
 
 /** Reference to the shim object we installed, for test-only teardown. */
-let installedShim: Record<string, unknown> | null = null;
+let _installedShim: Record<string, unknown> | null = null;
 
 const UNSUPPORTED_API_MESSAGE = (name: string): string =>
   `[@mandujs/edge/workers] Bun.${name} is not available on Cloudflare Workers. ` +
@@ -87,7 +87,7 @@ export function installWorkersPolyfills(): void {
       configurable: true,
       enumerable: false,
     });
-    installedShim = shim;
+    _installedShim = shim;
   } catch {
     // Defensive: if the host has already locked the slot, bail silently.
     // The caller will see the original `Bun is not defined` error on use.
@@ -132,5 +132,5 @@ export function _createWorkersPolyfillShim(): Record<string, unknown> {
  */
 export function _resetPolyfillsForTesting(): void {
   installed = false;
-  installedShim = null;
+  _installedShim = null;
 }

@@ -14,7 +14,7 @@ import { getPluralName, getEnabledEndpoints } from "../schema";
 export function generateResourceContract(definition: ResourceDefinition): string {
   const resourceName = definition.name;
   const pascalName = toPascalCase(resourceName);
-  const pluralName = getPluralName(definition);
+  const _pluralName = getPluralName(definition);
   const endpoints = getEnabledEndpoints(definition);
 
   // Generate schema definitions

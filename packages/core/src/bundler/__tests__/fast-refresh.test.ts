@@ -541,18 +541,16 @@ describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")(
       // 7-parallel shim fan-out fail with `AggregateError: Bundle failed`
       // ~100 % of the time for the affected shim(s). A subprocess has a
       // clean module graph.
-      const { spawn } = await import("node:child_process");
       const runner = path.join(import.meta.dir, "build-runner.ts");
       const cwd = path.resolve(import.meta.dir, "..", "..", "..");
-      const out = await new Promise<string>((resolve) => {
-        const proc = spawn(process.execPath, ["run", runner, rootDir], {
-          cwd,
-          stdio: ["ignore", "pipe", "inherit"],
-        });
-        let buf = "";
-        proc.stdout.on("data", (d: Buffer) => (buf += d.toString("utf-8")));
-        proc.on("close", () => resolve(buf));
+      const proc = Bun.spawn([process.execPath, "run", runner, rootDir], {
+        cwd,
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "inherit",
       });
+      const out = await new Response(proc.stdout).text();
+      await proc.exited;
       const jsonLine =
         out
           .split(/\r?\n/)

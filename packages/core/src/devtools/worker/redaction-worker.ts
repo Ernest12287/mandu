@@ -6,7 +6,7 @@
  * Prevents main thread blocking during large payload processing
  */
 
-import type { RedactPattern, WorkerTask } from '../types';
+import type { RedactPattern } from '../types';
 
 // ============================================================================
 // Worker Message Types
@@ -206,15 +206,18 @@ function handleMessage(request: WorkerRequest): WorkerResponse {
 // Worker 컨텍스트에서만 실행
 interface WorkerSelf {
   postMessage: (message: WorkerResponse) => void;
-  onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
+  addEventListener: (
+    type: 'message',
+    listener: (event: MessageEvent<WorkerRequest>) => void
+  ) => void;
 }
 const workerSelf = typeof self !== 'undefined' ? (self as unknown as WorkerSelf) : undefined;
 if (workerSelf && typeof workerSelf.postMessage === 'function') {
-  workerSelf.onmessage = (event: MessageEvent<WorkerRequest>) => {
+  workerSelf.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
     const response = handleMessage(event.data);
     // oxlint-disable-next-line require-post-message-target-origin -- Worker.postMessage has no targetOrigin parameter.
     workerSelf.postMessage(response);
-  };
+  });
 }
 
 // ============================================================================

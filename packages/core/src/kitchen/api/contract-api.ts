@@ -193,7 +193,7 @@ export class ContractPlaygroundAPI {
       }
 
       return Response.json({ valid: true });
-    } catch (e) {
+    } catch  {
       return Response.json(
         { error: "Invalid request body" },
         { status: 400 },

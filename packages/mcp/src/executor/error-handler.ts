@@ -6,8 +6,6 @@
 
 import {
   extractErrorInfo,
-  classifyError,
-  serializeError,
   isRetryableError,
   type ErrorCategory,
   type ExtractedErrorInfo,

@@ -20,7 +20,7 @@
  *     ATE worker).
  */
 import { readFileSync, existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { relative } from "node:path";
 import fg from "fast-glob";
 import { parseZodExpression, probesForView, dedupProbes } from "./rules";
 import type { BoundaryProbe, ProbeCategory, ZodTypeView } from "./rules";

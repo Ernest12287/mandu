@@ -24,7 +24,6 @@ import {
   runReactCompilerLint,
   formatCompilerReport,
   type GuardConfig,
-  type ConfigGuardResult,
   type ReactCompilerDiagnostic,
 } from "@mandujs/core";
 import { resolveReactCompilerConfig } from "@mandujs/core/bundler/plugins";

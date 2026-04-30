@@ -4,10 +4,10 @@
  */
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { getProjectPaths, readJsonFile } from "../utils/project.js";
+import { getProjectPaths } from "../utils/project.js";
 import { loadManifest } from "@mandujs/core";
 import path from "path";
-import fs from "fs/promises";
+
 
 export const runtimeToolDefinitions: Tool[] = [
   {

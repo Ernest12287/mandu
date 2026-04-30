@@ -111,7 +111,7 @@ function fixForbiddenImport(
 
   // 어떤 금지된 모듈인지 찾기
   let forbiddenModule = "";
-  for (const [module, alternative] of Object.entries(SAFE_ALTERNATIVES)) {
+  for (const [module, _alternative] of Object.entries(SAFE_ALTERNATIVES)) {
     if (originalLine.includes(`'${module}'`) || originalLine.includes(`"${module}"`)) {
       forbiddenModule = module;
       break;

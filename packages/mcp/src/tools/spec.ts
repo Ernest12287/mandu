@@ -1,13 +1,9 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   loadManifest,
-  validateManifest,
   generateManifest,
-  GENERATED_RELATIVE_PATHS,
-  type RouteSpec,
-  type RoutesManifest,
 } from "@mandujs/core";
-import { getProjectPaths, readJsonFile, writeJsonFile } from "../utils/project.js";
+import { getProjectPaths } from "../utils/project.js";
 import path from "path";
 import fs from "fs/promises";
 

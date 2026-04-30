@@ -41,7 +41,6 @@ import {
   isDeployTarget,
   type AdapterArtifact,
   type AdapterCheckResult,
-  type DeployAdapter,
   type DeployAdapterRegistry,
   type DeployEnvironment,
   type DeployOptions,

@@ -2,7 +2,7 @@ import {
   planResumeFrom,
   subscribeWithSnapshot,
 } from "@/server/application/chat-store";
-import type { ChatMessage, ChatStreamEvent } from "@/shared/contracts/chat";
+import type { ChatStreamEvent } from "@/shared/contracts/chat";
 import { createSSEConnection } from "@mandujs/core";
 import { createRateLimiter } from "@mandujs/core/runtime/server";
 

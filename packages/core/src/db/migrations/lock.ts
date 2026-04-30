@@ -102,11 +102,11 @@ async function acquirePgAdvisoryLock(
   // hash-function reproduction.
   await db`SELECT pg_advisory_lock(hashtext(${lockId})::bigint)`;
 
-  let released = false;
+  let _released = false;
   return {
     async release(): Promise<void> {
-      if (released) return;
-      released = true;
+      if (_released) return;
+      _released = true;
       try {
         await db`SELECT pg_advisory_unlock(hashtext(${lockId})::bigint)`;
       } catch (err) {
@@ -147,11 +147,11 @@ async function acquireMysqlLock(
     );
   }
 
-  let released = false;
+  let _released = false;
   return {
     async release(): Promise<void> {
-      if (released) return;
-      released = true;
+      if (_released) return;
+      _released = true;
       try {
         await db`SELECT RELEASE_LOCK(${lockId})`;
       } catch (err) {
@@ -229,11 +229,11 @@ async function acquireSqliteImmediate(
   // Wait for the previous holder to release.
   await previous;
 
-  let released = false;
+  let _released = false;
   return {
     async release(): Promise<void> {
-      if (released) return;
-      released = true;
+      if (_released) return;
+      _released = true;
       release();
       // If no one queued behind us, drop the entry so the registry
       // doesn't grow unbounded across many apply() cycles.
@@ -245,10 +245,10 @@ async function acquireSqliteImmediate(
 }
 
 function makeNoopLock(): MigrationLock {
-  let released = false;
+  let _released = false;
   return {
     async release(): Promise<void> {
-      released = true;
+      _released = true;
     },
   };
 }

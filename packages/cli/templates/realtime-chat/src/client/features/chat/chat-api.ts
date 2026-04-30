@@ -118,9 +118,6 @@ export function openChatStream(
       return;
     }
 
-    source.onopen = null;
-    source.onmessage = null;
-    source.onerror = null;
     source.close();
     source = null;
   };
@@ -161,16 +158,16 @@ export function openChatStream(
     const currentSource = createSource(toStreamUrl());
     source = currentSource;
 
-    currentSource.onopen = () => {
+    currentSource.addEventListener("open", () => {
       if (source !== currentSource || isDisposed) {
         return;
       }
 
       reconnectAttempts = 0;
       setConnectionState("connected");
-    };
+    });
 
-    currentSource.onmessage = (event) => {
+    currentSource.addEventListener("message", (event) => {
       if (source !== currentSource || isDisposed) {
         return;
       }
@@ -186,16 +183,16 @@ export function openChatStream(
       } catch {
         // Ignore malformed SSE payloads.
       }
-    };
+    });
 
-    currentSource.onerror = () => {
+    currentSource.addEventListener("error", () => {
       if (source !== currentSource || isDisposed) {
         return;
       }
 
       closeSource();
       scheduleReconnect();
-    };
+    });
   };
 
   connect();

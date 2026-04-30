@@ -1,7 +1,6 @@
 import path from "path";
 import {
   generateManifest,
-  loadManifest,
   type RoutesManifest,
   type FSScannerConfig,
 } from "@mandujs/core";

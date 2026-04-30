@@ -9,7 +9,6 @@
  */
 
 import fs from "fs/promises";
-import path from "path";
 
 interface ImpactMap {
   [pattern: string]: string[];

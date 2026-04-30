@@ -54,7 +54,7 @@ export class ErrorClassifier {
   /**
    * ValidationError 처리
    */
-  private createValidationError(error: { errors: unknown[] }): ManduError {
+  private createValidationError(_error: { errors: unknown[] }): ManduError {
     const slotFile = this.findSlotFile();
 
     return {

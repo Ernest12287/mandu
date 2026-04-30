@@ -23,7 +23,7 @@
 
 import { join, dirname } from "path";
 import { mkdir, writeFile, readdir, stat } from "fs/promises";
-import { searchDecisions, type ArchitectureDecision } from "./decision-memory";
+import { searchDecisions } from "./decision-memory";
 import { getPreset, type GuardPreset, type PresetDefinition } from "./presets";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1176,10 +1176,10 @@ export async function negotiate(
 ): Promise<NegotiationResponse> {
   const {
     intent,
-    requirements = [],
+    requirements: _requirements = [],
     constraints = [],
     preset = "mandu",
-    context,
+    context: _context,
   } = request;
 
   // 1. 카테고리 감지

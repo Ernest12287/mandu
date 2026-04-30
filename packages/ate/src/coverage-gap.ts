@@ -148,7 +148,7 @@ function buildSuggestion(
   gapType: CoverageGapType,
   from: string,
   to: string,
-  edgeSource?: string,
+  _edgeSource?: string,
 ): string {
   switch (gapType) {
     case "route-transition":

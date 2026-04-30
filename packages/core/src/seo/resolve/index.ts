@@ -17,10 +17,6 @@ import type {
   ResolvedVerification,
   JsonLd,
   ThemeColor,
-  ResourceHint,
-  FormatDetection,
-  GoogleMeta,
-  AppLinks,
 } from '../types'
 import { resolveTitle, extractTitleTemplate } from './title'
 import { normalizeMetadataBase, resolveUrl } from './url'

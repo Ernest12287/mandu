@@ -102,7 +102,7 @@ export function extractProtectedFields(
       }
       // 민감 필드도 보호 대상
       else if (isSensitiveField(value)) {
-        const meta = getMetadata(value, SENSITIVE_FIELD) as SensitiveFieldMetadata | undefined;
+        const _meta = getMetadata(value, SENSITIVE_FIELD) as SensitiveFieldMetadata | undefined;
         fields.push({
           path: currentPath,
           reason: "Sensitive field - redacted in logs",
@@ -187,7 +187,7 @@ export function extractContractProtectedFields(
 /**
  * 객체에서 경로로 값 가져오기
  */
-function getValueByPath(obj: unknown, path: string): unknown {
+function _getValueByPath(obj: unknown, path: string): unknown {
   const parts = path.split(".");
   let current: unknown = obj;
 

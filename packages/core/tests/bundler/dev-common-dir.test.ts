@@ -108,6 +108,39 @@ describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")("dev bundler — c
 
 import { buildClientBundles } from "../../src/bundler/build";
 
+async function runIsolatedClientBuild(rootDir: string): Promise<{
+  success: boolean;
+  errors: string[];
+  manifest: {
+    shared: {
+      runtime: string | null;
+      vendor: string | null;
+      router: string | null;
+    };
+    bundles: Record<string, { js?: string }>;
+  };
+}> {
+  const runner = path.resolve(
+    import.meta.dir,
+    "../../src/bundler/__tests__/build-runner.ts",
+  );
+  const cwd = path.resolve(import.meta.dir, "../..");
+  const proc = Bun.spawn([process.execPath, "run", runner, rootDir], {
+    cwd,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  const jsonLine =
+    out
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0)
+      .pop() ?? "";
+  return JSON.parse(jsonLine);
+}
+
 describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")("buildClientBundles — skipFrameworkBundles (#185)", () => {
   let rootDir: string;
 
@@ -179,11 +212,7 @@ describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")("buildClientBundle
       ],
     } as RoutesManifest;
 
-    const fullBuild = await buildClientBundles(manifest, rootDir, {
-      minify: false,
-      sourcemap: false,
-      splitting: false,
-    });
+    const fullBuild = await runIsolatedClientBuild(rootDir);
     expect(fullBuild.success).toBe(true);
 
     // framework 경로 스냅샷
@@ -192,6 +221,9 @@ describe.skipIf(process.env.MANDU_SKIP_BUNDLER_TESTS === "1")("buildClientBundle
     const beforeRouter = fullBuild.manifest.shared.router;
     expect(beforeRuntime).toBeTruthy();
     expect(beforeVendor).toBeTruthy();
+    if (!beforeRuntime || !beforeVendor || !beforeRouter) {
+      throw new Error("isolated build did not emit framework shared paths");
+    }
 
     // 2단계: skipFrameworkBundles=true로 재빌드
     const skipBuild = await buildClientBundles(manifest, rootDir, {

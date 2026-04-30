@@ -11,7 +11,6 @@ import type {
   Plugin,
   PluginApi,
   PluginCategory,
-  PluginMeta,
   GuardPresetPlugin,
   BuildPlugin,
   LoggerTransportPlugin,
@@ -22,7 +21,7 @@ import type {
 /**
  * 플러그인 등록 상태
  */
-type PluginState = "pending" | "loaded" | "error" | "unloaded";
+type _PluginState = "pending" | "loaded" | "error" | "unloaded";
 
 /**
  * 등록된 플러그인 정보 (discriminated union by state)

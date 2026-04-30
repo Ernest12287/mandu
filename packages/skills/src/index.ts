@@ -5,7 +5,7 @@
  * in Claude Code projects.
  */
 
-import { readdir, readFile, writeFile, mkdir, access, copyFile } from "fs/promises";
+import { readFile, writeFile, mkdir, access, copyFile } from "fs/promises";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 

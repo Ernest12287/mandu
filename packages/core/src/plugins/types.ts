@@ -7,7 +7,7 @@
  * - 라이프사이클 훅
  */
 
-import type { z, ZodSchema } from "zod";
+import type { ZodSchema } from "zod";
 
 /**
  * 플러그인 카테고리

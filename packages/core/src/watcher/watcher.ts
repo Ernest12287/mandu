@@ -10,7 +10,7 @@ import type {
   WatchWarning,
   WatchEventHandler,
 } from "../brain/types";
-import { validateFile, MVP_RULES } from "./rules";
+import { validateFile } from "./rules";
 import path from "path";
 import fs from "fs";
 import { spawn, type ChildProcess } from "child_process";

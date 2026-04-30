@@ -18,13 +18,10 @@ import {
   readLockfile,
   readMcpConfig,
   writeLockfile,
-  lockfileExists,
-  validateLockfile,
   validateWithPolicy,
   formatValidationResult,
   formatPolicyAction,
   detectMode,
-  isBypassed,
   diffConfig,
   formatConfigDiff,
   summarizeDiff,
@@ -97,7 +94,7 @@ export async function lock(options: LockOptions = {}): Promise<boolean> {
     return false;
   }
 
-  const log = (msg: string) => {
+  const _log = (msg: string) => {
     if (!quiet && !json) {
       console.log(msg);
     }

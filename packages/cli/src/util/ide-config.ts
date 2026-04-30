@@ -297,7 +297,7 @@ export async function writeConfigAtomic(
  *
  * We unify them via `mcpServersKey` per provider.
  */
-function mcpServersKey(provider: IdeProvider): string {
+function mcpServersKey(_provider: IdeProvider): string {
   // Claude Code: `mcpServers` (confirmed in Anthropic docs).
   // Cursor:      `mcpServers` (same shape).
   // Continue:    `mcpServers` (since mcp-schema v2 config).

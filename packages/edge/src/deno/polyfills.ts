@@ -23,7 +23,7 @@
 let installed = false;
 
 /** Reference to the shim object we installed, for test-only teardown. */
-let installedShim: Record<string, unknown> | null = null;
+let _installedShim: Record<string, unknown> | null = null;
 
 const UNSUPPORTED_API_MESSAGE = (name: string): string =>
   `[@mandujs/edge/deno] Bun.${name} is not available on Deno Deploy. ` +
@@ -76,7 +76,7 @@ export function installDenoPolyfills(): void {
       configurable: true,
       enumerable: false,
     });
-    installedShim = shim;
+    _installedShim = shim;
   } catch {
     installed = false;
   }
@@ -119,5 +119,5 @@ export function _createDenoPolyfillShim(): Record<string, unknown> {
  */
 export function _resetPolyfillsForTesting(): void {
   installed = false;
-  installedShim = null;
+  _installedShim = null;
 }

@@ -62,7 +62,6 @@ import type { ParsedResource } from "../parser";
 import type {
   Change,
   DdlDefault,
-  DdlFieldDef,
   DdlIndex,
   DdlResource,
   Snapshot,

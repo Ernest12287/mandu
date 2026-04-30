@@ -6,7 +6,6 @@
 
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { watchConfig, hasConfigChanged, getChangedSections, type ManduConfig } from "@mandujs/core";
-import { mcpToolRegistry } from "../registry/mcp-tool-registry.js";
 
 /**
  * MCP Config Watcher 옵션

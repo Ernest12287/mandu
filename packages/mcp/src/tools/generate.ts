@@ -53,7 +53,7 @@ export function generateTools(projectRoot: string) {
       const { dryRun, resources = true } = args as { dryRun?: boolean; resources?: boolean };
 
       // Regenerate manifest from FS Routes first
-      const fsResult = await generateManifest(projectRoot);
+      const _fsResult = await generateManifest(projectRoot);
 
       // Load the freshly generated manifest
       const manifestResult = await loadManifest(paths.manifestPath);

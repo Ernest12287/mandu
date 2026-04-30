@@ -26,6 +26,14 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs
 import { join } from "node:path";
 import { ensureDir } from "./fs";
 
+function reverseCopy<T>(items: readonly T[]): T[] {
+  const reversed: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    reversed.push(items[index] as T);
+  }
+  return reversed;
+}
+
 export interface RunHistoryEntry {
   specPath: string;
   runId: string;
@@ -216,13 +224,11 @@ export function summarizeFlakes(
     const score = computeFlakeScore(repoRoot, specPath, windowSize);
     if (score < minScore) continue;
     const window = entries.slice(-windowSize);
-    const lastPass = [...entries].reverse().find((e) => e.status === "pass");
+    const lastPass = reverseCopy(entries).find((e) => e.status === "pass");
     summaries.push({
       specPath,
       flakeScore: score,
-      lastRuns: window
-        .slice()
-        .reverse()
+      lastRuns: reverseCopy(window)
         .map((e) => ({
           runId: e.runId,
           status: e.status,

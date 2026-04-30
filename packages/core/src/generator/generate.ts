@@ -1,4 +1,4 @@
-import type { RoutesManifest, RouteSpec } from "../spec/schema";
+import type { RoutesManifest } from "../spec/schema";
 import { generateApiHandler, generatePageComponent, generateSlotLogic } from "./templates";
 import { generateContractTypeGlue, generateContractTemplate, generateContractTypesIndex } from "./contract-glue";
 import { createHash } from "crypto";
@@ -102,7 +102,7 @@ export interface GeneratedMap {
 async function ensureDir(dirPath: string): Promise<void> {
   try {
     await fs.mkdir(dirPath, { recursive: true });
-  } catch (error) {
+  } catch  {
     // ignore if exists
   }
 }

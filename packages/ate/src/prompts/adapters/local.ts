@@ -25,6 +25,14 @@ import type {
   PromptStreamTerminal,
 } from "../types";
 
+function reverseCopy<T>(items: readonly T[]): T[] {
+  const reversed: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    reversed.push(items[index] as T);
+  }
+  return reversed;
+}
+
 /**
  * Deterministic offline responder. Given the same messages, emits the
  * same output — so tests + CI never flake.
@@ -33,7 +41,7 @@ import type {
  * string shape end-to-end.
  */
 export function renderLocalDummy(messages: PromptMessage[]): string {
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const lastUser = reverseCopy(messages).find((m) => m.role === "user");
   const systems = messages.filter((m) => m.role === "system").map((m) => m.content);
   const systemDigest = systems.length > 0 ? `(system: ${systems[0].slice(0, 60).replace(/\s+/g, " ")}${systems[0].length > 60 ? "..." : ""})` : "(no system prompt)";
   const userText = lastUser?.content ?? "(no user message)";

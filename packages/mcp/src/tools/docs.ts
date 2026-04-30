@@ -1,3 +1,4 @@
+import type * as __ManduNodeFsTypes0 from "node:fs";
 /**
  * MCP tools — `mandu.docs.search` + `mandu.docs.get`
  *
@@ -113,7 +114,7 @@ function validateGet(raw: Record<string, unknown>): {
 
 async function walkDocs(rootDir: string, relPrefix = ""): Promise<string[]> {
   const out: string[] = [];
-  let entries: import("node:fs").Dirent[];
+  let entries: __ManduNodeFsTypes0.Dirent[];
   try {
     entries = await fs.readdir(rootDir, { withFileTypes: true });
   } catch {

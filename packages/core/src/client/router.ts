@@ -3,7 +3,7 @@
  * SPA 스타일 네비게이션을 위한 클라이언트 라우터
  */
 
-import type { ReactNode } from "react";
+
 import { startTransition } from "react";
 import {
   getManduData,
@@ -702,7 +702,7 @@ export async function submitAction(
         actionData: nextActionData,
         loaderData: result._revalidated ? result.loaderData as unknown : undefined,
       };
-  } catch (error) {
+  } catch  {
     if (controller.signal.aborted) return { ok: false };
 
     setRouterStateInternal({

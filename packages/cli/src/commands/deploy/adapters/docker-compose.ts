@@ -21,8 +21,6 @@ import type {
   AdapterCheckResult,
   AdapterIssue,
   DeployAdapter,
-  DeployOptions,
-  ProjectContext,
 } from "../types";
 
 const DEFAULT_PORT = 3333;

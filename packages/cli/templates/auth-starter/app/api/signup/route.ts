@@ -1,3 +1,4 @@
+import type * as __ManduMandujsCoreTypes0 from "@mandujs/core";
 /**
  * POST /api/signup
  *
@@ -26,7 +27,7 @@ interface SignupBody {
 }
 
 function redirectToSignup(
-  ctx: import("@mandujs/core").ManduContext,
+  ctx: __ManduMandujsCoreTypes0.ManduContext,
   error: string,
   email: string | undefined
 ): Response {

@@ -34,7 +34,7 @@
 
 import { existsSync } from "fs";
 import { relative, resolve, sep, isAbsolute, dirname, extname } from "path";
-import { minimatch } from "minimatch";
+
 import type {
   GuardConfig,
   LayerDefinition,

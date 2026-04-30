@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import type { FormEvent} from "react";
+import { useMemo, useState } from "react";
 import { Button, Input } from "@/client/shared/ui";
 import { useRealtimeChat } from "./use-realtime-chat";
 

@@ -30,7 +30,7 @@
  * drop them.
  */
 
-import { loadPrompt, type LoadedPrompt, type LoadPromptOptions } from "./prompt-loader";
+import { loadPrompt, type LoadPromptOptions } from "./prompt-loader";
 import {
   scanExemplars,
   type Exemplar,

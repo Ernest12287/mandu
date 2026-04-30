@@ -1,3 +1,4 @@
+import type * as __ManduNodeChildProcessTypes0 from "node:child_process";
 /**
  * Tests for `packages/ate/src/e2e-runner.ts`.
  *
@@ -215,7 +216,7 @@ function createStubSpawn(exitCode: number) {
     setImmediate(() => ee.emit("exit", exitCode));
     // The real spawn returns a ChildProcess; we satisfy the narrow subset
     // the runner uses via the cast.
-    return ee as unknown as ReturnType<typeof import("node:child_process").spawn>;
+    return ee as unknown as ReturnType<typeof __ManduNodeChildProcessTypes0.spawn>;
   };
 }
 
@@ -237,7 +238,7 @@ describe("runE2E", () => {
     try {
       const result = await runE2E({
         repoRoot: dir,
-        spawnImpl: createStubSpawn(0) as typeof import("node:child_process").spawn,
+        spawnImpl: createStubSpawn(0) as typeof __ManduNodeChildProcessTypes0.spawn,
       });
       expect(result.exitCode).toBe(0);
       expect(result.missingPeer).toBeNull();
@@ -251,7 +252,7 @@ describe("runE2E", () => {
     try {
       const result = await runE2E({
         repoRoot: dir,
-        spawnImpl: createStubSpawn(1) as typeof import("node:child_process").spawn,
+        spawnImpl: createStubSpawn(1) as typeof __ManduNodeChildProcessTypes0.spawn,
       });
       expect(result.exitCode).toBe(1);
     } finally {
@@ -268,8 +269,8 @@ describe("runE2E", () => {
         ee.kill = () => {
           /* no-op */
         };
-        return ee as unknown as ReturnType<typeof import("node:child_process").spawn>;
-      }) as unknown as typeof import("node:child_process").spawn;
+        return ee as unknown as ReturnType<typeof __ManduNodeChildProcessTypes0.spawn>;
+      }) as unknown as typeof __ManduNodeChildProcessTypes0.spawn;
 
       const result = await runE2E({
         repoRoot: dir,

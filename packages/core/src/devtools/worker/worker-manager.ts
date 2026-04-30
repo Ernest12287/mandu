@@ -88,8 +88,8 @@ export class WorkerManager {
       }
 
       // 메시지 핸들러 설정
-      this.worker.onmessage = this.handleWorkerMessage.bind(this);
-      this.worker.onerror = this.handleWorkerError.bind(this);
+      this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
+      this.worker.addEventListener('error', this.handleWorkerError.bind(this));
 
       // Ping 테스트
       const pingResult = await this.sendRequest({ type: 'ping', data: {} });
@@ -117,7 +117,7 @@ export class WorkerManager {
     }
 
     // 대기 중인 요청 모두 reject
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       pending.reject(new Error('Worker terminated'));
     }

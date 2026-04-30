@@ -1,3 +1,4 @@
+import type * as __ManduNodeFsTypes0 from "node:fs";
 /**
  * DESIGN.md token extractor — scan project source for tokens that
  * should be promoted into DESIGN.md (Issue #245 M4 §3.5 internal loop).
@@ -155,7 +156,7 @@ const SOURCE_RX = /\.(?:tsx?|jsx?|mdx?|css)$/;
 async function collectFiles(root: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(dir: string): Promise<void> {
-    let entries: import("node:fs").Dirent[];
+    let entries: __ManduNodeFsTypes0.Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

@@ -1,9 +1,10 @@
+import type * as __ManduContentCollectionTypes0 from "../content/collection";
 /**
  * Mandu Dev Bundler 🔥
  * 개발 모드 번들링 + HMR (Hot Module Replacement)
  */
 
-import type { RoutesManifest, RouteSpec } from "../spec/schema";
+import type { RoutesManifest } from "../spec/schema";
 import { buildClientBundles } from "./build";
 import type { BundleResult } from "./types";
 import { PORTS, TIMEOUTS } from "../constants";
@@ -1086,7 +1087,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
   const handleContentChange = async (files: readonly string[]): Promise<void> => {
     if (files.length === 0) return;
     try {
-      const mod: typeof import("../content/collection") = await import("../content/collection");
+      const mod: typeof __ManduContentCollectionTypes0 = await import("../content/collection");
       if (typeof mod.invalidateAllCollections === "function") {
         mod.invalidateAllCollections();
       }

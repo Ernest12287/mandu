@@ -74,7 +74,7 @@ async function fileExists(filePath: string): Promise<boolean> {
 async function ensureDir(dirPath: string): Promise<void> {
   try {
     await fs.mkdir(dirPath, { recursive: true });
-  } catch (error) {
+  } catch  {
     // Ignore if exists
   }
 }

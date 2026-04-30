@@ -1,3 +1,4 @@
+import type * as __ManduNodeCryptoTypes0 from "node:crypto";
 /**
  * Mandu OpenAPI Generator
  * Contract에서 OpenAPI 3.0 스펙 자동 생성
@@ -893,7 +894,7 @@ function sha256Hex(input: string): string {
   // path (it would turn `hoistSharedSchemas` into an unnecessarily async
   // cascade on the hot path).
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodeCrypto = require("node:crypto") as typeof import("node:crypto");
+  const nodeCrypto = require("node:crypto") as typeof __ManduNodeCryptoTypes0;
   return nodeCrypto.createHash("sha256").update(input).digest("hex");
 }
 

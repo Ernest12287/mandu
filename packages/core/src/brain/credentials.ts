@@ -28,7 +28,7 @@
  * expires_at) — `CredentialStore` serializes it as a JSON string.
  */
 
-import { promises as fs, constants as fsConstants } from "node:fs";
+import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 

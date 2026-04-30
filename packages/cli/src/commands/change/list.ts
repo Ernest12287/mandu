@@ -1,6 +1,14 @@
 import { listChanges, getChangeStats } from "@mandujs/core";
 import { getRootDir } from "../../util/fs";
 
+function reverseCopy<T>(items: readonly T[]): T[] {
+  const reversed: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    reversed.push(items[index] as T);
+  }
+  return reversed;
+}
+
 export async function changeList(): Promise<boolean> {
   const rootDir = getRootDir();
 
@@ -25,7 +33,7 @@ export async function changeList(): Promise<boolean> {
     // Recent records (newest first)
     console.log(`📜 Change history:`);
 
-    const sortedChanges = [...changes].reverse(); // newest first
+    const sortedChanges = reverseCopy(changes); // newest first
 
     for (const change of sortedChanges) {
       const statusIcon =

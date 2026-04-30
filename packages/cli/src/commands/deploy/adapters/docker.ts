@@ -30,8 +30,6 @@ import type {
   AdapterCheckResult,
   AdapterIssue,
   DeployAdapter,
-  DeployOptions,
-  ProjectContext,
 } from "../types";
 
 /**

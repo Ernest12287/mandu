@@ -1,3 +1,4 @@
+import type * as __ManduMandujsCoreDeployTypes0 from "@mandujs/core/deploy";
 /**
  * `mandu deploy:plan` — infer per-route deploy intent and write
  * `.mandu/deploy.intent.json`.
@@ -315,7 +316,7 @@ function formatTransition(prev: string | undefined, next: string): string {
   return `${prev} → ${next}`;
 }
 
-function formatCache(cache: import("@mandujs/core/deploy").DeployIntent["cache"]): string {
+function formatCache(cache: __ManduMandujsCoreDeployTypes0.DeployIntent["cache"]): string {
   if (cache === "no-store" || cache === "public") return cache;
   const bits: string[] = [];
   if (cache.maxAge !== undefined) bits.push(`maxAge=${cache.maxAge}`);

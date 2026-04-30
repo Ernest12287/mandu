@@ -972,7 +972,7 @@ function renderInitLanding(ctx: InitLandingContext): void {
   console.log(`\n${renderMarkdown(filled)}`);
 }
 
-function logMcpConfigStatus(
+function _logMcpConfigStatus(
   label: string,
   result: McpConfigFileResult,
   createdNote?: string

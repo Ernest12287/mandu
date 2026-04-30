@@ -7,7 +7,7 @@
  * - Section-based structure
  */
 
-import { theme, colorize, isRich } from "./theme.js";
+import { theme, isRich } from "./theme.js";
 
 /**
  * Help example type

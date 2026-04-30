@@ -165,26 +165,26 @@ export class MCPConnector {
       try {
         this.ws = new WebSocket(url);
 
-        this.ws.onopen = () => {
+        this.ws.addEventListener('open', () => {
           clearTimeout(timeout);
           this.setStatus('connected');
           this.reconnectAttempts = 0;
           resolve();
-        };
+        });
 
-        this.ws.onclose = () => {
+        this.ws.addEventListener('close', () => {
           this.handleDisconnect();
-        };
+        });
 
-        this.ws.onerror = (event) => {
+        this.ws.addEventListener('error', () => {
           clearTimeout(timeout);
           this.handleConnectionError(new Error('WebSocket error'));
           reject(new Error('WebSocket connection failed'));
-        };
+        });
 
-        this.ws.onmessage = (event) => {
+        this.ws.addEventListener('message', (event) => {
           this.handleMessage(event.data);
-        };
+        });
       } catch (error) {
         clearTimeout(timeout);
         this.handleConnectionError(
@@ -210,7 +210,7 @@ export class MCPConnector {
     }
 
     // 대기 중인 요청 모두 reject
-    for (const [id, pending] of this.pendingRequests) {
+    for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       pending.reject(new Error('Connection closed'));
     }

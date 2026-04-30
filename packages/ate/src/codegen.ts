@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { getAtePaths, ensureDir, readJson, writeJson } from "./fs";
+import { getAtePaths, ensureDir, readJson } from "./fs";
 import type { ScenarioBundle } from "./scenario";
 import type { InteractionEdge, InteractionGraph, InteractionNode, OracleLevel } from "./types";
 import { readSelectorMap, buildPlaywrightLocatorChain } from "./selector-map";

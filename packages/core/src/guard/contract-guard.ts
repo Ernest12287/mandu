@@ -79,7 +79,7 @@ export interface ContractViolation extends GuardViolation {
  */
 export async function checkMissingContract(
   manifest: RoutesManifest,
-  rootDir: string
+  _rootDir: string
 ): Promise<ContractViolation[]> {
   const violations: ContractViolation[] = [];
 

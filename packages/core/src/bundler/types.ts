@@ -1,3 +1,5 @@
+import type * as __ManduBunTypes0 from "bun";
+import type * as __ManduPluginsHooksTypes1 from "../plugins/hooks";
 /**
  * Mandu Bundler Types
  */
@@ -187,13 +189,13 @@ export interface BundlerOptions {
    * via `runDefineBundlerPlugin()` and fed into every `safeBuild(...)`
    * call-site; library users may populate it directly.
    */
-  pluginBundlerPlugins?: readonly import("bun").BunPlugin[];
+  pluginBundlerPlugins?: readonly __ManduBunTypes0.BunPlugin[];
 
   /**
    * Phase 18.τ — fire per-build `onBundleComplete(stats)` hook after
    * `buildClientBundles()` finishes. Paired with `configHooks` for
    * config-level hooks. Zero-overhead when both are omitted.
    */
-  plugins?: readonly import("../plugins/hooks").ManduPlugin[];
-  configHooks?: Partial<import("../plugins/hooks").ManduHooks>;
+  plugins?: readonly __ManduPluginsHooksTypes1.ManduPlugin[];
+  configHooks?: Partial<__ManduPluginsHooksTypes1.ManduHooks>;
 }

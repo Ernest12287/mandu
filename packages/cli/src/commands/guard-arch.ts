@@ -157,7 +157,7 @@ export async function guardArch(options: GuardArchOptions = {}): Promise<boolean
     const watcher = createGuardWatcher({
       config: guardConfig,
       rootDir,
-      onViolation: (violation) => {
+      onViolation: (_violation) => {
         // Real-time violation output is handled inside watcher
       },
       onFileAnalyzed: (analysis, violations) => {

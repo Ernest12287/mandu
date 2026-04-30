@@ -30,7 +30,15 @@
  * - stdout: JSON blob terminated by `\n`:
  *     { "success": boolean,
  *       "errors": string[],
- *       "manifest": { shared: { fastRefresh?: { runtime: string; glue: string } } }
+ *       "manifest": {
+ *         shared: {
+ *           runtime?: string;
+ *           vendor?: string;
+ *           router?: string;
+ *           fastRefresh?: { runtime: string; glue: string };
+ *         };
+ *         bundles: Record<string, unknown>;
+ *       }
  *     }
  *   Only the fields tests consume are serialized; the in-memory manifest
  *   is also persisted at `<rootDir>/.mandu/manifest.json` by the build.
@@ -83,8 +91,12 @@ try {
       errors: result.errors,
       manifest: {
         shared: {
+          runtime: result.manifest.shared?.runtime ?? null,
+          vendor: result.manifest.shared?.vendor ?? null,
+          router: result.manifest.shared?.router ?? null,
           fastRefresh: result.manifest.shared?.fastRefresh ?? null,
         },
+        bundles: result.manifest.bundles ?? {},
       },
     }) + "\n",
   );

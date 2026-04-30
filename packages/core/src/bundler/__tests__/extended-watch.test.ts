@@ -1,3 +1,4 @@
+import type * as __ManduHmrTypesTypes0 from "../hmr-types";
 /**
  * Phase 7.0 R2 Agent D — Extended file watch tests.
  *
@@ -702,8 +703,8 @@ describe("Phase 7.0 R2 Agent D — CoalescedChange kind surface", () => {
 
     // Literal assignments — if the union shrinks, TS errors in this
     // file before the suite even runs.
-    const a: import("../hmr-types").CoalescedChange["kind"] = "config-reload";
-    const b: import("../hmr-types").CoalescedChange["kind"] = "resource-regen";
+    const a: __ManduHmrTypesTypes0.CoalescedChange["kind"] = "config-reload";
+    const b: __ManduHmrTypesTypes0.CoalescedChange["kind"] = "resource-regen";
     expect(a).toBe("config-reload");
     expect(b).toBe("resource-regen");
   });

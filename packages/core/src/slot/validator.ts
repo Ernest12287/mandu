@@ -125,14 +125,14 @@ function stripComments(content: string): string {
 }
 
 // 올바른 응답 패턴 (ctx 메서드 호출)
-const VALID_RESPONSE_PATTERNS = [
+const _VALID_RESPONSE_PATTERNS = [
   /return\s+ctx\s*\.\s*(ok|json|created|noContent|notFound|badRequest|error|html|redirect|stream)\s*\(/,
   /return\s+new\s+Response\s*\(/,
   /return\s+Response\s*\.\s*(json|redirect)\s*\(/,
 ];
 
 // 잘못된 반환 패턴 (일반 객체 직접 반환)
-const INVALID_RETURN_PATTERNS = [
+const _INVALID_RETURN_PATTERNS = [
   /return\s+\{\s*[^}]*\}\s*;?\s*$/m,  // return { ... }; (Response가 아닌 객체)
 ];
 
@@ -337,7 +337,7 @@ function checkBasicSyntax(
 /**
  * HTTP 메서드 핸들러 검사
  */
-function checkHttpMethods(content: string, lines: string[]): SlotValidationIssue[] {
+function checkHttpMethods(content: string, _lines: string[]): SlotValidationIssue[] {
   const issues: SlotValidationIssue[] = [];
 
   // .get(), .post() 등의 핸들러가 있는지 확인
@@ -404,7 +404,7 @@ function checkHandlerReturns(content: string, lines: string[]): SlotValidationIs
       const isStringReturn = /return\s+['"`]/.test(returnStmt) && !isValidReturn;
 
       // throw 문자열 감지 (Error 객체가 아닌 문자열)
-      const throwStringPattern = /throw\s+['"`][^'"`]+['"`]/;
+      const _throwStringPattern = /throw\s+['"`][^'"`]+['"`]/;
 
       if (isObjectReturn) {
         // return 문이 있는 라인 번호 찾기

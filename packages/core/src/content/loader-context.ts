@@ -13,7 +13,6 @@ import type {
   ContentWatcher,
   ParseDataOptions,
   RenderedContent,
-  ValidationError as ContentValidationError,
 } from "./types";
 import { ValidationError } from "./types";
 import { generateDigest } from "./digest";

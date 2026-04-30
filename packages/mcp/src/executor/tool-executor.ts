@@ -4,7 +4,6 @@
  * 도구 실행 + 훅 + 에러 처리 통합
  */
 
-import type { McpToolPlugin } from "@mandujs/core/plugins";
 import type { ManduConfig } from "@mandujs/core";
 import { mcpToolRegistry } from "../registry/mcp-tool-registry.js";
 import { mcpHookRegistry, type McpToolContext } from "../hooks/mcp-hooks.js";

@@ -17,7 +17,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { getAtePaths, fileExists } from "../fs";
 import { graphVersionFromGraph } from "../graph-version";
 import { indexSpecs } from "../spec-indexer";

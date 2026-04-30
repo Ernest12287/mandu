@@ -22,7 +22,7 @@
  * ```
  */
 
-import { z, type ZodType } from 'zod';
+import { type ZodType } from 'zod';
 import { ManduFillingFactory, type ManduFilling } from '../filling/filling';
 import type { ManduContext } from '../filling/context';
 import { getZodTypeName, getZodObjectShape, getZodArrayElementType } from '../contract/zod-utils';

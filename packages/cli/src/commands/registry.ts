@@ -1,3 +1,4 @@
+import type * as __ManduMonitorTypes0 from "./monitor";
 /**
  * DNA-010: Command Registry Pattern
  *
@@ -7,7 +8,7 @@
  * - Automatic subcommand routing
  */
 
-import type { CLI_ERROR_CODES } from "../errors";
+
 import type { CSSFramework, UILibrary } from "./init";
 
 /**
@@ -784,14 +785,14 @@ registerCommand({
       since: ctx.options.since,
       follow: ctx.options.follow !== "false",
       file: ctx.options.file,
-      type: ctx.options.type as import("./monitor").EventType | undefined,
-      severity: ctx.options.severity as import("./monitor").SeverityLevel | undefined,
+      type: ctx.options.type as __ManduMonitorTypes0.EventType | undefined,
+      severity: ctx.options.severity as __ManduMonitorTypes0.SeverityLevel | undefined,
       stats: ctx.options.stats === "true",
       trace: ctx.options.trace,
       source: ctx.options.source,
       noServer: ctx.options["no-server"] === "true",
       // Phase 6-3: --export jsonl|otlp
-      export: ctx.options.export as import("./monitor").ExportFormat | undefined,
+      export: ctx.options.export as __ManduMonitorTypes0.ExportFormat | undefined,
       limit: ctx.options.limit ? Number(ctx.options.limit) : undefined,
     });
   },

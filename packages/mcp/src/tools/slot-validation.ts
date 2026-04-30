@@ -1,7 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   validateSlotConstraints,
-  validateSlots,
   DEFAULT_SLOT_CONSTRAINTS,
   API_SLOT_CONSTRAINTS,
   READONLY_SLOT_CONSTRAINTS,

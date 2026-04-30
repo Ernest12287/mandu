@@ -53,7 +53,7 @@ const richSupported = checkRichSupport();
 /**
  * ANSI escape code wrapper
  */
-function ansi(code: string) {
+function _ansi(code: string) {
   return richSupported ? `\x1b[${code}m` : "";
 }
 

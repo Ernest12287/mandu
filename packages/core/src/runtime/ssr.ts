@@ -165,7 +165,7 @@ export interface SSROptions {
 
 let projectRenderToString: ((element: ReactElement) => string) | null | undefined;
 
-function loadProjectRenderToString(): ((element: ReactElement) => string) | null {
+function _loadProjectRenderToString(): ((element: ReactElement) => string) | null {
   if (projectRenderToString !== undefined) {
     return projectRenderToString;
   }
@@ -851,7 +851,7 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
 function generateRouteScript(
   routeId: string,
   pattern: string,
-  serverData?: Record<string, unknown>
+  _serverData?: Record<string, unknown>
 ): string {
   const routeInfo = {
     id: routeId,
@@ -867,7 +867,7 @@ function generateRouteScript(
 /**
  * URL 패턴에서 파라미터 추출 (클라이언트에서 사용)
  */
-function extractParamsFromUrl(pattern: string): Record<string, string> {
+function extractParamsFromUrl(_pattern: string): Record<string, string> {
   // 서버에서는 실제 params를 전달받으므로 빈 객체 반환
   // 실제 params는 serverData나 별도 전달
   return {};

@@ -1,3 +1,4 @@
+import type * as __ManduGlobTypes0 from "glob";
 /**
  * Mandu Guard Watcher
  *
@@ -45,9 +46,9 @@ interface WatcherOptions {
 
 const analysisCache = new Map<string, FileAnalysis>();
 
-let globModulePromise: Promise<typeof import("glob")> | null = null;
+let globModulePromise: Promise<typeof __ManduGlobTypes0> | null = null;
 
-async function getGlobModule(): Promise<typeof import("glob")> {
+async function getGlobModule(): Promise<typeof __ManduGlobTypes0> {
   if (!globModulePromise) {
     globModulePromise = import("glob");
   }
@@ -93,7 +94,7 @@ export function createGuardWatcher(options: WatcherOptions): GuardWatcher {
 
   // 레이어 정의 가져오기
   const layers = resolveLayerDefinitions(config);
-  const hierarchy = resolveHierarchy(config);
+  const _hierarchy = resolveHierarchy(config);
 
   // 설정 기본값 적용
   const srcDir = config.srcDir ?? DEFAULT_GUARD_CONFIG.srcDir;

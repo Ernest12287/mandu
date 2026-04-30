@@ -11,8 +11,6 @@ import {
   type ResourceDefinition,
   type ResourceField,
   type FieldType,
-  type GeneratorOptions,
-  type GeneratorResult,
   FieldTypes,
 } from "@mandujs/core";
 import path from "path";

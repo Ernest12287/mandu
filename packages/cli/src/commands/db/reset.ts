@@ -59,6 +59,14 @@ export const EXIT_OK = 0;
 export const EXIT_ERROR = 1;
 export const EXIT_REFUSED = 4;
 
+function reverseCopy<T>(items: readonly T[]): T[] {
+  const reversed: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    reversed.push(items[index] as T);
+  }
+  return reversed;
+}
+
 export async function dbReset(options: DbResetOptions = {}): Promise<number> {
   const cwd = options.cwd ?? process.cwd();
   const migrationsDir = path.join(cwd, "spec", "db", "migrations");
@@ -123,7 +131,7 @@ export async function dbReset(options: DbResetOptions = {}): Promise<number> {
 
     // 1) Drop tables (if requested).
     if (options.dropTables === true && snapshot) {
-      for (const resource of [...snapshot.resources].reverse()) {
+      for (const resource of reverseCopy(snapshot.resources)) {
         // Reverse order — not strict FK safety (v1 has no FK) but
         // matches the natural "last-in-first-out" pattern.
         const stmt = `DROP TABLE IF EXISTS ${quoteIdent(resource.name, snapshot.provider)}`;

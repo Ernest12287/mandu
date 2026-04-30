@@ -1,3 +1,4 @@
+import type * as __ManduDdlPersistenceTypesTypes0 from "./ddl/persistence-types";
 /**
  * Resource Schema Definition
  * Resource-Centric Architecture의 핵심 스키마 정의
@@ -100,7 +101,7 @@ export interface ResourceOptions {
    * });
    * ```
    */
-  persistence?: import("./ddl/persistence-types").ExtendedResourcePersistence;
+  persistence?: __ManduDdlPersistenceTypesTypes0.ExtendedResourcePersistence;
 }
 
 // ============================================

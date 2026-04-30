@@ -5,7 +5,7 @@
  * Warnings only - never blocks operations.
  */
 
-import type { WatchWarning, WatchStatus, ArchRule } from "../brain/types";
+import type { WatchWarning, WatchStatus } from "../brain/types";
 import { getRule } from "./rules";
 
 /**

@@ -66,6 +66,14 @@ import { promises as fs } from "node:fs";
 import { resolveFromCwd, pathExists } from "../util/fs";
 import { theme } from "../terminal/theme";
 
+function reverseCopy<T>(items: readonly T[]): T[] {
+  const reversed: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    reversed.push(items[index] as T);
+  }
+  return reversed;
+}
+
 // =====================================================================
 // Types & options
 // =====================================================================
@@ -461,15 +469,15 @@ async function rollbackBinary(options: UpgradeOptions): Promise<number> {
   const baseName = path.basename(execPath);
   const candidates = entries
     .filter((name) => name.startsWith(baseName + ".old."))
-    .sort()
-    .reverse();
-  if (candidates.length === 0) {
+    .sort();
+  const rollbackCandidates = reverseCopy(candidates);
+  if (rollbackCandidates.length === 0) {
     process.stderr.write(
       `${theme.error("no rollback available")} — no ${baseName}.old.* files in ${previousDir}\n`,
     );
     return EXIT_NOOP;
   }
-  const latest = path.join(previousDir, candidates[0]!);
+  const latest = path.join(previousDir, rollbackCandidates[0]!);
   // Stage current as a secondary "previous" before replacement — so a
   // second `--rollback` can go back AGAIN (round-trip).
   const backupName = baseName + ".rollback-of." + Date.now();
@@ -484,7 +492,7 @@ async function rollbackBinary(options: UpgradeOptions): Promise<number> {
     return EXIT_ERROR;
   }
   process.stdout.write(
-    `  ${theme.success("rolled back")} to ${candidates[0]}\n` +
+    `  ${theme.success("rolled back")} to ${rollbackCandidates[0]}\n` +
       `  ${theme.dim("current previous:")} ${backupPath}\n`,
   );
   return EXIT_OK;

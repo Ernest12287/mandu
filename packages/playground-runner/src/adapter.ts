@@ -397,7 +397,7 @@ async function drainStream(
  * Default mock script — prints a harmless banner so that `bun test`
  * without `options.script` produces deterministic, bounded output.
  */
-function defaultMockScript(opts: RunOptions): string {
+function defaultMockScript(_opts: RunOptions): string {
   // We deliberately DO NOT interpolate user code. The mock adapter never
   // runs user-submitted TSX — it only runs this canned script.
   return `

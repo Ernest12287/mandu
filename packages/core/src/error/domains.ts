@@ -5,7 +5,7 @@
  * try-catch에서 instanceof 체크 가능.
  */
 
-import { ErrorCode, ERROR_MESSAGES, ERROR_SUMMARIES } from "./types";
+import { ErrorCode, ERROR_SUMMARIES } from "./types";
 import type { ManduError, RouteContext, ErrorType } from "./types";
 
 /**

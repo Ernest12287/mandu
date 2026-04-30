@@ -153,7 +153,7 @@ export function formatError(
 ): string {
   const { mode, rich } = ctx;
   const message = error instanceof Error ? error.message : error;
-  const errorStack = error instanceof Error ? error.stack : undefined;
+  const _errorStack = error instanceof Error ? error.stack : undefined;
 
   if (mode === "json") {
     const output: ErrorOutput = {

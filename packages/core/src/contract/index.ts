@@ -37,10 +37,10 @@ export {
   type RpcWireError,
 } from "./rpc";
 
-import type { ContractDefinition, ContractInstance, ContractSchema } from "./schema";
-import type { ContractHandlers, RouteDefinition } from "./handler";
+import type { ContractDefinition, ContractInstance } from "./schema";
+
 import { defineHandler, defineRoute } from "./handler";
-import { createClient, contractFetch, type ClientOptions } from "./client";
+import { createClient, contractFetch } from "./client";
 import { createClientContract } from "./client-safe";
 
 /**

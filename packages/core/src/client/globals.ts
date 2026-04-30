@@ -1,3 +1,4 @@
+import type * as __ManduReactTypes0 from "react";
 /**
  * Mandu 전역 타입 선언
  * 클라이언트 측 전역 상태의 타입 정의
@@ -37,7 +38,7 @@ declare global {
     __MANDU_ROOTS__?: Map<string, Root>;
 
     /** React 인스턴스 공유 */
-    __MANDU_REACT__?: typeof import("react");
+    __MANDU_REACT__?: typeof __ManduReactTypes0;
 
     /**
      * Issue #193 — global SPA navigation toggle.
@@ -58,4 +59,4 @@ declare global {
   }
 }
 
-export {};
+

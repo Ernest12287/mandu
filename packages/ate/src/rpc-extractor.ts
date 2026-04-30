@@ -19,7 +19,7 @@
  */
 import fg from "fast-glob";
 import { readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { relative } from "node:path";
 import type {
   SourceFile,
   SyntaxKind as SyntaxKindEnum,

@@ -1,3 +1,4 @@
+import type * as __ManduCliSrcUtilWorkersEmitterTypes0 from "../../cli/src/util/workers-emitter";
 /**
  * Smoke test for `emitWorkersBundle`.
  *
@@ -65,7 +66,7 @@ afterEach(async () => {
 
 describe("mandu build --target=workers — emitter smoke", () => {
   it("emits worker.js + wrangler.toml for a minimal API-only project", async () => {
-    let emitWorkersBundle: typeof import("../../cli/src/util/workers-emitter")["emitWorkersBundle"];
+    let emitWorkersBundle: typeof __ManduCliSrcUtilWorkersEmitterTypes0["emitWorkersBundle"];
     try {
       const mod = await import("../../cli/src/util/workers-emitter");
       emitWorkersBundle = mod.emitWorkersBundle;

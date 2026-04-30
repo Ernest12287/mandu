@@ -19,7 +19,6 @@ import type {
   ContractValidationError,
   ContractValidationIssue,
   MethodRequestSchema,
-  ContractNormalizeMode,
   ResponseSchemaWithExamples,
 } from "./schema";
 import {

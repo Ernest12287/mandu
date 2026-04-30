@@ -23,7 +23,6 @@
  * limitation or fall back to a hand-edit.
  */
 
-import { parseDesignMd } from "./parser";
 
 export type PatchableSection =
   | "color-palette"

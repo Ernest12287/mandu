@@ -257,7 +257,7 @@ export class KitchenStateManager {
     }
   }
 
-  setIslandHydrated(id: string, time: number): void {
+  setIslandHydrated(id: string, _time: number): void {
     this.updateIsland(id, {
       status: 'hydrated',
       hydrateEndTime: Date.now(),

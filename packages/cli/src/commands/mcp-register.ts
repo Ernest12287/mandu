@@ -38,7 +38,6 @@
  * @module cli/commands/mcp-register
  */
 
-import path from "node:path";
 import { promises as fs } from "node:fs";
 
 import {

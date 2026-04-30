@@ -5,7 +5,7 @@
  */
 
 import type { ZodSchema } from "zod";
-import type { LoaderContext, DataEntry, RenderedContent } from "../types";
+import type { LoaderContext, RenderedContent } from "../types";
 
 /**
  * 로더 인터페이스

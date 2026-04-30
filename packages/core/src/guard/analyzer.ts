@@ -63,7 +63,7 @@ const DEFAULT_IMPORT_PATTERN = /^import\s+(\w+)/;
  */
 export function extractImports(content: string): ImportInfo[] {
   const imports: ImportInfo[] = [];
-  const lines = content.split("\n");
+  const _lines = content.split("\n");
 
   // Static imports
   let match: RegExpExecArray | null;

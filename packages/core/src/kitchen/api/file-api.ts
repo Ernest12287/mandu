@@ -52,7 +52,7 @@ export class FileAPI {
       const language = detectLanguage(filePath);
 
       return Response.json({ filePath, content, language });
-    } catch (error) {
+    } catch  {
       return Response.json(
         { error: "Failed to read file" },
         { status: 500 },
@@ -84,7 +84,7 @@ export class FileAPI {
     try {
       const diff = await this.getFileDiff(filePath, resolved);
       return Response.json(diff);
-    } catch (error) {
+    } catch  {
       return Response.json(
         { error: "Failed to get diff" },
         { status: 500 },
@@ -100,7 +100,7 @@ export class FileAPI {
     try {
       const changes = await this.getGitStatus();
       return Response.json({ changes });
-    } catch (error) {
+    } catch  {
       return Response.json(
         { error: "Failed to get changes" },
         { status: 500 },

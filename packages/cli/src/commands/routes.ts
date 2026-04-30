@@ -11,7 +11,6 @@ import {
   watchFSRoutes,
   validateAndReport,
   type GenerateOptions,
-  type FSScannerConfig,
 } from "@mandujs/core";
 import { resolveFromCwd } from "../util/fs";
 

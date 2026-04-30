@@ -2,7 +2,7 @@
  * Mandu SEO - Open Graph Meta Tags Rendering
  */
 
-import type { ResolvedMetadata, ResolvedOpenGraph } from '../types'
+import type { ResolvedMetadata } from '../types'
 import { urlToString } from '../resolve/url'
 
 /**

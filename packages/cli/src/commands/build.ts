@@ -1,3 +1,6 @@
+import type * as __ManduMandujsCoreBundlerAnalyzerTypes0 from "@mandujs/core/bundler/analyzer";
+import type * as __ManduMandujsCoreBundlerBudgetTypes1 from "@mandujs/core/bundler/budget";
+import type * as __ManduFsTypes2 from "fs";
 /**
  * mandu build - Client bundle build
  *
@@ -13,7 +16,6 @@ import {
   buildCSS,
   startServer,
   runHook,
-  type RoutesManifest,
   type BundleManifest,
   type ServerOptions,
 } from "@mandujs/core";
@@ -699,7 +701,7 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
   const budgetConfig = buildConfig.budget;
   const budgetRequested = budgetConfig !== undefined;
   let analyzeReport: Awaited<
-    ReturnType<typeof import("@mandujs/core/bundler/analyzer").analyzeBundle>
+    ReturnType<typeof __ManduMandujsCoreBundlerAnalyzerTypes0.analyzeBundle>
   > | null = null;
   if (bundleManifest && (analyzeFlag || budgetRequested)) {
     try {
@@ -714,7 +716,7 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
 
   // ── Budget enforcement ─────────────────────────────────────────────────────
   let budgetReport: Awaited<
-    ReturnType<typeof import("@mandujs/core/bundler/budget").evaluateBudget>
+    ReturnType<typeof __ManduMandujsCoreBundlerBudgetTypes1.evaluateBudget>
   > | null = null;
   if (analyzeReport && budgetRequested) {
     if (options.noBudget === true) {
@@ -851,9 +853,9 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
       const htmlFiles: string[] = [];
       async function collect(dir: string, depth = 0): Promise<void> {
         if (depth > 8) return;
-        let entries: import("fs").Dirent[];
+        let entries: __ManduFsTypes2.Dirent[];
         try {
-          entries = (await fs.readdir(dir, { withFileTypes: true })) as import("fs").Dirent[];
+          entries = (await fs.readdir(dir, { withFileTypes: true })) as __ManduFsTypes2.Dirent[];
         } catch {
           return;
         }

@@ -1381,7 +1381,6 @@ export async function renderWithDeferredData(
 
   // 준비된 deferred 스크립트를 담을 배열 (mutable)
   const readyScripts: string[] = [];
-  let deferredChunkCount = 0;
   let allDeferredSettled = false;
 
   // 1. Deferred promises 병렬 시작 (막지 않음!)
@@ -1399,7 +1398,6 @@ export async function renderWithDeferredData(
             // 스크립트 생성 및 추가
             const script = generateDeferredDataScript(routeId, key, data);
             readyScripts.push(script);
-            deferredChunkCount++;
 
             if (isDev) {
               console.log(`[Mandu Streaming] Deferred ready: ${key} (${Date.now() - startTime}ms)`);

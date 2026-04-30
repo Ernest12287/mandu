@@ -6,10 +6,9 @@ import {
   generateOpenAPIDocument,
   openAPIToJSON,
   type RouteSpec,
-  type RoutesManifest,
   type SpecHttpMethod,
 } from "@mandujs/core";
-import { getProjectPaths, readJsonFile, writeJsonFile } from "../utils/project.js";
+import { getProjectPaths, writeJsonFile } from "../utils/project.js";
 import path from "path";
 import fs from "fs/promises";
 
@@ -250,7 +249,7 @@ export function contractTools(projectRoot: string) {
     },
 
     "mandu.contract.create": async (args: Record<string, unknown>) => {
-      const { routeId, description, methods } = args as {
+      const { routeId, description: _description, methods } = args as {
         routeId: string;
         description?: string;
         methods?: string[];

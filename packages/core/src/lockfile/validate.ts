@@ -12,7 +12,6 @@ import {
   type LockfileError,
   type LockfileWarning,
   type LockfileMode,
-  type LockfilePolicyOptions,
   DEFAULT_POLICIES,
   LOCKFILE_SCHEMA_VERSION,
   BYPASS_ENV_VAR,

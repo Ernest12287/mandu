@@ -1,3 +1,6 @@
+import type * as __ManduCliSrcUtilDenoEmitterTypes0 from "../../cli/src/util/deno-emitter";
+import type * as __ManduCliSrcUtilVercelEdgeEmitterTypes1 from "../../cli/src/util/vercel-edge-emitter";
+import type * as __ManduCliSrcUtilNetlifyEdgeEmitterTypes2 from "../../cli/src/util/netlify-edge-emitter";
 /**
  * Smoke tests for Deno / Vercel / Netlify edge emitters.
  *
@@ -77,7 +80,7 @@ afterEach(async () => {
 
 describe("mandu build --target=deno — emitter smoke", () => {
   it("emits server.ts + register.ts + manifest.json + deno.json", async () => {
-    let emitDenoBundle: typeof import("../../cli/src/util/deno-emitter")["emitDenoBundle"];
+    let emitDenoBundle: typeof __ManduCliSrcUtilDenoEmitterTypes0["emitDenoBundle"];
     try {
       const mod = await import("../../cli/src/util/deno-emitter");
       emitDenoBundle = mod.emitDenoBundle;
@@ -130,7 +133,7 @@ describe("mandu build --target=deno — emitter smoke", () => {
 
 describe("mandu build --target=vercel-edge — emitter smoke", () => {
   it("emits api/_mandu.ts + register.ts + manifest.json + vercel.json", async () => {
-    let emitVercelEdgeBundle: typeof import("../../cli/src/util/vercel-edge-emitter")["emitVercelEdgeBundle"];
+    let emitVercelEdgeBundle: typeof __ManduCliSrcUtilVercelEdgeEmitterTypes1["emitVercelEdgeBundle"];
     try {
       const mod = await import("../../cli/src/util/vercel-edge-emitter");
       emitVercelEdgeBundle = mod.emitVercelEdgeBundle;
@@ -178,7 +181,7 @@ describe("mandu build --target=vercel-edge — emitter smoke", () => {
 
 describe("mandu build --target=netlify-edge — emitter smoke", () => {
   it("emits netlify/edge-functions/ssr.ts + register.ts + manifest.json + netlify.toml", async () => {
-    let emitNetlifyEdgeBundle: typeof import("../../cli/src/util/netlify-edge-emitter")["emitNetlifyEdgeBundle"];
+    let emitNetlifyEdgeBundle: typeof __ManduCliSrcUtilNetlifyEdgeEmitterTypes2["emitNetlifyEdgeBundle"];
     try {
       const mod = await import("../../cli/src/util/netlify-edge-emitter");
       emitNetlifyEdgeBundle = mod.emitNetlifyEdgeBundle;

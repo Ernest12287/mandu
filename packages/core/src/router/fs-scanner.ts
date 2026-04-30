@@ -228,7 +228,7 @@ export class FSScanner {
    */
   private async createRouteConfigs(
     files: ScannedFile[],
-    rootDir: string
+    _rootDir: string
   ): Promise<{ routes: FSRouteConfig[]; routeErrors: ScanError[] }> {
     const routes: FSRouteConfig[] = [];
     const routeErrors: ScanError[] = [];

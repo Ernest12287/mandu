@@ -27,7 +27,6 @@
  * ```
  */
 
-import type { ReactElement } from 'react'
 import type { Metadata, MetadataItem, ResolvedMetadata } from '../types'
 import { resolveMetadata, createDefaultMetadata } from '../resolve'
 import { renderMetadata } from '../render'
@@ -88,7 +87,7 @@ export async function resolveSEO(options: SEOOptions = {}): Promise<SEOResult> {
     resolved = await resolveMetadata(metadata, routeParams, searchParams)
   } else if (staticMetadata) {
     // 단일 정적 메타데이터
-    const base = createDefaultMetadata()
+    const _base = createDefaultMetadata()
     resolved = await resolveMetadata([staticMetadata], routeParams, searchParams)
   } else {
     // 기본 메타데이터
@@ -186,7 +185,7 @@ export async function injectSEOIntoOptions<T extends { title?: string; headTags?
   options: T,
   seoOptions: SEOOptions
 ): Promise<T & { title: string; headTags: string }> {
-  const { resolved, html, title } = await resolveSEO(seoOptions)
+  const { resolved: _resolved, html, title } = await resolveSEO(seoOptions)
 
   // 기존 headTags와 병합
   const existingHeadTags = options.headTags || ''

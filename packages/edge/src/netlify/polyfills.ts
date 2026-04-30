@@ -8,7 +8,7 @@
  */
 
 let installed = false;
-let installedShim: Record<string, unknown> | null = null;
+let _installedShim: Record<string, unknown> | null = null;
 
 const UNSUPPORTED_API_MESSAGE = (name: string): string =>
   `[@mandujs/edge/netlify] Bun.${name} is not available on Netlify Edge. ` +
@@ -52,7 +52,7 @@ export function installNetlifyEdgePolyfills(): void {
       configurable: true,
       enumerable: false,
     });
-    installedShim = shim;
+    _installedShim = shim;
   } catch {
     installed = false;
   }
@@ -87,5 +87,5 @@ export function _createNetlifyEdgePolyfillShim(): Record<string, unknown> {
  */
 export function _resetPolyfillsForTesting(): void {
   installed = false;
-  installedShim = null;
+  _installedShim = null;
 }

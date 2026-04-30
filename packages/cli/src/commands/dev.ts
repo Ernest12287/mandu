@@ -1,3 +1,4 @@
+import type * as __ManduChokidarTypes0 from "chokidar";
 import {
   startServer,
   startDevBundler,
@@ -1213,7 +1214,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   //     slot loader, and the registry cache has to be flushed.
   //   - Errors are logged but do NOT kill the dev server: a broken
   //     prebuild mid-dev-session is recoverable by editing the source.
-  let contentWatcher: import("chokidar").FSWatcher | null = null;
+  let contentWatcher: __ManduChokidarTypes0.FSWatcher | null = null;
   if (shouldRunPrebuild) {
     const contentDirName = devConfig.contentDir || "content";
     const contentDirAbs = path.resolve(rootDir, contentDirName);

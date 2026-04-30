@@ -1,3 +1,4 @@
+import type * as __ManduPluginsReactCompilerTypes0 from "./plugins/react-compiler";
 /**
  * Mandu Client Bundler 📦
  * Bun.build 기반 클라이언트 번들 빌드
@@ -69,7 +70,7 @@ function manduClientPlugins(options: BundlerOptions): BunPlugin[] {
   if (options.reactCompiler?.enabled !== true) return base;
   // Lazy import to avoid pulling the react-compiler module into every
   // build graph — SSR / non-client paths never touch this branch.
-  const { reactCompiler } = require("./plugins/react-compiler") as typeof import("./plugins/react-compiler");
+  const { reactCompiler } = require("./plugins/react-compiler") as typeof __ManduPluginsReactCompilerTypes0;
   return [
     ...base,
     reactCompiler({

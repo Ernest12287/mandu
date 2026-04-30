@@ -8,13 +8,10 @@ import type {
   Violation,
   ViolationReport,
   Severity,
-  LayerDefinition,
   GuardPreset,
 } from "./types";
 import {
-  getDocumentationLink,
   toAgentFormat,
-  type AgentViolationFormat,
 } from "./suggestions";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -89,7 +86,7 @@ export function formatViolation(
 ): string {
   const icon = getSeverityIcon(violation.severity);
   const color = getSeverityColor(violation.severity);
-  const label = getSeverityLabel(violation.severity);
+  const _label = getSeverityLabel(violation.severity);
 
   const lines: string[] = [
     "",

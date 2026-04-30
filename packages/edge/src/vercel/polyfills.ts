@@ -15,7 +15,7 @@
  */
 
 let installed = false;
-let installedShim: Record<string, unknown> | null = null;
+let _installedShim: Record<string, unknown> | null = null;
 
 const UNSUPPORTED_API_MESSAGE = (name: string): string =>
   `[@mandujs/edge/vercel] Bun.${name} is not available on Vercel Edge. ` +
@@ -59,7 +59,7 @@ export function installVercelEdgePolyfills(): void {
       configurable: true,
       enumerable: false,
     });
-    installedShim = shim;
+    _installedShim = shim;
   } catch {
     installed = false;
   }
@@ -94,5 +94,5 @@ export function _createVercelEdgePolyfillShim(): Record<string, unknown> {
  */
 export function _resetPolyfillsForTesting(): void {
   installed = false;
-  installedShim = null;
+  _installedShim = null;
 }

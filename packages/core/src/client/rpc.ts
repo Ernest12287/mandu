@@ -50,7 +50,7 @@ export interface RpcClientOptions {
  * const { id } = await api.post({ body: { title: "New" } });
  * ```
  */
-export function createClient<TContract = unknown>(
+export function createClient<_TContract = unknown>(
   path: string,
   options?: RpcClientOptions
 ): RpcMethods {

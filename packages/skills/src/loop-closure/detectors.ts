@@ -35,7 +35,7 @@ function snip(raw: string, max = 200): string {
 }
 
 /** Concatenate stdout + stderr into a single stream with provenance markers. */
-function allLines(input: DetectorInput): string[] {
+function _allLines(input: DetectorInput): string[] {
   const lines: string[] = [];
   if (input.stdout) lines.push(...input.stdout.split(/\r?\n/));
   if (input.stderr) lines.push(...input.stderr.split(/\r?\n/));

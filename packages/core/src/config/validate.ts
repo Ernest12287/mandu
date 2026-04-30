@@ -15,7 +15,7 @@ import { isGuardRuleLike, type GuardRule as CustomGuardRule } from "../guard/def
  * Creates a schema that warns about unknown keys instead of failing
  * This provides the benefits of .strict() while maintaining compatibility
  */
-function strictWithWarnings<T extends z.ZodRawShape>(
+function _strictWithWarnings<T extends z.ZodRawShape>(
   schema: z.ZodObject<T>,
   schemaName: string
 ): z.ZodEffects<z.ZodObject<T>> {
