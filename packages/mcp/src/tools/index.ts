@@ -63,6 +63,7 @@ export { compositeTools, compositeToolDefinitions } from "./composite.js";
 // Phase 14.3 — AI/agent loop-closure tool suite
 export { runTestsTools, runTestsToolDefinitions } from "./run-tests.js";
 export { deployPreviewTools, deployPreviewToolDefinitions } from "./deploy-preview.js";
+export { deployPlanTools, deployPlanToolDefinitions } from "./deploy-plan.js";
 export { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
 export { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 // #243 — docs search/get for agents grounding answers in real framework docs
@@ -137,6 +138,7 @@ import { kitchenTools, kitchenToolDefinitions } from "./kitchen.js";
 import { compositeTools, compositeToolDefinitions } from "./composite.js";
 import { runTestsTools, runTestsToolDefinitions } from "./run-tests.js";
 import { deployPreviewTools, deployPreviewToolDefinitions } from "./deploy-preview.js";
+import { deployPlanTools, deployPlanToolDefinitions } from "./deploy-plan.js";
 import { aiBriefTools, aiBriefToolDefinitions } from "./ai-brief.js";
 import { loopCloseTools, loopCloseToolDefinitions } from "./loop-close.js";
 import { docsTools, docsToolDefinitions } from "./docs.js";
@@ -254,6 +256,8 @@ const TOOL_MODULES: ToolModule[] = [
   // Phase 14.3 — AI/agent loop-closure suite
   { category: "run-tests", definitions: runTestsToolDefinitions, handlers: runTestsTools },
   { category: "deploy-preview", definitions: deployPreviewToolDefinitions, handlers: deployPreviewTools },
+  // #250 — DeployIntent inspection / compile (Phase 1)
+  { category: "deploy-plan", definitions: deployPlanToolDefinitions, handlers: deployPlanTools },
   { category: "ai-brief", definitions: aiBriefToolDefinitions, handlers: aiBriefTools },
   { category: "loop-close", definitions: loopCloseToolDefinitions, handlers: loopCloseTools },
   { category: "docs", definitions: docsToolDefinitions, handlers: docsTools },
