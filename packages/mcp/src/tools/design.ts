@@ -23,9 +23,17 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
+  diffDesignSpecs,
+  extractDesignTokens,
+  fetchUpstreamDesignMd,
   parseDesignMd,
+  patchDesignMd,
+  patchDesignMdBatch,
   type DesignSpec,
   type DesignSectionId,
+  type ExtractKind,
+  type PatchOperation,
+  type PatchableSection,
   DESIGN_SECTION_IDS,
 } from "@mandujs/core/design";
 import { checkFileForDesignInlineClasses } from "@mandujs/core/guard/design-inline-class";
@@ -423,6 +431,211 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// ─── mandu.design.extract (write tool — read-only, returns proposals)
+
+interface DesignExtractInput {
+  scope?: string[];
+  kinds?: ExtractKind[];
+  min_occurrences?: number;
+}
+
+async function designExtract(rootDir: string, input: DesignExtractInput): Promise<unknown> {
+  const file = await readDesignMd(rootDir);
+  const existing = file ? parseDesignMd(file.source) : undefined;
+  const result = await extractDesignTokens(rootDir, {
+    scope: input.scope,
+    kinds: input.kinds,
+    minOccurrences: input.min_occurrences,
+    existing,
+  });
+  return {
+    scanned_files: result.scannedFiles,
+    proposals: result.proposals.map((p) => ({
+      kind: p.kind,
+      section: p.section,
+      key: p.key,
+      value: p.value,
+      occurrences: p.occurrences,
+      files: p.files,
+      confidence: p.confidence,
+    })),
+  };
+}
+
+// ─── mandu.design.patch ──────────────────────────────────────────────
+
+interface DesignPatchInput {
+  /** Single op shorthand. */
+  section?: PatchableSection;
+  operation?: PatchOperation["operation"];
+  key?: string;
+  value?: string;
+  role?: string;
+  /** Batch — overrides single-op fields when present. */
+  ops?: PatchOperation[];
+  /** Default true — return diff without writing. */
+  dry_run?: boolean;
+}
+
+async function designPatch(rootDir: string, input: DesignPatchInput): Promise<unknown> {
+  const file = await readDesignMd(rootDir);
+  if (!file) {
+    return {
+      error: "DESIGN.md not found",
+      hint: "Run `mandu design init` first.",
+    };
+  }
+  const ops: PatchOperation[] = input.ops ?? (
+    input.section && input.operation && input.key
+      ? [{
+          section: input.section,
+          operation: input.operation,
+          key: input.key,
+          value: input.value,
+          role: input.role,
+        }]
+      : []
+  );
+  if (ops.length === 0) {
+    return {
+      error: "No operations supplied",
+      hint: "Pass either { section, operation, key, value? } or `ops: [...]`.",
+    };
+  }
+  const batch = patchDesignMdBatch(file.source, ops);
+  const dryRun = input.dry_run !== false;
+  if (!dryRun && batch.appliedCount > 0) {
+    await fs.writeFile(file.path, batch.next, "utf8");
+  }
+  return {
+    path: file.path,
+    dry_run: dryRun,
+    applied_count: batch.appliedCount,
+    written: !dryRun && batch.appliedCount > 0,
+    results: batch.results.map((r, i) => ({
+      op: ops[i],
+      applied: r.applied,
+      reason: r.reason,
+      before: r.before,
+      after: r.after,
+    })),
+    next_source: dryRun ? batch.next : undefined,
+  };
+}
+
+// ─── mandu.design.propose (extract + dry-run patch in one call) ──────
+
+interface DesignProposeInput {
+  scope?: string[];
+  kinds?: ExtractKind[];
+  min_occurrences?: number;
+  /** Default true — never writes; returns proposals + dry-run patches. */
+  dry_run?: boolean;
+}
+
+async function designPropose(rootDir: string, input: DesignProposeInput): Promise<unknown> {
+  const extractResult = await designExtract(rootDir, input) as {
+    scanned_files: number;
+    proposals: Array<{ section: PatchableSection; key: string; value: string; occurrences: number; confidence: number; files: string[]; kind: string }>;
+  };
+  if ("error" in extractResult) return extractResult;
+
+  const file = await readDesignMd(rootDir);
+  if (!file) {
+    return {
+      ...extractResult,
+      error: "DESIGN.md not found — proposals cannot be patched in. Run `mandu design init` first.",
+    };
+  }
+
+  // Convert top proposals (color/typography/layout/shadows only — not
+  // components, which need richer human input) into add operations.
+  const ops: PatchOperation[] = extractResult.proposals
+    .filter((p) => p.section !== "components")
+    .map((p) => ({
+      section: p.section,
+      operation: "add" as const,
+      key: synthesiseKeyForProposal(p),
+      value: p.value,
+    }));
+  const batch = patchDesignMdBatch(file.source, ops);
+  const dryRun = input.dry_run !== false;
+  if (!dryRun && batch.appliedCount > 0) {
+    await fs.writeFile(file.path, batch.next, "utf8");
+  }
+  return {
+    ...extractResult,
+    path: file.path,
+    dry_run: dryRun,
+    applied_count: batch.appliedCount,
+    written: !dryRun && batch.appliedCount > 0,
+    patch_results: batch.results.map((r, i) => ({
+      op: ops[i],
+      applied: r.applied,
+      reason: r.reason,
+    })),
+  };
+}
+
+function synthesiseKeyForProposal(p: { kind: string; key: string }): string {
+  // Color literals like "#ff8c42" → "Orange-FF8C42" — give the user
+  // something readable they can rename in the next patch round.
+  if (p.kind === "color") {
+    const stripped = p.key.replace(/^#/, "").toUpperCase();
+    return `Color-${stripped}`;
+  }
+  if (p.kind === "typography") {
+    const head = p.key.split(/[,\s]/)[0] ?? p.key;
+    return head.replace(/[`'"]/g, "");
+  }
+  return p.key;
+}
+
+// ─── mandu.design.diff_upstream ──────────────────────────────────────
+
+interface DesignDiffUpstreamInput {
+  /** awesome-design-md slug or any raw URL. Required. */
+  slug?: string;
+}
+
+async function designDiffUpstream(rootDir: string, input: DesignDiffUpstreamInput): Promise<unknown> {
+  if (!input.slug) {
+    return {
+      error: "`slug` is required",
+      hint: 'Pass an awesome-design-md slug (e.g. "stripe") or a raw URL.',
+    };
+  }
+  const file = await readDesignMd(rootDir);
+  if (!file) {
+    return {
+      error: "Local DESIGN.md not found",
+      hint: "Run `mandu design init --from <slug>` first.",
+    };
+  }
+  const local = parseDesignMd(file.source);
+  let upstreamSource: string;
+  try {
+    upstreamSource = await fetchUpstreamDesignMd(input.slug);
+  } catch (err) {
+    return {
+      error: `Failed to fetch upstream "${input.slug}": ${err instanceof Error ? err.message : String(err)}`,
+      hint: "Check your network or the slug; see github.com/VoltAgent/awesome-design-md for valid slugs.",
+    };
+  }
+  const upstream = parseDesignMd(upstreamSource);
+  const diff = diffDesignSpecs(local, upstream);
+  return {
+    slug: input.slug,
+    local_path: file.path,
+    total_changes: diff.totalChanges,
+    section_presence_changed: diff.sectionPresenceChanged,
+    color_palette: diff.colorPalette,
+    typography: diff.typography,
+    layout: diff.layout,
+    shadows: diff.shadows,
+  };
+}
+
 // ─── MCP definitions + handlers ───────────────────────────────────────
 
 export const designToolDefinitions: Tool[] = [
@@ -498,6 +711,98 @@ export const designToolDefinitions: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "mandu.design.extract",
+    description:
+      "Scan src/** + app/** for token candidates (color literals, font-families, repeated className combos) and return proposals to patch into DESIGN.md. Read-only — does not modify any file. Filters out tokens already represented in DESIGN.md.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: {
+          type: "array",
+          items: { type: "string" },
+          description: "Project-relative roots to scan. Default ['src', 'app'].",
+        },
+        kinds: {
+          type: "array",
+          items: { type: "string", enum: ["color", "typography", "spacing", "component"] },
+          description: "Restrict the proposal kinds. Default: all four.",
+        },
+        min_occurrences: {
+          type: "number",
+          description: "Minimum occurrence threshold. Default 3.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "mandu.design.patch",
+    description:
+      "Section-safe DESIGN.md patcher (add / update / remove a token). Defaults to dry-run — pass `dry_run: false` to actually rewrite the file. Pass either single-op fields (`section`, `operation`, `key`, `value?`, `role?`) or a batch via `ops: [...]`.",
+    annotations: { readOnlyHint: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: {
+          type: "string",
+          enum: ["color-palette", "typography", "layout", "shadows", "components"],
+        },
+        operation: { type: "string", enum: ["add", "update", "remove"] },
+        key: { type: "string" },
+        value: { type: "string" },
+        role: { type: "string" },
+        ops: {
+          type: "array",
+          description: "Batch — overrides single-op fields.",
+        },
+        dry_run: {
+          type: "boolean",
+          description: "When true (default), return the diff without writing.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "mandu.design.propose",
+    description:
+      "Combined extract + dry-run patch. Runs `mandu.design.extract`, converts color / typography / layout / shadow proposals into add operations, and returns both the proposal list and the patch results. Always dry-run by default; pass `dry_run: false` to apply.",
+    annotations: { readOnlyHint: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: { type: "array", items: { type: "string" } },
+        kinds: {
+          type: "array",
+          items: { type: "string", enum: ["color", "typography", "spacing", "component"] },
+        },
+        min_occurrences: { type: "number" },
+        dry_run: {
+          type: "boolean",
+          description: "Default true (preview only).",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "mandu.design.diff_upstream",
+    description:
+      "Compare the local DESIGN.md against an upstream brand spec from awesome-design-md. Returns per-section added / changed / removed entries plus a `total_changes` counter and `section_presence_changed` list. Read-only; produces a diff the caller can patch in selectively via `mandu.design.patch`.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: {
+          type: "string",
+          description: "awesome-design-md slug (e.g. 'stripe') or a raw DESIGN.md URL.",
+        },
+      },
+      required: ["slug"],
+    },
+  },
 ];
 
 export function designTools(projectRoot: string) {
@@ -507,6 +812,14 @@ export function designTools(projectRoot: string) {
     "mandu.design.check": async (args) => designCheck(projectRoot, args as DesignCheckInput),
     "mandu.component.list": async (args) =>
       componentList(projectRoot, args as ComponentListInput),
+    "mandu.design.extract": async (args) =>
+      designExtract(projectRoot, args as DesignExtractInput),
+    "mandu.design.patch": async (args) =>
+      designPatch(projectRoot, args as DesignPatchInput),
+    "mandu.design.propose": async (args) =>
+      designPropose(projectRoot, args as DesignProposeInput),
+    "mandu.design.diff_upstream": async (args) =>
+      designDiffUpstream(projectRoot, args as DesignDiffUpstreamInput),
   };
   return handlers;
 }

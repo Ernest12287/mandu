@@ -85,11 +85,15 @@ export function SiteHeader() { return null; }
 }
 
 describe("designToolDefinitions", () => {
-  it("declares 4 tools, all read-only", () => {
-    expect(designToolDefinitions).toHaveLength(4);
-    for (const def of designToolDefinitions) {
-      expect(def.annotations?.readOnlyHint).toBe(true);
-    }
+  it("declares 8 tools (4 read + 4 write)", () => {
+    expect(designToolDefinitions).toHaveLength(8);
+  });
+
+  it("write tools are explicitly NOT readOnlyHint", () => {
+    const patch = designToolDefinitions.find((t) => t.name === "mandu.design.patch");
+    expect(patch?.annotations?.readOnlyHint).toBe(false);
+    const propose = designToolDefinitions.find((t) => t.name === "mandu.design.propose");
+    expect(propose?.annotations?.readOnlyHint).toBe(false);
   });
 
   it("exposes the canonical tool names", () => {
@@ -97,8 +101,12 @@ describe("designToolDefinitions", () => {
     expect(names).toEqual([
       "mandu.component.list",
       "mandu.design.check",
+      "mandu.design.diff_upstream",
+      "mandu.design.extract",
       "mandu.design.get",
+      "mandu.design.patch",
       "mandu.design.prompt",
+      "mandu.design.propose",
     ]);
   });
 });
@@ -196,6 +204,127 @@ describe("mandu.design.check", () => {
     const h = designTools(fix.root);
     const result = (await h["mandu.design.check"]!({})) as { error?: string };
     expect(result.error).toBeDefined();
+  });
+});
+
+describe("mandu.design.extract", () => {
+  let fix: { root: string; cleanup: () => Promise<void> };
+  beforeEach(async () => {
+    fix = await setupFixture();
+    // Add some duplicated colors so the extractor has something to find.
+    await fs.mkdir(path.join(fix.root, "app", "ext"), { recursive: true });
+    await fs.writeFile(
+      path.join(fix.root, "app", "ext", "page.tsx"),
+      `const a = "#FF8C42"; const b = "#FF8C42"; const c = "#FF8C42"; const d = "#1234567";\nconst x = "rgb(99,91,255)"; const y = "rgb(99,91,255)"; const z = "rgb(99,91,255)";`,
+    );
+  });
+  afterEach(async () => {
+    await fix.cleanup();
+  });
+
+  it("returns proposals derived from project source", async () => {
+    const h = designTools(fix.root);
+    const result = (await h["mandu.design.extract"]!({})) as {
+      scanned_files: number;
+      proposals: Array<{ key: string; section: string; occurrences: number }>;
+    };
+    expect(result.scanned_files).toBeGreaterThan(0);
+    // existing: Primary already #FF8C42 — should be filtered out.
+    expect(result.proposals.find((p) => p.key === "#ff8c42")).toBeUndefined();
+    expect(result.proposals.find((p) => p.key === "rgb(99,91,255)")).toBeDefined();
+  });
+});
+
+describe("mandu.design.patch", () => {
+  let fix: { root: string; cleanup: () => Promise<void> };
+  beforeEach(async () => {
+    fix = await setupFixture();
+  });
+  afterEach(async () => {
+    await fix.cleanup();
+  });
+
+  it("dry-run by default — file is unchanged", async () => {
+    const h = designTools(fix.root);
+    const result = (await h["mandu.design.patch"]!({
+      section: "color-palette",
+      operation: "add",
+      key: "Accent",
+      value: "#1A1F36",
+    })) as { dry_run: boolean; written: boolean; applied_count: number };
+    expect(result.dry_run).toBe(true);
+    expect(result.written).toBe(false);
+    expect(result.applied_count).toBe(1);
+
+    const onDisk = await fs.readFile(path.join(fix.root, "DESIGN.md"), "utf8");
+    expect(onDisk).not.toContain("Accent");
+  });
+
+  it("dry_run:false actually rewrites DESIGN.md", async () => {
+    const h = designTools(fix.root);
+    const result = (await h["mandu.design.patch"]!({
+      section: "color-palette",
+      operation: "add",
+      key: "Accent",
+      value: "#1A1F36",
+      dry_run: false,
+    })) as { dry_run: boolean; written: boolean };
+    expect(result.dry_run).toBe(false);
+    expect(result.written).toBe(true);
+    const onDisk = await fs.readFile(path.join(fix.root, "DESIGN.md"), "utf8");
+    expect(onDisk).toContain("- Accent — #1A1F36");
+  });
+
+  it("rejects when no operations are provided", async () => {
+    const h = designTools(fix.root);
+    const result = (await h["mandu.design.patch"]!({})) as { error?: string };
+    expect(result.error).toContain("No operations");
+  });
+});
+
+describe("mandu.design.propose", () => {
+  let fix: { root: string; cleanup: () => Promise<void> };
+  beforeEach(async () => {
+    fix = await setupFixture();
+    await fs.mkdir(path.join(fix.root, "app", "ext"), { recursive: true });
+    await fs.writeFile(
+      path.join(fix.root, "app", "ext", "page.tsx"),
+      `const a="#1A1F36";const b="#1A1F36";const c="#1A1F36";`,
+    );
+  });
+  afterEach(async () => {
+    await fix.cleanup();
+  });
+
+  it("returns proposals AND patch results in dry-run", async () => {
+    const h = designTools(fix.root);
+    const result = (await h["mandu.design.propose"]!({})) as {
+      proposals: Array<{ key: string }>;
+      patch_results: Array<{ applied: boolean }>;
+      dry_run: boolean;
+      written: boolean;
+    };
+    expect(result.proposals.length).toBeGreaterThan(0);
+    expect(result.dry_run).toBe(true);
+    expect(result.written).toBe(false);
+    const onDisk = await fs.readFile(path.join(fix.root, "DESIGN.md"), "utf8");
+    expect(onDisk).not.toContain("Color-1A1F36");
+  });
+});
+
+describe("mandu.design.diff_upstream", () => {
+  let fix: { root: string; cleanup: () => Promise<void> };
+  beforeEach(async () => {
+    fix = await setupFixture();
+  });
+  afterEach(async () => {
+    await fix.cleanup();
+  });
+
+  it("requires a slug", async () => {
+    const h = designTools(fix.root);
+    const result = (await h["mandu.design.diff_upstream"]!({})) as { error?: string };
+    expect(result.error).toContain("slug");
   });
 });
 

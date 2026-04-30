@@ -34,6 +34,29 @@ export {
   type ThemeMergeResult,
 } from "./tailwind-theme";
 
+export {
+  extractDesignTokens,
+  type ExtractKind,
+  type ExtractOptions,
+  type ExtractProposal,
+  type ExtractResult,
+} from "./extract";
+
+export {
+  patchDesignMd,
+  patchDesignMdBatch,
+  type PatchableSection,
+  type PatchOperation,
+  type PatchResult,
+  type PatchBatchResult,
+} from "./patch";
+
+export {
+  diffDesignSpecs,
+  type DesignSpecDiff,
+  type DiffEntry,
+} from "./diff";
+
 export type {
   AgentPrompt,
   AgentPromptsSection,
