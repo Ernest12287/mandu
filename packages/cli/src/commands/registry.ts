@@ -105,6 +105,15 @@ registerCommand({
   description: "Create a new project (Tailwind + shadcn/ui included by default)",
   async run(ctx) {
     const { init } = await import("./init");
+    // `--design` accepts either a bare flag (`--design`, no value) or a
+    // slug (`--design=stripe`). The argv parser hands us "true" for the
+    // bare form, an empty string for `--design=` (oddly), or the slug
+    // string for `--design=foo`.
+    const designRaw = ctx.options.design;
+    let design: boolean | string | undefined;
+    if (designRaw === undefined) design = undefined;
+    else if (designRaw === "true" || designRaw === "") design = true;
+    else design = String(designRaw);
     return init({
       name: ctx.options.name || ctx.options._positional,
       template: ctx.options.template,
@@ -115,6 +124,7 @@ registerCommand({
       withCi: ctx.options["with-ci"] === "true",
       yes: ctx.options.yes === "true",
       noInstall: ctx.options["no-install"] === "true",
+      design,
       exitOnSuccess: true,
     });
   },
@@ -300,62 +310,52 @@ registerCommand({
 registerCommand({
   id: "design",
   description:
-    "DESIGN.md operations (init / import / validate / sync). Issue #245 M1+M3.",
+    "DESIGN.md operations (init / import / validate / sync / lint / link). Issue #245.",
   exitOnSuccess: true,
   help: [
     "",
     "  mandu design — DESIGN.md operations",
     "",
     "  Subcommands:",
-    "    mandu design init [--from <slug|url>]",
-    "        Write a fresh DESIGN.md. Empty 9-section skeleton by default,",
-    "        or import a brand spec via --from (e.g. `--from stripe`).",
-    "    mandu design import <slug|url>",
-    "        Overwrite the existing DESIGN.md with an imported brand spec.",
-    "    mandu design validate",
-    "        Parse DESIGN.md and report missing / empty / malformed sections.",
-    "    mandu design sync [--dry-run] [--css-path <path>]",
-    "        Compile DESIGN.md tokens (color/typography/layout/shadow) into",
-    "        Tailwind v4 @theme block, merged into globals.css between markers.",
+    "    init [--from <slug|url>]    Write a fresh DESIGN.md skeleton (or import).",
+    "    import <slug|url>           Overwrite DESIGN.md with an imported brand spec.",
+    "    validate                    Report missing / empty / malformed sections.",
+    "    sync [--dry-run]            Compile DESIGN.md tokens → Tailwind v4 @theme.",
+    "    lint                        Self-consistency check (color hex, slug clashes).",
+    "    link [--create]             Wire AGENTS.md / CLAUDE.md to DESIGN.md.",
     "",
     "  Flags:",
-    "    --from <slug|url>   Source for init/import (awesome-design-md slug",
-    "                        or any raw URL). Slug examples: stripe, linear,",
-    "                        spotify — see github.com/VoltAgent/awesome-design-md",
+    "    --from <slug|url>   Source for init/import (awesome-design-md slug or URL).",
     "    --force             init: overwrite existing DESIGN.md.",
     "    --filename <name>   Target DESIGN.md filename (default: DESIGN.md).",
-    "    --css-path <path>   sync: target CSS file (auto-detects app/globals.css",
-    "                        or src/globals.css when omitted).",
+    "    --css-path <path>   sync: override the target CSS file.",
     "    --dry-run           sync: print compiled @theme without writing.",
+    "    --create            link: seed AGENTS.md when neither AGENTS.md nor CLAUDE.md exists.",
     "",
     "  Examples:",
-    "    mandu design init                       # empty 9-section skeleton",
-    "    mandu design init --from stripe         # import Stripe DESIGN.md",
-    "    mandu design import linear              # swap to Linear DESIGN.md",
-    "    mandu design validate                   # report gaps",
-    "    mandu design sync                       # write Tailwind v4 @theme",
-    "    mandu design sync --dry-run             # preview compiled theme",
+    "    mandu design init --from stripe",
+    "    mandu design sync --dry-run",
+    "    mandu design lint",
+    "    mandu design link --create",
     "",
   ].join("\n"),
-  subcommands: ["init", "import", "validate", "sync"],
+  subcommands: ["init", "import", "validate", "sync", "lint", "link"],
   async run(ctx) {
     const { design } = await import("./design");
-    // ctx.args[0] is the command name ("design"); subcommand starts at args[1].
     const sub = ctx.args[1];
-    if (sub !== "init" && sub !== "import" && sub !== "validate" && sub !== "sync") {
+    const allowed = ["init", "import", "validate", "sync", "lint", "link"] as const;
+    if (!(allowed as readonly string[]).includes(sub ?? "")) {
       console.error(
-        `❌ unknown subcommand "${sub ?? ""}". Use one of: init | import | validate | sync`,
+        `❌ unknown subcommand "${sub ?? ""}". Use one of: ${allowed.join(" | ")}`,
       );
       console.error(`   Run \`mandu design --help\` for usage.`);
       return false;
     }
     const fromArg =
       ctx.options.from && ctx.options.from !== "true" ? ctx.options.from : undefined;
-    // For `import <slug>` the slug is the third positional (after `design import`).
-    // `init --from` uses the flag instead.
     const positionalFrom = sub === "import" ? ctx.args[2] : undefined;
     return design({
-      action: sub,
+      action: sub as DesignAction,
       from: fromArg ?? positionalFrom,
       force: ctx.options.force === "true" || ctx.options.force === "",
       filename:
@@ -367,9 +367,12 @@ registerCommand({
           ? ctx.options["css-path"]
           : undefined,
       dryRun: ctx.options["dry-run"] === "true" || ctx.options["dry-run"] === "",
+      createIfMissing: ctx.options.create === "true" || ctx.options.create === "",
     });
   },
 });
+
+type DesignAction = "init" | "import" | "validate" | "sync" | "lint" | "link";
 
 registerCommand({
   id: "info",

@@ -145,6 +145,13 @@ export interface InitOptions {
   yes?: boolean;
   noInstall?: boolean;
   exitOnSuccess?: boolean;
+  /**
+   * Issue #245 M5 — when truthy, scaffold DESIGN.md and link
+   * AGENTS.md / CLAUDE.md to the design system. Pass a string slug
+   * (e.g. `"stripe"`) to import an awesome-design-md brand spec
+   * instead of the empty 9-section skeleton.
+   */
+  design?: boolean | string;
 }
 
 const ALLOWED_TEMPLATES = ["default", "realtime-chat", "auth-starter"] as const;
@@ -678,6 +685,37 @@ export async function init(options: InitOptions = {}): Promise<boolean> {
       stopSpinner();
       console.log(`${theme.warn("⚠")} Package installation skipped`);
       console.log(`   ${theme.muted("Run 'bun install' manually in the project directory.")}`);
+    }
+  }
+
+  // Issue #245 M5 — `--design[=<slug>]` scaffolds DESIGN.md + wires
+  // AGENTS.md / CLAUDE.md to the Mandu MCP design tools.
+  if (options.design) {
+    const slug = typeof options.design === "string" ? options.design : undefined;
+    try {
+      const { EMPTY_DESIGN_MD, fetchUpstreamDesignMd, linkAgentsToDesignMd } =
+        await import("@mandujs/core/design");
+      const body = slug ? await fetchUpstreamDesignMd(slug) : EMPTY_DESIGN_MD;
+      await fs.writeFile(path.join(targetDir, "DESIGN.md"), body);
+      const linkResult = await linkAgentsToDesignMd({
+        rootDir: targetDir,
+        createIfMissing: true,
+      });
+      console.log(
+        `${theme.info("🎨")} DESIGN.md ${slug ? `imported from "${slug}"` : "scaffolded (empty 9-section skeleton)"}`,
+      );
+      for (const f of linkResult.files) {
+        if (f.action === "unchanged") continue;
+        const rel = path.relative(targetDir, f.path);
+        console.log(`     ${theme.muted("•")} ${rel}: ${f.action}`);
+      }
+    } catch (err) {
+      console.log(
+        `${theme.warn("⚠")} --design step failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      console.log(
+        `   ${theme.muted("Run `mandu design init` (and `mandu design link --create`) manually after init completes.")}`,
+      );
     }
   }
 

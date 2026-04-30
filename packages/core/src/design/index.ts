@@ -57,6 +57,22 @@ export {
   type DiffEntry,
 } from "./diff";
 
+export {
+  buildAgentsDesignBlock,
+  linkAgentsToDesignMd,
+  DESIGN_LINK_MARKER_START,
+  DESIGN_LINK_MARKER_END,
+  type LinkAgentsOptions,
+  type LinkAgentsResult,
+} from "./agents-link";
+
+export {
+  lintDesignSpec,
+  type LintIssue,
+  type LintResult,
+  type LintSeverity,
+} from "./lint";
+
 export type {
   AgentPrompt,
   AgentPromptsSection,
