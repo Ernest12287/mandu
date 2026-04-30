@@ -1,5 +1,12 @@
 # @mandujs/mcp
 
+## 0.34.1
+
+### Patch Changes
+
+- Updated dependencies [[`0eb7ce7`](https://github.com/konamgil/mandu/commit/0eb7ce723004dcc1be08232ec6e7a818d0e73cb2)]:
+  - @mandujs/core@0.49.0
+
 ## 0.34.0
 
 ### Minor Changes
