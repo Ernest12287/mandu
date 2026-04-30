@@ -547,6 +547,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
   if (!hasIslands && !hmrEnabled) {
     // HMR 비활성 + island 없음: devBundler가 안 도니까 수동으로 DevTools 번들 빌드
     await buildClientBundles(manifest, rootDir, {
+      mode: "development",
       minify: false,
       reactCompiler: reactCompilerOption,
     });

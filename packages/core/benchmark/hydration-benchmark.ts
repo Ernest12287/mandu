@@ -17,6 +17,9 @@ interface BenchmarkResult {
   bundleSize: number;    // Total JS bundle size (KB)
   memoryUsage: number;   // Peak memory usage (MB)
   islandCount: number;   // Number of islands hydrated
+  totalIslandCount?: number;
+  hydrationErrorCount?: number;
+  hydrationErrors?: string[];
 }
 
 interface BenchmarkConfig {
@@ -26,6 +29,16 @@ interface BenchmarkConfig {
   throttle?: "3G" | "4G" | "none";
   waitUntil?: "load" | "domcontentloaded" | "networkidle" | "commit";
 }
+
+interface HydrationMetrics {
+  hydrationTime: number;
+  islandCount: number;
+  totalIslandCount: number;
+  errorCount: number;
+  errors: string[];
+}
+
+const HYDRATION_TIMEOUT_MS = 10_000;
 
 const NETWORK_CONDITIONS = {
   "3G": {
@@ -46,6 +59,22 @@ const NETWORK_CONDITIONS = {
 interface BrowserSession {
   browser: Browser;
   cleanup: () => Promise<void>;
+}
+
+interface CdpHost {
+  endpoint: string;
+  cleanup: () => Promise<void>;
+}
+
+interface CdpTarget {
+  id: string;
+  webSocketDebuggerUrl: string;
+}
+
+interface CdpClient {
+  send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
+  waitForEvent<T = unknown>(method: string, timeoutMs?: number): Promise<T>;
+  close(): void;
 }
 
 async function getFreePort(): Promise<number> {
@@ -96,13 +125,14 @@ async function resolveExistingWindowsBrowser(preferred: "chrome" | "msedge"): Pr
   return null;
 }
 
-async function waitForCdpUrl(port: number, timeoutMs = 15_000): Promise<string> {
+async function waitForCdpEndpoint(port: number, timeoutMs = 15_000): Promise<string> {
+  const endpoint = `http://127.0.0.1:${port}`;
   const startedAt = Date.now();
   let lastError: unknown;
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const response = await fetch(`${endpoint}/json/version`);
       if (!response.ok) {
         throw new Error(`CDP endpoint returned ${response.status}`);
       }
@@ -110,7 +140,7 @@ async function waitForCdpUrl(port: number, timeoutMs = 15_000): Promise<string> 
       if (!data.webSocketDebuggerUrl) {
         throw new Error("CDP endpoint did not return webSocketDebuggerUrl");
       }
-      return data.webSocketDebuggerUrl;
+      return endpoint;
     } catch (error) {
       lastError = error;
       await Bun.sleep(250);
@@ -137,7 +167,7 @@ async function terminateBrowserProcess(proc: Bun.Subprocess<"ignore", "ignore", 
   }
 }
 
-async function launchBrowserViaCdp(preferred: "chrome" | "msedge"): Promise<BrowserSession> {
+async function launchCdpHost(preferred: "chrome" | "msedge"): Promise<CdpHost> {
   const executable = await resolveExistingWindowsBrowser(preferred);
   if (!executable) {
     throw new Error(`System ${preferred} executable not found`);
@@ -150,7 +180,14 @@ async function launchBrowserViaCdp(preferred: "chrome" | "msedge"): Promise<Brow
       executable,
       "--headless=new",
       `--remote-debugging-port=${port}`,
+      "--remote-allow-origins=*",
       `--user-data-dir=${userDataDir}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-background-networking",
+      "--disable-extensions",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
       "about:blank",
     ],
     {
@@ -160,17 +197,10 @@ async function launchBrowserViaCdp(preferred: "chrome" | "msedge"): Promise<Brow
   );
 
   try {
-    const wsUrl = await waitForCdpUrl(port);
-    const browser = await chromium.connectOverCDP(wsUrl);
-
+    const endpoint = await waitForCdpEndpoint(port);
     return {
-      browser,
+      endpoint,
       cleanup: async () => {
-        try {
-          await browser.close();
-        } catch {
-          // ignore
-        }
         await terminateBrowserProcess(proc);
         try {
           await proc.exited;
@@ -196,6 +226,29 @@ async function launchBrowserViaCdp(preferred: "chrome" | "msedge"): Promise<Brow
     } catch {
       // ignore
     }
+    throw error;
+  }
+}
+
+async function launchBrowserViaCdp(preferred: "chrome" | "msedge"): Promise<BrowserSession> {
+  const host = await launchCdpHost(preferred);
+
+  try {
+    const browser = await chromium.connectOverCDP(host.endpoint, { timeout: 15_000 });
+
+    return {
+      browser,
+      cleanup: async () => {
+        try {
+          await browser.close();
+        } catch {
+          // ignore
+        }
+        await host.cleanup();
+      },
+    };
+  } catch (error) {
+    await host.cleanup();
     throw error;
   }
 }
@@ -247,30 +300,461 @@ async function launchBenchmarkBrowser(): Promise<BrowserSession> {
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
+async function createCdpTarget(endpoint: string): Promise<CdpTarget> {
+  const encodedUrl = encodeURIComponent("about:blank");
+  const methods: Array<"PUT" | "GET"> = ["PUT", "GET"];
+  let lastError: unknown;
+
+  for (const method of methods) {
+    try {
+      const response = await fetch(`${endpoint}/json/new?${encodedUrl}`, { method });
+      if (!response.ok) {
+        throw new Error(`CDP /json/new returned ${response.status}`);
+      }
+      const data = await response.json() as Partial<CdpTarget>;
+      if (!data.id || !data.webSocketDebuggerUrl) {
+        throw new Error(`CDP /json/new returned an invalid target: ${JSON.stringify(data)}`);
+      }
+      return {
+        id: data.id,
+        webSocketDebuggerUrl: data.webSocketDebuggerUrl,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function closeCdpTarget(endpoint: string, targetId: string): Promise<void> {
+  try {
+    await fetch(`${endpoint}/json/close/${targetId}`);
+  } catch {
+    // ignore
+  }
+}
+
+async function readWebSocketMessageData(data: unknown): Promise<string> {
+  if (typeof data === "string") return data;
+  if (data instanceof Blob) return data.text();
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
+  if (data instanceof Uint8Array) return new TextDecoder().decode(data);
+  return String(data);
+}
+
+function connectRawCdp(webSocketDebuggerUrl: string): Promise<CdpClient> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(webSocketDebuggerUrl);
+    const pending = new Map<
+      number,
+      {
+        method: string;
+        resolve: (value: unknown) => void;
+        reject: (reason?: unknown) => void;
+        timeout: ReturnType<typeof setTimeout>;
+      }
+    >();
+    const eventWaiters = new Map<
+      string,
+      Array<{
+        resolve: (value: unknown) => void;
+        reject: (reason?: unknown) => void;
+        timeout: ReturnType<typeof setTimeout>;
+      }>
+    >();
+    let nextId = 1;
+    let opened = false;
+
+    const rejectAll = (error: Error): void => {
+      for (const waiter of pending.values()) {
+        clearTimeout(waiter.timeout);
+        waiter.reject(error);
+      }
+      pending.clear();
+
+      for (const waiters of eventWaiters.values()) {
+        for (const waiter of waiters) {
+          clearTimeout(waiter.timeout);
+          waiter.reject(error);
+        }
+      }
+      eventWaiters.clear();
+    };
+
+    const openTimeout = setTimeout(() => {
+      if (!opened) {
+        socket.close();
+        reject(new Error("Raw CDP WebSocket did not open in 15000ms"));
+      }
+    }, 15_000);
+
+    socket.addEventListener("open", () => {
+      opened = true;
+      clearTimeout(openTimeout);
+      resolve({
+        send<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+          if (socket.readyState !== WebSocket.OPEN) {
+            return Promise.reject(new Error("Raw CDP WebSocket is not open"));
+          }
+
+          const id = nextId++;
+          const timeout = setTimeout(() => {
+            const waiter = pending.get(id);
+            if (!waiter) return;
+            pending.delete(id);
+            waiter.reject(new Error(`CDP command timed out: ${method}`));
+          }, 30_000);
+
+          const promise = new Promise<T>((commandResolve, commandReject) => {
+            pending.set(id, {
+              method,
+              resolve: (value) => commandResolve(value as T),
+              reject: commandReject,
+              timeout,
+            });
+          });
+
+          socket.send(JSON.stringify({ id, method, params }));
+          return promise;
+        },
+        waitForEvent<T = unknown>(method: string, timeoutMs = 30_000): Promise<T> {
+          return new Promise<T>((eventResolve, eventReject) => {
+            const timeout = setTimeout(() => {
+              const waiters = eventWaiters.get(method);
+              if (waiters) {
+                const index = waiters.findIndex((waiter) => waiter.timeout === timeout);
+                if (index >= 0) waiters.splice(index, 1);
+              }
+              eventReject(new Error(`CDP event timed out: ${method}`));
+            }, timeoutMs);
+
+            const waiters = eventWaiters.get(method) ?? [];
+            waiters.push({
+              resolve: (value) => eventResolve(value as T),
+              reject: eventReject,
+              timeout,
+            });
+            eventWaiters.set(method, waiters);
+          });
+        },
+        close(): void {
+          socket.close();
+        },
+      });
+    });
+
+    socket.addEventListener("message", (event) => {
+      void (async () => {
+        const raw = await readWebSocketMessageData(event.data);
+        const message = JSON.parse(raw) as {
+          id?: number;
+          method?: string;
+          params?: unknown;
+          result?: unknown;
+          error?: { message?: string };
+        };
+
+        if (message.id !== undefined) {
+          const waiter = pending.get(message.id);
+          if (!waiter) return;
+          pending.delete(message.id);
+          clearTimeout(waiter.timeout);
+          if (message.error) {
+            waiter.reject(new Error(message.error.message ?? `CDP command failed: ${waiter.method}`));
+          } else {
+            waiter.resolve(message.result);
+          }
+          return;
+        }
+
+        if (message.method) {
+          const waiters = eventWaiters.get(message.method);
+          const waiter = waiters?.shift();
+          if (!waiter) return;
+          clearTimeout(waiter.timeout);
+          waiter.resolve(message.params);
+        }
+      })().catch((error) => {
+        rejectAll(error instanceof Error ? error : new Error(String(error)));
+      });
+    });
+
+    socket.addEventListener("error", () => {
+      const error = new Error("Raw CDP WebSocket failed");
+      if (!opened) {
+        clearTimeout(openTimeout);
+        reject(error);
+      } else {
+        rejectAll(error);
+      }
+    });
+
+    socket.addEventListener("close", () => {
+      clearTimeout(openTimeout);
+      rejectAll(new Error("Raw CDP WebSocket closed"));
+    });
+  });
+}
+
+async function evaluateCdp<T>(
+  client: CdpClient,
+  expression: string,
+  awaitPromise = false,
+): Promise<T> {
+  const response = await client.send<{
+    result?: { value?: T };
+    exceptionDetails?: { text?: string; exception?: { description?: string } };
+  }>("Runtime.evaluate", {
+    expression,
+    awaitPromise,
+    returnByValue: true,
+  });
+
+  if (response.exceptionDetails) {
+    throw new Error(
+      response.exceptionDetails.exception?.description ??
+        response.exceptionDetails.text ??
+        "CDP Runtime.evaluate failed",
+    );
+  }
+
+  return response.result?.value as T;
+}
+
+function resolveCdpLoadEvent(waitUntil: BenchmarkConfig["waitUntil"]): string {
+  if (waitUntil === "domcontentloaded") return "Page.domContentEventFired";
+  return "Page.loadEventFired";
+}
+
+async function runRawCdpPage(
+  endpoint: string,
+  config: BenchmarkConfig,
+): Promise<BenchmarkResult> {
+  const target = await createCdpTarget(endpoint);
+  const client = await connectRawCdp(target.webSocketDebuggerUrl);
+
+  try {
+    await client.send("Page.enable");
+    await client.send("Runtime.enable");
+    await client.send("Network.enable");
+
+    if (config.throttle && config.throttle !== "none") {
+      await client.send("Network.emulateNetworkConditions", NETWORK_CONDITIONS[config.throttle]!);
+    }
+
+    const loadEvent = client.waitForEvent(resolveCdpLoadEvent(config.waitUntil), 45_000);
+    await client.send("Page.navigate", { url: config.url });
+    await loadEvent;
+
+    const perfMetrics = await evaluateCdp<{ ttfb: number; fcp: number; tti: number }>(
+      client,
+      `new Promise((resolve) => {
+        const navigationEntry = performance.getEntriesByType("navigation")[0];
+        const ttfb = navigationEntry?.responseStart || 0;
+        const paintEntries = performance.getEntriesByType("paint");
+        const fcpEntry = paintEntries.find((entry) => entry.name === "first-contentful-paint");
+        const fcp = fcpEntry?.startTime || 0;
+        let tti = fcp;
+        const observer = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.entryType === "longtask") {
+              tti = Math.max(tti, entry.startTime + entry.duration);
+            }
+          }
+        });
+        try {
+          observer.observe({ entryTypes: ["longtask"] });
+        } catch {}
+        setTimeout(() => {
+          observer.disconnect();
+          resolve({ ttfb, fcp, tti });
+        }, 2000);
+      })`,
+      true,
+    );
+
+    const hydrationMetrics = await evaluateCdp<HydrationMetrics>(
+      client,
+      `new Promise((resolve) => {
+        const startTime = performance.now();
+        const totalIslands = document.querySelectorAll("[data-mandu-island]").length;
+        const collectErrors = () => Array.from(document.querySelectorAll("[data-mandu-error]")).map((element) => {
+          const id = element.getAttribute("data-mandu-island") || "(unknown)";
+          const src = element.getAttribute("data-mandu-src") || "(unknown src)";
+          const reason = element.getAttribute("data-mandu-error") || "true";
+          return id + " failed hydration from " + src + " (" + reason + ")";
+        });
+        if (totalIslands === 0) {
+          resolve({ hydrationTime: 0, islandCount: 0, totalIslandCount: 0, errorCount: 0, errors: [] });
+          return;
+        }
+        const checkInterval = setInterval(() => {
+          const hydrated = document.querySelectorAll("[data-mandu-hydrated]").length;
+          const errors = collectErrors();
+          if (hydrated >= totalIslands) {
+            clearInterval(checkInterval);
+            resolve({
+              hydrationTime: performance.now() - startTime,
+              islandCount: hydrated,
+              totalIslandCount: totalIslands,
+              errorCount: errors.length,
+              errors,
+            });
+            return;
+          }
+          if (errors.length > 0) {
+            clearInterval(checkInterval);
+            resolve({
+              hydrationTime: ${HYDRATION_TIMEOUT_MS},
+              islandCount: hydrated,
+              totalIslandCount: totalIslands,
+              errorCount: errors.length,
+              errors,
+            });
+          }
+        }, 10);
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          const hydrated = document.querySelectorAll("[data-mandu-hydrated]").length;
+          const errors = collectErrors();
+          resolve({
+            hydrationTime: performance.now() - startTime,
+            islandCount: hydrated,
+            totalIslandCount: totalIslands,
+            errorCount: errors.length,
+            errors,
+          });
+        }, ${HYDRATION_TIMEOUT_MS});
+      })`,
+      true,
+    );
+
+    const bundleSize = await evaluateCdp<number>(
+      client,
+      `(() => {
+        const entries = performance.getEntriesByType("resource");
+        return entries
+          .filter((entry) => entry.initiatorType === "script" && entry.name.includes(".mandu"))
+          .reduce((sum, entry) => sum + (entry.transferSize || 0), 0) / 1024;
+      })()`,
+    );
+
+    const heap = await client
+      .send<{ usedSize?: number }>("Runtime.getHeapUsage")
+      .catch(() => ({ usedSize: 0 }));
+
+    return {
+      name: "Raw CDP run",
+      ttfb: perfMetrics.ttfb,
+      fcp: perfMetrics.fcp,
+      tti: perfMetrics.tti,
+      hydrationTime: hydrationMetrics.hydrationTime,
+      bundleSize,
+      memoryUsage: (heap.usedSize ?? 0) / (1024 * 1024),
+      islandCount: hydrationMetrics.islandCount,
+      totalIslandCount: hydrationMetrics.totalIslandCount,
+      hydrationErrorCount: hydrationMetrics.errorCount,
+      hydrationErrors: hydrationMetrics.errors,
+    };
+  } finally {
+    client.close();
+    await closeCdpTarget(endpoint, target.id);
+  }
+}
+
+async function runRawCdpBenchmark(config: BenchmarkConfig): Promise<BenchmarkResult[]> {
+  if (process.platform !== "win32") {
+    throw new Error("Raw CDP fallback is currently only wired for Windows system browsers");
+  }
+
+  const attempts: Array<"chrome" | "msedge"> = ["chrome", "msedge"];
+  let lastError: unknown;
+
+  for (const preferred of attempts) {
+    let host: CdpHost | null = null;
+    try {
+      console.log(`   Raw CDP fallback attempt: system ${preferred}`);
+      host = await launchCdpHost(preferred);
+      const results: BenchmarkResult[] = [];
+
+      for (let i = 0; i < config.warmupRuns; i++) {
+        await runRawCdpPage(host.endpoint, config);
+        console.log(`   Raw CDP warmup ${i + 1}/${config.warmupRuns} ✓`);
+      }
+
+      for (let i = 0; i < config.runs; i++) {
+        const result = await runRawCdpPage(host.endpoint, config);
+        result.name = `Run ${i + 1}`;
+        results.push(result);
+        console.log(
+          `   Raw CDP run ${i + 1}/${config.runs}: TTI=${result.tti.toFixed(0)}ms, Hydration=${result.hydrationTime.toFixed(0)}ms`,
+        );
+      }
+
+      return results;
+    } catch (error) {
+      lastError = error;
+      console.warn(`   Raw CDP fallback failed: system ${preferred}`);
+    } finally {
+      if (host) {
+        await host.cleanup();
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 async function measureHydration(page: Page): Promise<{
   hydrationTime: number;
   islandCount: number;
+  totalIslandCount: number;
+  errorCount: number;
+  errors: string[];
 }> {
-  return page.evaluate(() => {
+  return page.evaluate((timeoutMs) => {
     return new Promise((resolve) => {
       const startTime = performance.now();
       let _hydratedCount = 0;
       const totalIslands = document.querySelectorAll("[data-mandu-island]").length;
+      const collectErrors = () => Array.from(document.querySelectorAll("[data-mandu-error]")).map((element) => {
+        const id = element.getAttribute("data-mandu-island") || "(unknown)";
+        const src = element.getAttribute("data-mandu-src") || "(unknown src)";
+        const reason = element.getAttribute("data-mandu-error") || "true";
+        return `${id} failed hydration from ${src} (${reason})`;
+      });
 
       if (totalIslands === 0) {
-        resolve({ hydrationTime: 0, islandCount: 0 });
+        resolve({ hydrationTime: 0, islandCount: 0, totalIslandCount: 0, errorCount: 0, errors: [] });
         return;
       }
 
       // 모든 Island hydration 완료 대기
       const checkInterval = setInterval(() => {
         const hydrated = document.querySelectorAll("[data-mandu-hydrated]").length;
+        const errors = collectErrors();
         if (hydrated >= totalIslands) {
           clearInterval(checkInterval);
           const endTime = performance.now();
           resolve({
             hydrationTime: endTime - startTime,
             islandCount: hydrated,
+            totalIslandCount: totalIslands,
+            errorCount: errors.length,
+            errors,
+          });
+          return;
+        }
+
+        if (errors.length > 0) {
+          clearInterval(checkInterval);
+          resolve({
+            hydrationTime: timeoutMs,
+            islandCount: hydrated,
+            totalIslandCount: totalIslands,
+            errorCount: errors.length,
+            errors,
           });
         }
       }, 10);
@@ -279,13 +763,17 @@ async function measureHydration(page: Page): Promise<{
       setTimeout(() => {
         clearInterval(checkInterval);
         const hydrated = document.querySelectorAll("[data-mandu-hydrated]").length;
+        const errors = collectErrors();
         resolve({
           hydrationTime: performance.now() - startTime,
           islandCount: hydrated,
+          totalIslandCount: totalIslands,
+          errorCount: errors.length,
+          errors,
         });
-      }, 10000);
+      }, timeoutMs);
     });
-  });
+  }, HYDRATION_TIMEOUT_MS);
 }
 
 async function measurePerformanceMetrics(page: Page): Promise<{
@@ -350,7 +838,7 @@ async function measureMemory(page: Page): Promise<number> {
   }
 }
 
-async function runBenchmark(config: BenchmarkConfig): Promise<BenchmarkResult[]> {
+async function runPlaywrightBenchmark(config: BenchmarkConfig): Promise<BenchmarkResult[]> {
   const session = await launchBenchmarkBrowser();
   const browser = session.browser;
   const results: BenchmarkResult[] = [];
@@ -405,6 +893,9 @@ async function runBenchmark(config: BenchmarkConfig): Promise<BenchmarkResult[]>
         bundleSize,
         memoryUsage,
         islandCount: hydrationMetrics.islandCount,
+        totalIslandCount: hydrationMetrics.totalIslandCount,
+        hydrationErrorCount: hydrationMetrics.errorCount,
+        hydrationErrors: hydrationMetrics.errors,
       });
 
       await context.close();
@@ -414,6 +905,16 @@ async function runBenchmark(config: BenchmarkConfig): Promise<BenchmarkResult[]>
     return results;
   } finally {
     await session.cleanup();
+  }
+}
+
+async function runBenchmark(config: BenchmarkConfig): Promise<BenchmarkResult[]> {
+  try {
+    return await runPlaywrightBenchmark(config);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Playwright benchmark unavailable; trying raw CDP fallback. Cause: ${message}`);
+    return runRawCdpBenchmark(config);
   }
 }
 

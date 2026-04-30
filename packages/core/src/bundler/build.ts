@@ -79,6 +79,38 @@ function manduClientPlugins(options: BundlerOptions): BunPlugin[] {
   ];
 }
 
+function resolveBundlerMode(options: BundlerOptions): "development" | "production" {
+  return options.mode ?? (process.env.NODE_ENV === "production" ? "production" : "development");
+}
+
+function isDevelopmentBuild(options: BundlerOptions): boolean {
+  return resolveBundlerMode(options) === "development";
+}
+
+function shouldMinify(options: BundlerOptions): boolean {
+  return options.minify ?? (resolveBundlerMode(options) === "production");
+}
+
+function shouldSplitChunks(options: BundlerOptions): boolean {
+  return options.splitting ?? (resolveBundlerMode(options) === "production");
+}
+
+function nodeEnvDefine(options: BundlerOptions): string {
+  return JSON.stringify(resolveBundlerMode(options));
+}
+
+function resolveClientOutDir(rootDir: string, outDir?: string): string {
+  const defaultOutDir = path.join(rootDir, ".mandu/client");
+  if (!outDir) return defaultOutDir;
+
+  const resolvedOutDir = path.isAbsolute(outDir) ? outDir : path.resolve(rootDir, outDir);
+  if (path.normalize(resolvedOutDir) === path.normalize(path.join(rootDir, ".mandu"))) {
+    return defaultOutDir;
+  }
+
+  return resolvedOutDir;
+}
+
 /**
  * Scan for *.island.tsx / *.island.ts files across hydrated route directories.
  *
@@ -230,20 +262,20 @@ async function buildPerIslandBundle(
   // Phase 7.1 B-1/B-4: wire Bun's native React Fast Refresh transform +
   // Mandu's boundary injection plugin — but only in dev. Production
   // bundles stay clean of `$RefreshReg$` / `$RefreshSig$` stubs.
-  const isDev = (options.minify ?? process.env.NODE_ENV === "production") === false;
+  const isDev = isDevelopmentBuild(options);
   try {
     await Bun.write(entryPath, generateIslandEntry(entry.name, entry.filePath));
     const result = await safeBuild({
       entrypoints: [entryPath],
       outdir: outDir,
       naming: outputName,
-      minify: options.minify ?? process.env.NODE_ENV === "production",
+      minify: shouldMinify(options),
       sourcemap: options.sourcemap ? "external" : "none",
       target: "browser",
       ...(isDev ? { reactFastRefresh: true } : {}),
       plugins: [...manduClientPlugins(options), ...(isDev ? [fastRefreshPlugin()] : [])],
       external: ["react", "react-dom", "react-dom/client", ...(options.external || [])],
-      define: { "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"), ...options.define },
+      define: { "process.env.NODE_ENV": nodeEnvDefine(options), ...options.define },
     });
     await fs.unlink(entryPath).catch(() => {});
     if (!result.success) {
@@ -1235,12 +1267,12 @@ async function buildRouterRuntime(
       entrypoints: [routerPath],
       outdir: outDir,
       naming: outputName,
-      minify: options.minify ?? process.env.NODE_ENV === "production",
+      minify: shouldMinify(options),
       sourcemap: options.sourcemap ? "external" : "none",
       target: "browser",
       plugins: manduDefaultPlugins(options),
       define: {
-        "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+        "process.env.NODE_ENV": nodeEnvDefine(options),
         ...options.define,
       },
     });
@@ -1311,13 +1343,13 @@ async function buildRuntime(
       entrypoints: [runtimePath],
       outdir: outDir,
       naming: outputName,
-      minify: options.minify ?? process.env.NODE_ENV === "production",
+      minify: shouldMinify(options),
       sourcemap: options.sourcemap ? "external" : "none",
       target: "browser",
       external: ["react", "react-dom", "react-dom/client"],
       plugins: manduDefaultPlugins(options),
       define: {
-        "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+        "process.env.NODE_ENV": nodeEnvDefine(options),
         ...options.define,
       },
     });
@@ -1472,8 +1504,7 @@ async function buildVendorShims(
   // Phase 7.1 B-2: dev-only Fast Refresh shims. In production we skip
   // them entirely so `react-refresh/runtime` is never bundled and the
   // attack surface / bundle size regressions stay zero for deploys.
-  const isDev =
-    (options.minify ?? process.env.NODE_ENV === "production") === false;
+  const isDev = isDevelopmentBuild(options);
 
   const shims: Array<{ name: string; source: string; key: VendorShimKey; cacheId: string }> = [
     { name: "_react", source: generateReactShimSource(), key: "react", cacheId: "react" },
@@ -1601,13 +1632,13 @@ async function buildVendorShims(
         entrypoints: [srcPath],
         outdir: outDir,
         naming: outputName,
-        minify: options.minify ?? process.env.NODE_ENV === "production",
+        minify: shouldMinify(options),
         sourcemap: options.sourcemap ? "external" : "none",
         target: "browser",
         external: shimExternal,
         plugins: manduDefaultPlugins(options),
         define: {
-          "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+          "process.env.NODE_ENV": nodeEnvDefine(options),
           ...options.define,
         },
       });
@@ -1697,8 +1728,7 @@ async function buildIsland(
 
   // Phase 7.1 B-1/B-4: wire native Fast Refresh transform + Mandu's
   // boundary injection plugin. Dev-only; prod bundles remain clean.
-  const isDev =
-    (options.minify ?? process.env.NODE_ENV === "production") === false;
+  const isDev = isDevelopmentBuild(options);
   try {
     // 엔트리 래퍼 생성
     await Bun.write(entryPath, generateIslandEntry(route.id, clientModulePath));
@@ -1709,15 +1739,15 @@ async function buildIsland(
       entrypoints: [entryPath],
       outdir: outDir,
       naming: options.splitting ? "[name]-[hash].js" : outputName,
-      minify: options.minify ?? process.env.NODE_ENV === "production",
+      minify: shouldMinify(options),
       sourcemap: options.sourcemap ? "external" : "none",
       target: "browser",
-      splitting: options.splitting ?? (process.env.NODE_ENV === "production"),
+      splitting: shouldSplitChunks(options),
       ...(isDev ? { reactFastRefresh: true } : {}),
       plugins: [...manduClientPlugins(options), ...(isDev ? [fastRefreshPlugin()] : [])],
       external: ["react", "react-dom", "react-dom/client", ...(options.external || [])],
       define: {
-        "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development"),
+        "process.env.NODE_ENV": nodeEnvDefine(options),
         ...options.define,
       },
     });
@@ -1911,15 +1941,13 @@ export async function buildClientBundles(
       errors.push(`onBundleComplete[${e.source}]: ${e.error.message}`);
     }
   };
-  const env = (process.env.NODE_ENV === "production" ? "production" : "development") as
-    | "development"
-    | "production";
+  const env = resolveBundlerMode(options);
 
   // 1. Hydration이 필요한 라우트 필터링
   const hydratedRoutes = getHydratedRoutes(manifest);
 
   // 2. 출력 디렉토리 생성 (항상 필요 - 매니페스트 저장용)
-  const outDir = options.outDir || path.join(rootDir, ".mandu/client");
+  const outDir = resolveClientOutDir(rootDir, options.outDir);
   await fs.mkdir(outDir, { recursive: true });
 
   // Hydration 라우트가 없어도 빈 매니페스트를 저장해야 함

@@ -411,6 +411,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
   // 초기 빌드
   console.log("🔨 Initial client bundle build...");
   const initialBuild = await buildClientBundles(manifest, rootDir, {
+    mode: "development",
     minify: false,
     sourcemap: true,
     reactCompiler,
@@ -1322,6 +1323,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       const startTime = performance.now();
       try {
         const result = await buildClientBundles(manifest, rootDir, {
+          mode: "development",
           minify: false,
           sourcemap: true,
           targetRouteIds: targetIds,
@@ -1380,6 +1382,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
       try {
         // #185: framework 번들 (runtime/router/vendor/devtools) 스킵 — 사용자 코드 변경 시 불필요
         const result = await buildClientBundles(manifest, rootDir, {
+          mode: "development",
           minify: false,
           sourcemap: true,
           skipFrameworkBundles: true,
@@ -1505,6 +1508,7 @@ export async function startDevBundler(options: DevBundlerOptions): Promise<DevBu
     try {
       // 단일 island만 재빌드 (Runtime/Router/Vendor 스킵, #122)
       const result = await buildClientBundles(manifest, rootDir, {
+        mode: "development",
         minify: false,
         sourcemap: true,
         targetRouteIds: [routeId],

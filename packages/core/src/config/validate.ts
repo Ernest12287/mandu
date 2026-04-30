@@ -239,7 +239,7 @@ const BuildBudgetConfigSchema = z
  */
 const BuildConfigSchema = z
   .object({
-    outDir: z.string().default(".mandu"),
+    outDir: z.string().default(".mandu/client"),
     minify: z.boolean().default(true),
     sourcemap: z.boolean().default(false),
     splitting: z.boolean().default(false),

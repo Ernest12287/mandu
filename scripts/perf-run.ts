@@ -684,7 +684,10 @@ async function runScenarioBenchmark(
           );
           console.log(`  benchmark complete ${scenario.id}`);
           const benchmarkJson = JSON.parse(await fs.readFile(benchmarkJsonPath, "utf8")) as BenchmarkJson;
-          browserMetrics = normalizeMetrics(benchmarkJson);
+          const normalizedBrowserMetrics = normalizeMetrics(benchmarkJson);
+          browserMetrics = {
+            hydration_p95_ms: normalizedBrowserMetrics.hydration_p95_ms,
+          };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           browserBenchmarkUnavailableReason = message;
