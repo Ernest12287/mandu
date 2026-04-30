@@ -130,6 +130,32 @@ registerCommand({
     });
   },
 });
+//this is the addition create was not working because it never existed so to prevent documentation rewrite just rgister create to do the exact same thing init does 
+registerCommand({
+  id: "create",
+  description: "Alias for init — create a new project",
+  async run(ctx) {
+    const { init } = await import("./init");
+    const designRaw = ctx.options.design;
+    let design: boolean | string | undefined;
+    if (designRaw === undefined) design = undefined;
+    else if (designRaw === "true" || designRaw === "") design = true;
+    else design = String(designRaw);
+    return init({
+      name: ctx.options.name || ctx.options._positional,
+      template: ctx.options.template,
+      css: ctx.options.css as CSSFramework | undefined,
+      ui: ctx.options.ui as UILibrary | undefined,
+      theme: ctx.options.theme === "true",
+      minimal: ctx.options.minimal === "true",
+      withCi: ctx.options["with-ci"] === "true",
+      yes: ctx.options.yes === "true",
+      noInstall: ctx.options["no-install"] === "true",
+      design,
+      exitOnSuccess: true,
+    });
+  },
+});
 
 registerCommand({
   id: "dev",
