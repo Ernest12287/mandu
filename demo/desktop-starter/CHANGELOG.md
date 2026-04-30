@@ -1,5 +1,12 @@
 # mandu-desktop-starter
 
+## 0.1.38
+
+### Patch Changes
+
+- Updated dependencies [[`53ca946`](https://github.com/konamgil/mandu/commit/53ca946f293ec6510992b0e31d09118bccf2c523)]:
+  - @mandujs/core@0.45.1
+
 ## 0.1.37
 
 ### Patch Changes
