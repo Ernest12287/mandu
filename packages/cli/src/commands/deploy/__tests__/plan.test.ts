@@ -222,6 +222,38 @@ describe("deployPlan() — incremental run", () => {
   });
 });
 
+describe("deployPlan() — --use-brain", () => {
+  let fix: { root: string; cleanup: () => Promise<void> };
+  beforeEach(async () => {
+    fix = await setupFixture();
+  });
+  afterEach(async () => {
+    await fix.cleanup();
+  });
+
+  it("falls back to heuristic with a clear warning when no cloud token is available", async () => {
+    const logs: string[] = [];
+    const result = await deployPlan({
+      cwd: fix.root,
+      apply: true,
+      useBrain: true,
+      now: () => FIXED_NOW,
+      log: (m) => logs.push(m),
+    });
+    expect(result.exitCode).toBe(0);
+    // resolveBrainAdapter has no real token in CI/test → falls back.
+    // Either the warning appears, OR (rare) the resolver finds a real
+    // dev token; in that case the run still succeeds. We assert the
+    // exit code rather than the precise log line so this test is
+    // resilient on dev machines with logged-in brains.
+    if (logs.some((l) => l.includes("--use-brain"))) {
+      expect(logs.some((l) => l.includes("Falling back to heuristic"))).toBe(true);
+    } else {
+      expect(logs.some((l) => l.includes("Using brain"))).toBe(true);
+    }
+  });
+});
+
 describe("renderDiffSummary / renderDiffLines", () => {
   it("summary collapses counts", () => {
     const out = renderDiffSummary([

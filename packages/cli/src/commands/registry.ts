@@ -1311,7 +1311,7 @@ registerCommand({
     "    --dry-run          Render the plan without prompting or writing",
     "    --reinfer          Force re-inference even on unchanged sources",
     "    --verbose          Show unchanged rows in the diff",
-    "    --use-brain        Reserved for M4 — currently a no-op",
+    "    --use-brain        Wrap the heuristic with the OAuth brain adapter (#250 M4)",
     "",
     "  Examples:",
     "    mandu deploy:plan",

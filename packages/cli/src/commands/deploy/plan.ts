@@ -28,6 +28,7 @@ import {
   buildDeployInferenceContext,
   emptyDeployIntentCache,
   inferDeployIntentHeuristic,
+  inferDeployIntentWithBrain,
   isStaticIntentValidFor,
   loadDeployIntentCache,
   planDeploy,
@@ -38,7 +39,7 @@ import {
   type PlanDiffEntry,
   type PlanDiffEntryKind,
 } from "@mandujs/core/deploy";
-import type { RoutesManifest } from "@mandujs/core";
+import { resolveBrainAdapter, type RoutesManifest } from "@mandujs/core";
 import { resolveManifest } from "../../util/manifest";
 import { CLI_ERROR_CODES } from "../../errors/codes";
 
@@ -140,15 +141,42 @@ export async function deployPlan(
     return { exitCode: 1, cache: emptyDeployIntentCache(), diff: [], warnings: [], applied: false };
   }
 
-  // ── 3. Plan
+  // ── 3. Resolve inferer
+  // The default is the offline heuristic. `--use-brain` resolves the
+  // OAuth-backed brain adapter and wraps the heuristic with it — the
+  // brain confirms or refines each route without ever blocking the
+  // pipeline (failures fall back to heuristic silently). When the
+  // resolver returns `template`/`needsLogin`, brain wrapping is
+  // skipped with a warning the operator sees in the plan output.
+  let infer = options.infer;
+  let brainModel = "heuristic";
+  if (!infer && options.useBrain) {
+    const resolution = await resolveBrainAdapter({
+      adapter: "auto",
+      projectRoot: cwd,
+    });
+    if (resolution.resolved === "template") {
+      log(
+        resolution.needsLogin
+          ? "⚠ --use-brain: no cloud token found. Run `mandu brain login --provider=openai` then re-run with --use-brain. Falling back to heuristic for now."
+          : "⚠ --use-brain: telemetryOptOut blocks the brain. Falling back to heuristic.",
+      );
+    } else {
+      infer = inferDeployIntentWithBrain({ adapter: resolution.adapter });
+      brainModel = `${resolution.resolved}+heuristic`;
+      log(`🧠 Using brain (${resolution.resolved}) to refine heuristic intents.`);
+    }
+  }
+
+  // ── 4. Plan
   const result = await planDeploy({
     rootDir: cwd,
     manifest,
     previous,
     reinfer: options.reinfer === true,
     now: options.now,
-    infer: options.infer,
-    brainModel: options.useBrain ? "openai+heuristic" : "heuristic",
+    infer,
+    brainModel,
   });
 
   // ── 4. Validation pass — surface intents that contradict route shape

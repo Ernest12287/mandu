@@ -53,6 +53,11 @@ export {
 } from "./inference/heuristic";
 
 export {
+  inferDeployIntentWithBrain,
+  type BrainInferenceOptions,
+} from "./inference/brain";
+
+export {
   planDeploy,
   planHasChanges,
   type PlanDeployOptions,

@@ -93,6 +93,29 @@ describe("mandu.deploy.plan", () => {
     expect(api?.rationale).toBeTruthy();
   });
 
+  it("use_brain returns brain_status; falls back gracefully without a cloud token", async () => {
+    const h = deployPlanTools(fix.root);
+    const result = (await h["mandu.deploy.plan"]!({ use_brain: true })) as {
+      brain_status?: string;
+      brain_model?: string;
+    };
+    expect(result.brain_status).toBeDefined();
+    // In CI / dev-without-token the resolver returns "template", so
+    // brain_status starts with "unavailable:". On a developer machine
+    // logged into OpenAI the brain may actually run — accept either.
+    expect(
+      result.brain_status === "unavailable:needs_login" ||
+        result.brain_status === "unavailable:opted_out" ||
+        result.brain_status?.startsWith("used:"),
+    ).toBe(true);
+  });
+
+  it("default call sets brain_status to 'not_requested'", async () => {
+    const h = deployPlanTools(fix.root);
+    const result = (await h["mandu.deploy.plan"]!({})) as { brain_status?: string };
+    expect(result.brain_status).toBe("not_requested");
+  });
+
   it("explicit override is preserved across calls", async () => {
     // Seed cache with explicit override.
     const h = deployPlanTools(fix.root);

@@ -28,6 +28,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   compileVercelJson,
   emptyDeployIntentCache,
+  inferDeployIntentWithBrain,
   isStaticIntentValidFor,
   loadDeployIntentCache,
   planDeploy,
@@ -39,7 +40,12 @@ import {
   type PlanDiffEntry,
   type VercelCompileResult,
 } from "@mandujs/core/deploy";
-import { generateManifest, loadManifest, type RoutesManifest } from "@mandujs/core";
+import {
+  generateManifest,
+  loadManifest,
+  resolveBrainAdapter,
+  type RoutesManifest,
+} from "@mandujs/core";
 import path from "node:path";
 
 /**
@@ -87,13 +93,28 @@ interface DeployPlanInput {
   apply?: boolean;
   /** Force re-inference even on unchanged source hashes. */
   reinfer?: boolean;
+  /**
+   * Wrap the heuristic with the OAuth-backed brain adapter. Falls
+   * back to heuristic-only when no cloud token is available — the
+   * MCP response surfaces this in `brain_status`.
+   */
+  use_brain?: boolean;
 }
 
 interface DeployPlanResultPayload {
   /** ISO timestamp the inferer wrote into the next cache. */
   generated_at: string;
-  /** Identifier of the inferer (`heuristic` for now; brain in M4). */
+  /** Identifier of the inferer (e.g. `heuristic`, `openai+heuristic`). */
   brain_model: string;
+  /**
+   * Diagnostic for `use_brain: true` calls. Tells the agent whether
+   * the brain actually ran or the call fell back to heuristic.
+   *   - `"used:openai"` / `"used:anthropic"` — brain ran.
+   *   - `"unavailable:needs_login"` — call `mandu brain login` first.
+   *   - `"unavailable:opted_out"` — telemetryOptOut is set in config.
+   *   - `"not_requested"` — `use_brain: false` (default).
+   */
+  brain_status: string;
   /** Per-route diff suitable for rendering as a table. */
   diff: Array<{
     route_id: string;
@@ -137,12 +158,33 @@ async function deployPlanHandler(
     };
   }
 
+  // Resolve the inferer. `use_brain` opts into the cloud refinement
+  // path; on missing tokens or telemetryOptOut we fall back silently
+  // and tell the agent via `brain_status`.
+  let infer: Parameters<typeof planDeploy>[0]["infer"] | undefined;
+  let brainModel = "heuristic";
+  let brainStatus = "not_requested";
+  if (input.use_brain === true) {
+    const resolution = await resolveBrainAdapter({
+      adapter: "auto",
+      projectRoot,
+    });
+    if (resolution.resolved === "template") {
+      brainStatus = resolution.needsLogin ? "unavailable:needs_login" : "unavailable:opted_out";
+    } else {
+      infer = inferDeployIntentWithBrain({ adapter: resolution.adapter });
+      brainModel = `${resolution.resolved}+heuristic`;
+      brainStatus = `used:${resolution.resolved}`;
+    }
+  }
+
   const result = await planDeploy({
     rootDir: projectRoot,
     manifest,
     previous,
     reinfer,
-    brainModel: "heuristic",
+    brainModel,
+    infer,
   });
 
   // Validate every entry against route shape so agents see the same
@@ -169,6 +211,7 @@ async function deployPlanHandler(
   return {
     generated_at: result.cache.generatedAt,
     brain_model: result.cache.brainModel,
+    brain_status: brainStatus,
     diff: result.diff.map((d) => ({
       route_id: d.routeId,
       pattern: d.pattern,
@@ -288,6 +331,11 @@ export const deployPlanToolDefinitions: Tool[] = [
         reinfer: {
           type: "boolean",
           description: "Force re-inference even on unchanged source hashes.",
+        },
+        use_brain: {
+          type: "boolean",
+          description:
+            "Wrap the heuristic with the OAuth-backed brain adapter (issue #250 M4). Falls back to heuristic when no cloud token is reachable; the response's `brain_status` tells you which path actually ran.",
         },
       },
       required: [],
