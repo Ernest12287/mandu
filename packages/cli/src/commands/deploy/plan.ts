@@ -27,10 +27,12 @@ import path from "node:path";
 import {
   buildDeployInferenceContext,
   emptyDeployIntentCache,
+  extractExplicitIntents,
   inferDeployIntentHeuristic,
   inferDeployIntentWithBrain,
   isStaticIntentValidFor,
   loadDeployIntentCache,
+  mergeExplicitIntents,
   planDeploy,
   saveDeployIntentCache,
   type DeployIntentCache,
@@ -130,16 +132,26 @@ export async function deployPlan(
   }
 
   // ── 2. Previous cache
-  const previous = await loadDeployIntentCache(cwd).catch((err) => {
+  const rawPrevious = await loadDeployIntentCache(cwd).catch((err) => {
     error(
       `Existing .mandu/deploy.intent.json is invalid: ${err instanceof Error ? err.message : String(err)}`,
     );
     error("Aborting — fix or delete the file before re-running deploy:plan.");
     return null;
   });
-  if (previous === null) {
+  if (rawPrevious === null) {
     return { exitCode: 1, cache: emptyDeployIntentCache(), diff: [], warnings: [], applied: false };
   }
+
+  // ── 2.5. Extract explicit `.deploy()` intents from filling modules.
+  // Merge them into the previous cache as `source: "explicit"` BEFORE
+  // planDeploy runs — explicit entries are protected from inference,
+  // so the user's `.deploy()` always wins (issue #250 M5).
+  const extracted = await extractExplicitIntents(cwd, manifest);
+  for (const ext of extracted.errors) {
+    log(`(filling.deploy) ${ext.routeId}: ${ext.reason}`);
+  }
+  const previous = await mergeExplicitIntents(rawPrevious, extracted.entries, cwd, manifest);
 
   // ── 3. Resolve inferer
   // The default is the offline heuristic. `--use-brain` resolves the

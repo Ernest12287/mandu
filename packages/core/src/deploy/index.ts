@@ -58,6 +58,15 @@ export {
 } from "./inference/brain";
 
 export {
+  extractExplicitIntents,
+  mergeExplicitIntents,
+  type ExplicitIntentEntry,
+  type ExplicitIntentError,
+  type ExtractExplicitIntentsOptions,
+  type ExtractExplicitIntentsResult,
+} from "./inference/filling-extract";
+
+export {
   planDeploy,
   planHasChanges,
   type PlanDeployOptions,

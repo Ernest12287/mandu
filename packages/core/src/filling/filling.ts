@@ -31,6 +31,10 @@ import {
   type ExecuteOptions,
 } from "../runtime/lifecycle";
 import type { SlotMetadata, SlotConstraints } from "../guard/semantic-slots";
+import {
+  DeployIntentInput,
+  type DeployIntentInput as DeployIntentInputType,
+} from "../deploy/intent";
 
 /** Handler function type */
 export type Handler = (ctx: ManduContext) => Response | Promise<Response>;
@@ -112,6 +116,19 @@ interface FillingConfig<TLoaderData = unknown> {
   middleware: MiddlewareEntry[];
   /** Semantic slot metadata */
   semantic: SlotMetadata;
+  /**
+   * Issue #250 M5 — explicit deploy intent override. When present,
+   * `mandu deploy:plan` records this entry as `source: "explicit"`,
+   * which the planner never overwrites via inference. The shape is
+   * the partial-input form so users can declare just the fields they
+   * care about (typically `runtime` + maybe `regions`).
+   *
+   * Use this to escape-hatch the heuristic / brain when you know
+   * better than they do — e.g. an API route that imports a DB driver
+   * but is actually called from a build-only script and you want it
+   * to ship as `static`.
+   */
+  deploy?: DeployIntentInputType;
 }
 
 export class ManduFilling<TLoaderData = unknown> {
@@ -199,6 +216,49 @@ export class ManduFilling<TLoaderData = unknown> {
    */
   getSemanticMetadata(): SlotMetadata {
     return { ...this.config.semantic };
+  }
+
+  /**
+   * Deploy intent override — pin the runtime / cache / regions for this
+   * route so `mandu deploy:plan` never overrides it via inference.
+   *
+   * Issue #250 M5. The shape mirrors the cache schema's partial-input
+   * form: declare only the fields you care about; the rest fall to
+   * the heuristic / brain. The `deploy:plan` command records the
+   * entry as `source: "explicit"` and protects it from re-inference.
+   *
+   * @example Pin an API route to bun + Seoul region:
+   * ```typescript
+   * Mandu.filling()
+   *   .deploy({ runtime: "bun", regions: ["icn1"] })
+   *   .post(async (ctx) => { ... });
+   * ```
+   *
+   * @example Force a dynamic page to render statically (only valid when
+   * `generateStaticParams` covers every parameter set):
+   * ```typescript
+   * Mandu.filling()
+   *   .deploy({ runtime: "static" })
+   *   .loader(async () => ({ ... }));
+   * ```
+   *
+   * The intent is validated immediately so a typo (`runtime: "lambdda"`)
+   * fails at module load instead of silently shipping the wrong shape.
+   */
+  deploy(intent: DeployIntentInputType): this {
+    this.config.deploy = DeployIntentInput.parse(intent);
+    return this;
+  }
+
+  /**
+   * Read the explicit deploy intent for this route, if any.
+   *
+   * Returns `undefined` when the user did not call `.deploy()`. The
+   * build-time extractor consults this to decide whether to mark the
+   * cache entry as `source: "explicit"` or pass through to inference.
+   */
+  getDeployIntent(): DeployIntentInputType | undefined {
+    return this.config.deploy;
   }
 
   /**
