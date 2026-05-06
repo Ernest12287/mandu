@@ -7,6 +7,11 @@ name: Release Binaries
 # Triggers:
 #   - push of a tag matching `v*` (e.g. v0.23.0, v1.0.0-rc.1) -> full build +
 #     release attach.
+#   - push of a Changesets-style scoped tag for the CLI package
+#     (e.g. `@mandujs/cli@0.43.0`) -> full build + release attach. This is the
+#     tag format the publish pipeline actually emits (see issue #257), so the
+#     binary release flow is gated on it rather than on a manually-cut `v*`
+#     mirror tag.
 #   - workflow_dispatch -> manual build for smoke-testing the matrix. Produces
 #     artifacts but does NOT create a GitHub Release unless `attach_release`
 #     is set to "true".
@@ -28,6 +33,7 @@ on:
   push:
     tags:
       - "v*"
+      - "@mandujs/cli@*"
   workflow_dispatch:
     inputs:
       bun_version:
@@ -108,17 +114,26 @@ jobs:
         id: ver
         shell: bash
         run: |
-          # Prefer the pushed tag name (strip leading "v"). Fall back to the
-          # @mandujs/cli package.json version for workflow_dispatch runs so
-          # the artifact filename is still informative.
+          # Prefer the pushed tag name. Fall back to the @mandujs/cli
+          # package.json version for workflow_dispatch runs so the artifact
+          # filename is still informative.
+          #
+          # Two tag formats are supported:
+          #   - `v0.43.0`            (manually-cut mirror tag)
+          #   - `@mandujs/cli@0.43.0` (Changesets scoped publish tag)
+          # Both reduce to clean=`0.43.0` / raw=`v0.43.0`.
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            raw="${GITHUB_REF_NAME}"
+            ref="${GITHUB_REF_NAME}"
+            case "${ref}" in
+              @*/*@*) clean="${ref##*@}" ;;
+              v*)     clean="${ref#v}" ;;
+              *)      clean="${ref}" ;;
+            esac
           else
-            raw=$(bun -e "console.log(require('./packages/cli/package.json').version)")
-            raw="v${raw}"
+            clean=$(bun -e "console.log(require('./packages/cli/package.json').version)")
           fi
-          echo "raw=${raw}" >> "$GITHUB_OUTPUT"
-          echo "clean=${raw#v}" >> "$GITHUB_OUTPUT"
+          echo "raw=v${clean}" >> "$GITHUB_OUTPUT"
+          echo "clean=${clean}" >> "$GITHUB_OUTPUT"
 
       - name: Cross-compile binary
         shell: bash
@@ -301,19 +316,32 @@ jobs:
         id: tag
         shell: bash
         run: |
+          # `tag_ref` is the actual git tag the Release will be attached to —
+          # always the pushed ref so we don't fork a separate tag.
+          # `name` is the human-readable Release title; we always normalise it
+          # to `v<semver>` regardless of whether the trigger was a `v*` tag or
+          # a Changesets `@mandujs/cli@*` scoped tag.
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            ref="${GITHUB_REF_NAME}"
+            case "${ref}" in
+              @*/*@*) clean="${ref##*@}" ;;
+              v*)     clean="${ref#v}" ;;
+              *)      clean="${ref}" ;;
+            esac
+            echo "tag_ref=${ref}" >> "$GITHUB_OUTPUT"
+            echo "name=v${clean}" >> "$GITHUB_OUTPUT"
           else
             # Manual dispatch fallback — synthesize a pre-release tag so we
             # don't clobber an existing release.
             ts=$(date -u +%Y%m%d-%H%M%S)
+            echo "tag_ref=manual-${ts}" >> "$GITHUB_OUTPUT"
             echo "name=manual-${ts}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: ${{ steps.tag.outputs.name }}
+          tag_name: ${{ steps.tag.outputs.tag_ref }}
           name: ${{ steps.tag.outputs.name }}
           # Binaries are unsigned during Phase 9b rollout. This notice lives
           # on every release until code signing is enabled.
