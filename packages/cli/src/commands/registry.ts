@@ -25,6 +25,17 @@ export interface CommandContext<TOptions extends Record<string, unknown> = Recor
 export interface CommandRegistration {
   /** Command ID (e.g., "dev", "build", "guard") */
   id: string;
+  /**
+   * Alternate command names that resolve to this same registration.
+   *
+   * Each alias is bound as an extra key in `commandRegistry` so
+   * `mandu <alias>` dispatches to `run` exactly as `mandu <id>` would.
+   * Aliases are surfaced in `--help` next to the canonical id and in
+   * shell completion via `getAllCommands()`. They do NOT appear as
+   * separate top-level entries in the help command list — see the
+   * dedupe step in `getAllCommandRegistrations()`.
+   */
+  aliases?: string[];
   /** Command description */
   description: string;
   /** Explicitly exit the CLI process after a successful run */
@@ -70,31 +81,63 @@ export type CommandHandlers<TMap extends Record<string, Record<string, unknown>>
 export const commandRegistry = new Map<string, CommandRegistration>();
 
 /**
- * Register a command
+ * Register a command. The registration is bound under `id` and under each
+ * entry in `aliases`, so `getCommand(alias)` returns the same object as
+ * `getCommand(id)`.
+ *
+ * Conflict policy: if an alias collides with an already-registered id (or
+ * another alias), we throw at registration time so the conflict surfaces
+ * during CLI startup rather than as a silent dispatch surprise later.
  */
 export function registerCommand(registration: CommandRegistration): void {
   commandRegistry.set(registration.id, registration);
+  if (!registration.aliases) return;
+  for (const alias of registration.aliases) {
+    if (alias === registration.id) continue;
+    const existing = commandRegistry.get(alias);
+    if (existing && existing !== registration) {
+      throw new Error(
+        `Command alias "${alias}" for "${registration.id}" collides with existing command "${existing.id}"`
+      );
+    }
+    commandRegistry.set(alias, registration);
+  }
 }
 
 /**
- * Look up a command
+ * Look up a command by id or alias.
  */
 export function getCommand(id: string): CommandRegistration | undefined {
   return commandRegistry.get(id);
 }
 
 /**
- * List all command IDs
+ * List every registered key — both canonical ids and aliases.
+ *
+ * Used by shell completion so `<TAB>` surfaces all valid spellings.
  */
 export function getAllCommands(): string[] {
   return Array.from(commandRegistry.keys());
 }
 
 /**
- * List all registered commands with metadata in registration order.
+ * List registered commands with metadata in registration order, with
+ * aliases collapsed into their canonical entry. Each registration is
+ * returned exactly once even if it was bound under multiple keys.
+ *
+ * Used by the help renderer so `init` and `create` show up as one row
+ * (with `create` listed under the row's `aliases` column) rather than
+ * two duplicate rows.
  */
 export function getAllCommandRegistrations(): CommandRegistration[] {
-  return Array.from(commandRegistry.values());
+  const seen = new Set<CommandRegistration>();
+  const out: CommandRegistration[] = [];
+  for (const registration of commandRegistry.values()) {
+    if (seen.has(registration)) continue;
+    seen.add(registration);
+    out.push(registration);
+  }
+  return out;
 }
 
 // ============================================================================
@@ -103,6 +146,11 @@ export function getAllCommandRegistrations(): CommandRegistration[] {
 
 registerCommand({
   id: "init",
+  // `create` matches the npm/bun ecosystem convention (`npm create vite`,
+  // `bun create solid`, …). Today both spellings are exact aliases —
+  // Phase 2 will split semantics so `create <name>` keeps the new-folder
+  // scaffold while `init` becomes a current-folder retrofit.
+  aliases: ["create"],
   description: "Create a new project (Tailwind + shadcn/ui included by default)",
   async run(ctx) {
     const { init } = await import("./init");
@@ -479,6 +527,10 @@ registerCommand({
 
 registerCommand({
   id: "guard",
+  // `mandu g` was advertised as an alias in the help text but never
+  // actually bound — `mandu g` printed CLI_E100 (Unknown command). The
+  // alias is now real.
+  aliases: ["g"],
   description: "Architecture violation check",
   subcommands: ["arch", "legacy", "spec", "manifest"],
   defaultSubcommand: "arch",

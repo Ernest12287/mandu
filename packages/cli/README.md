@@ -105,7 +105,7 @@ That's it!
 
 | Command | Description |
 |---------|-------------|
-| `mandu init [name]` | Create new project (interactive / `--yes` for non-interactive) |
+| `mandu init [name]` | Create new project (interactive / `--yes` for non-interactive). `mandu create [name]` is an alias. |
 | `mandu dev` | Start dev server (FS Routes + HMR) |
 | `mandu build` | Build for production |
 

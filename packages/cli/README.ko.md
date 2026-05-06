@@ -43,7 +43,7 @@ bun run dev
 
 ### `mandu init [project-name]`
 
-새 Mandu 프로젝트를 생성합니다. 이름 생략 시 대화형 모드로 진입합니다.
+새 Mandu 프로젝트를 생성합니다. 이름 생략 시 대화형 모드로 진입합니다. `mandu create [project-name]` 도 동일한 명령(alias)으로 동작합니다.
 
 ```bash
 bunx @mandujs/cli init           # 대화형

@@ -28,6 +28,15 @@
 
 ---
 
+## 제품 방향
+
+Mandu는 **에이전트 네이티브 풀스택 프레임워크**입니다. 에이전트가 코드를 작성해도 아키텍처, 계약, 런타임 동작, 릴리즈 게이트가 관찰 가능하고 강제 가능한 상태로 유지되는 감독형 AI 개발 프레임워크를 지향합니다.
+
+- [Agent-Native Framework Strategy v1](./docs/product/02_agent_native_framework_strategy.md)
+- [Agent-Native Framework Launch Plan](./docs/plans/17_agent_native_launch_plan.md)
+- [Mandu Agent Workflow](./docs/guides/07_agent_workflow.md)
+- [Agent DevTools Plan](./docs/devtools/AGENT_DEVTOOLS_PLAN.md)
+
 ## Quick Start
 
 ### 사전 요구사항
@@ -666,7 +675,7 @@ my-app/
 
 | 명령어 | 설명 |
 |--------|------|
-| `mandu init <name>` | 새 프로젝트 생성 |
+| `mandu init <name>` | 새 프로젝트 생성 (`mandu create <name>` 도 동일) |
 | `mandu dev` | 개발 서버 실행 (FS Routes + Guard 기본 활성화) |
 | `mandu build` | 프로덕션 빌드 |
 | `mandu start` | 프로덕션 서버 실행 |

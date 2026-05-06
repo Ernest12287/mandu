@@ -28,6 +28,15 @@
 
 ---
 
+## Product Direction
+
+Mandu is an **Agent-Native Fullstack Framework** for supervised AI development: agents can write code while Mandu keeps architecture, contracts, runtime behavior, and release gates observable and enforceable.
+
+- [Agent-Native Framework Strategy v1](./docs/product/02_agent_native_framework_strategy.md)
+- [Agent-Native Framework Launch Plan](./docs/plans/17_agent_native_launch_plan.md)
+- [Mandu Agent Workflow](./docs/guides/07_agent_workflow.md)
+- [Agent DevTools Plan](./docs/devtools/AGENT_DEVTOOLS_PLAN.md)
+
 ## Quick Start
 
 ### Install Mandu
@@ -543,7 +552,7 @@ bunx mandu build
 **Project Lifecycle**
 | Command | Description |
 |---------|-------------|
-| `mandu init [name]` | Create new project (with templates: default, realtime-chat) |
+| `mandu init [name]` | Create new project (with templates: default, realtime-chat). Alias: `mandu create [name]`. |
 | `mandu dev` | Start dev server (FS Routes + Guard + HMR auto-enabled) |
 | `mandu dev:safe` | Start dev with lockfile pre-validation |
 | `mandu build` | Build for production |
