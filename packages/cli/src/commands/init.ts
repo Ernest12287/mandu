@@ -395,7 +395,7 @@ function addDarkModeCSS(content: string): string {
  * node_modules-resolvable either — we fall back to the CLI version, which
  * is guaranteed to resolve because it's embedded.
  */
-async function resolvePackageVersions(): Promise<{
+export async function resolvePackageVersions(): Promise<{
   coreVersion: string;
   cliVersion: string;
   mcpVersion: string;

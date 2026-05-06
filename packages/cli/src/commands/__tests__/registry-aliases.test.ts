@@ -27,13 +27,6 @@ import {
 } from "../registry";
 
 describe("CommandRegistration.aliases", () => {
-  test("create alias dispatches to the same registration as init", () => {
-    const init = getCommand("init");
-    const create = getCommand("create");
-    expect(init).toBeDefined();
-    expect(create).toBe(init!);
-  });
-
   test("guard alias `g` dispatches to guard (was a docs-only alias before)", () => {
     const guard = getCommand("guard");
     const g = getCommand("g");
@@ -49,20 +42,24 @@ describe("CommandRegistration.aliases", () => {
     expect(keys).toContain("g");
   });
 
-  test("getAllCommandRegistrations dedupes — init/create appear once", () => {
+  test("getAllCommandRegistrations dedupes by registration object", () => {
     const all = getAllCommandRegistrations();
-    const initCount = all.filter((r) => r.id === "init").length;
     const guardCount = all.filter((r) => r.id === "guard").length;
-    expect(initCount).toBe(1);
     expect(guardCount).toBe(1);
-    // Sanity: the deduped list is strictly smaller than the raw key list
-    // when at least one alias is in play.
+    // `g` is a real alias of `guard`, so the deduped list is strictly
+    // smaller than the raw key list.
     expect(all.length).toBeLessThan(getAllCommands().length);
   });
 
-  test("init registration exposes `create` in its aliases array", () => {
+  test("init and create are now distinct registrations (Phase 2 split)", () => {
+    // Phase 1 had `create` registered as an alias of `init`. Phase 2
+    // splits the semantics — `init` is retrofit, `create` is scaffold.
     const init = getCommand("init")!;
-    expect(init.aliases).toEqual(["create"]);
+    const create = getCommand("create")!;
+    expect(init).not.toBe(create);
+    // Neither carries the other in its aliases list.
+    expect(init.aliases ?? []).not.toContain("create");
+    expect(create.aliases ?? []).not.toContain("init");
   });
 
   test("guard registration exposes `g` in its aliases array", () => {

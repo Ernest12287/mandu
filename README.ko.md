@@ -675,7 +675,8 @@ my-app/
 
 | 명령어 | 설명 |
 |--------|------|
-| `mandu init <name>` | 새 프로젝트 생성 (`mandu create <name>` 도 동일) |
+| `mandu create <name>` | 새 폴더에 Mandu 프로젝트 스캐폴딩 (templates: default, realtime-chat) |
+| `mandu init` | 현재 폴더에 Mandu 환경 retrofit (기존 파일은 `--force` 없으면 보존) |
 | `mandu dev` | 개발 서버 실행 (FS Routes + Guard 기본 활성화) |
 | `mandu build` | 프로덕션 빌드 |
 | `mandu start` | 프로덕션 서버 실행 |

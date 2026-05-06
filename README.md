@@ -552,7 +552,8 @@ bunx mandu build
 **Project Lifecycle**
 | Command | Description |
 |---------|-------------|
-| `mandu init [name]` | Create new project (with templates: default, realtime-chat). Alias: `mandu create [name]`. |
+| `mandu create <name>` | Scaffold a new Mandu project into a new folder (templates: default, realtime-chat). |
+| `mandu init` | Retrofit Mandu into the current folder (existing files preserved unless `--force`). |
 | `mandu dev` | Start dev server (FS Routes + Guard + HMR auto-enabled) |
 | `mandu dev:safe` | Start dev with lockfile pre-validation |
 | `mandu build` | Build for production |

@@ -144,14 +144,47 @@ export function getAllCommandRegistrations(): CommandRegistration[] {
 // Command registration (lazy loading)
 // ============================================================================
 
+// Phase 2 split: `mandu create <name>` is now the canonical
+// new-folder scaffold path. `mandu init` (no name) is a *retrofit*
+// that drops Mandu structure into the current directory.
+//
+// `mandu init <name>` is kept working for one deprecation cycle —
+// it prints a warning and forwards to `create`. We'll remove that
+// forwarding once usage drops (see issue #256 follow-up).
 registerCommand({
   id: "init",
-  // `create` matches the npm/bun ecosystem convention (`npm create vite`,
-  // `bun create solid`, …). Today both spellings are exact aliases —
-  // Phase 2 will split semantics so `create <name>` keeps the new-folder
-  // scaffold while `init` becomes a current-folder retrofit.
-  aliases: ["create"],
-  description: "Create a new project (Tailwind + shadcn/ui included by default)",
+  description:
+    "Retrofit Mandu into the current directory (use `mandu create <name>` to scaffold a new project)",
+  async run(ctx) {
+    const positional = ctx.options.name || ctx.options._positional;
+    if (positional) {
+      console.warn(
+        `⚠️  \`mandu init ${positional}\` is deprecated; use \`mandu create ${positional}\` instead.`
+      );
+      console.warn(
+        `    \`mandu init\` (no arguments) now retrofits Mandu into the current directory.`
+      );
+      const create = getCommand("create");
+      if (!create) {
+        // Should never happen — `create` is registered immediately
+        // after `init`. Defensive only.
+        return false;
+      }
+      return create.run(ctx);
+    }
+    const { retrofit, printRetrofitResult } = await import("./init-retrofit");
+    const dryRun =
+      ctx.options["dry-run"] === "true" || ctx.options["dry-run"] === "";
+    const force = ctx.options.force === "true" || ctx.options.force === "";
+    const result = await retrofit({ dryRun, force });
+    printRetrofitResult(result, { dryRun });
+    return result.success;
+  },
+});
+
+registerCommand({
+  id: "create",
+  description: "Scaffold a new Mandu project (Tailwind + shadcn/ui by default)",
   async run(ctx) {
     const { init } = await import("./init");
     // `--design` accepts either a bare flag (`--design`, no value) or a

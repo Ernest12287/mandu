@@ -41,15 +41,28 @@ bun run dev
 
 ## 명령어
 
-### `mandu init [project-name]`
+### `mandu create <project-name>`
 
-새 Mandu 프로젝트를 생성합니다. 이름 생략 시 대화형 모드로 진입합니다. `mandu create [project-name]` 도 동일한 명령(alias)으로 동작합니다.
+새 폴더에 Mandu 프로젝트를 스캐폴딩합니다. 이름 생략 시 대화형 모드로 진입합니다.
 
 ```bash
-bunx @mandujs/cli init           # 대화형
-bunx @mandujs/cli init my-app    # 비대화형 (기본 옵션)
-bunx @mandujs/cli init my-app --yes --no-install  # 설치 건너뛰기
+bunx @mandujs/cli create           # 대화형
+bunx @mandujs/cli create my-app    # 비대화형 (기본 옵션)
+bunx @mandujs/cli create my-app --yes --no-install  # 설치 건너뛰기
 ```
+
+### `mandu init`
+
+현재 폴더에 Mandu 환경을 retrofit 합니다 (`package.json` merge + `app/page.tsx` 생성).
+기존 파일은 `--force` 없으면 보존되며, `--dry-run` 으로 변경사항을 미리 볼 수 있습니다.
+
+```bash
+mandu init                # 현재 폴더에 retrofit
+mandu init --dry-run      # 어떤 파일이 변경될지 미리보기
+mandu init --force        # 충돌 시 mandu 버전으로 덮어쓰기
+```
+
+> 호환: `mandu init my-app` 처럼 인자를 주면 한 사이클 동안 deprecation 경고와 함께 `mandu create my-app` 으로 위임됩니다. 다음 메이저에서 제거 예정.
 
 생성되는 구조:
 ```
