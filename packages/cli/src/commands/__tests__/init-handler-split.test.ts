@@ -115,10 +115,10 @@ describe("`mandu init <name>` → deprecation + forward to create", () => {
     const create = getCommand("create")!;
     const originalRun = create.run;
     let createCalled = false;
-    let createCtx: CommandContext | null = null;
+    const captured: { ctx: CommandContext | null } = { ctx: null };
     create.run = async (ctx) => {
       createCalled = true;
-      createCtx = ctx;
+      captured.ctx = ctx;
       return true;
     };
 
@@ -131,7 +131,7 @@ describe("`mandu init <name>` → deprecation + forward to create", () => {
       const success = await init.run(ctx);
       expect(success).toBe(true);
       expect(createCalled).toBe(true);
-      expect(createCtx).toBe(ctx);
+      expect(captured.ctx).toBe(ctx);
 
       const warnings = warnSpy.calls.join("\n");
       expect(warnings).toMatch(/deprecated/i);
