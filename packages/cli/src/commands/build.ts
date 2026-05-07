@@ -29,6 +29,8 @@ import { createBuildSummaryRows, renderBuildSummaryTable } from "../util/build-s
 import { emitStaticExport } from "../util/static-export";
 
 export interface BuildOptions {
+  /** Build mode for client bundles */
+  mode?: "development" | "production";
   /** Code minification (default: true in production) */
   minify?: boolean;
   /** Generate source maps */
@@ -299,6 +301,7 @@ export async function build(options: BuildOptions = {}): Promise<boolean> {
     );
   }
   const resolvedBuildOptions: BuildOptions = {
+    mode: "production",
     minify: options.minify ?? buildConfig.minify,
     sourcemap: options.sourcemap ?? buildConfig.sourcemap,
     outDir: options.outDir ?? buildConfig.outDir,
@@ -1022,6 +1025,7 @@ async function watchAndRebuild(
       const { manifest: freshManifest } = await resolveManifest(rootDir, resolveOptions);
 
       const result = await buildClientBundles(freshManifest, rootDir, {
+        mode: "production",
         minify: options.minify,
         sourcemap: options.sourcemap,
         outDir: options.outDir,

@@ -1,6 +1,6 @@
 {
   "name": "@mandujs/playground-runner",
-  "version": "24.0.1",
+  "version": "24.0.2",
   "private": true,
   "description": "Private Mandu playground runner scaffold with local mock/Docker execution plus Cloudflare Worker/Durable Object wiring placeholders.",
   "type": "module",

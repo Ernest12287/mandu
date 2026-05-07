@@ -41,10 +41,38 @@ async function runTest(label: string, args: string[], env: Record<string, string
   }
 }
 
+async function runScript(label: string, args: string[], env: Record<string, string> = {}): Promise<void> {
+  console.log(`\n${label}`);
+  console.log(`$ bun run ${args.join(" ")}`);
+
+  const proc = Bun.spawn(["bun", "run", ...args], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      ...env,
+    },
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    process.exit(exitCode);
+  }
+}
+
 await runTest(
   "Core tests (bundler race-prone tests gated)",
   ["packages/core/src", "packages/core/tests", ...forwardedArgs],
-  { MANDU_SKIP_BUNDLER_TESTS: "1" }
+  {
+    MANDU_SKIP_BUNDLER_TESTS: "1",
+    DB_TEST_MYSQL_URL: "",
+  }
+);
+
+await runScript(
+  "Core MySQL resource e2e tests (isolated)",
+  ["scripts/test-mysql-resource-e2e.ts"]
 );
 
 await runTest(

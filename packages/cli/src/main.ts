@@ -25,7 +25,7 @@ function getHelpText(): string {
   const subcommands = getAllCommandRegistrations().map((command) => ({
     name: command.id,
     description: command.description,
-    aliases: command.id === "guard" ? ["g"] : undefined,
+    aliases: command.aliases,
   }));
 
   return renderHelp({

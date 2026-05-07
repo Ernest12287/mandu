@@ -1,3 +1,4 @@
+import { defineResource } from "@mandujs/core";
 import { z } from "zod";
 
 export const NoteSchema = z.object({
@@ -23,18 +24,26 @@ export type Note = z.infer<typeof NoteSchema>;
 export type CreateNoteInput = z.infer<typeof CreateNoteSchema>;
 export type UpdateNoteInput = z.infer<typeof UpdateNoteSchema>;
 
-export default {
+export default defineResource({
   name: "note",
-  description: "Quick notes attached to todos for additional context",
-  schema: NoteSchema,
-  createSchema: CreateNoteSchema,
-  updateSchema: UpdateNoteSchema,
-  tags: ["notes"],
-  endpoints: {
-    list: true,
-    get: true,
-    create: true,
-    update: true,
-    delete: true,
+  fields: {
+    id: { type: "string", required: true },
+    title: { type: "string", required: true },
+    content: { type: "string", required: true },
+    todoId: { type: "string", required: false },
+    pinned: { type: "boolean", required: false, default: false },
+    createdAt: { type: "date", required: true },
+    updatedAt: { type: "date", required: true },
   },
-};
+  options: {
+    description: "Quick notes attached to todos for additional context",
+    tags: ["notes"],
+    endpoints: {
+      list: true,
+      get: true,
+      create: true,
+      update: true,
+      delete: true,
+    },
+  },
+});

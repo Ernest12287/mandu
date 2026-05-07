@@ -105,7 +105,8 @@ That's it!
 
 | Command | Description |
 |---------|-------------|
-| `mandu init [name]` | Create new project (interactive / `--yes` for non-interactive) |
+| `mandu create <name>` | Scaffold a new project into `<name>/` (interactive / `--yes` for non-interactive) |
+| `mandu init` | Retrofit Mandu into the current folder (`--dry-run` to preview, `--force` to overwrite) |
 | `mandu dev` | Start dev server (FS Routes + HMR) |
 | `mandu build` | Build for production |
 

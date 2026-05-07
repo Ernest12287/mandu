@@ -126,6 +126,7 @@ async function acquireMysqlLock(
   db: Db,
   lockId: string,
 ): Promise<MigrationLock> {
+  const processLock = await acquireMysqlProcessMutex(lockId);
   // `GET_LOCK` returns:
   //   1 — lock granted
   //   0 — timeout (still blocked after the timeout)
@@ -133,18 +134,23 @@ async function acquireMysqlLock(
   //
   // Bun.SQL returns the single row as `[{ acquired: 1 }]`; we destructure
   // defensively to handle any driver-side aliasing.
-  const timeoutSec = MYSQL_LOCK_TIMEOUT_SECONDS;
-  const rows = await db<{ acquired: number | bigint | null }>`
-    SELECT GET_LOCK(${lockId}, ${timeoutSec}) AS acquired
-  `;
-  const first = rows[0];
-  const value = first ? Number(first.acquired) : NaN;
-  if (value !== 1) {
-    throw new Error(
-      `[@mandujs/core/db/migrations] GET_LOCK(${JSON.stringify(lockId)}, ${timeoutSec}) ` +
-        `returned ${value === 0 ? "0 (timeout)" : "NULL (error)"}; ` +
-        `another migration runner may be holding the lock.`,
-    );
+  try {
+    const timeoutSec = MYSQL_LOCK_TIMEOUT_SECONDS;
+    const rows = await db<{ acquired: number | bigint | null }>`
+      SELECT GET_LOCK(${lockId}, ${timeoutSec}) AS acquired
+    `;
+    const first = rows[0];
+    const value = first ? Number(first.acquired) : NaN;
+    if (value !== 1) {
+      throw new Error(
+        `[@mandujs/core/db/migrations] GET_LOCK(${JSON.stringify(lockId)}, ${timeoutSec}) ` +
+          `returned ${value === 0 ? "0 (timeout)" : "NULL (error)"}; ` +
+          `another migration runner may be holding the lock.`,
+      );
+    }
+  } catch (err) {
+    await processLock.release();
+    throw err;
   }
 
   let _released = false;
@@ -159,6 +165,55 @@ async function acquireMysqlLock(
         console.warn(
           `[@mandujs/core/db/migrations] RELEASE_LOCK failed: ${msg}`,
         );
+      } finally {
+        await processLock.release();
+      }
+    },
+  };
+}
+
+/**
+ * Same-process MySQL runners are serialised before hitting GET_LOCK.
+ * Cross-process safety still comes from MySQL's named lock; this mutex only
+ * avoids concurrent GET_LOCK calls from separate Bun.SQL pools in one runtime.
+ */
+const MYSQL_LOCK_REGISTRY_SYMBOL = Symbol.for(
+  "@mandujs/core/db/migrations/mysql-locks",
+);
+interface MysqlLockRegistry {
+  chains: Map<string, Promise<void>>;
+}
+function getMysqlLockRegistry(): MysqlLockRegistry {
+  const g = globalThis as unknown as Record<symbol, unknown>;
+  let reg = g[MYSQL_LOCK_REGISTRY_SYMBOL] as MysqlLockRegistry | undefined;
+  if (!reg) {
+    reg = { chains: new Map() };
+    g[MYSQL_LOCK_REGISTRY_SYMBOL] = reg;
+  }
+  return reg;
+}
+
+async function acquireMysqlProcessMutex(lockId: string): Promise<MigrationLock> {
+  const registry = getMysqlLockRegistry();
+  const previous = registry.chains.get(lockId) ?? Promise.resolve();
+
+  let release!: () => void;
+  const nextPromise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => nextPromise);
+  registry.chains.set(lockId, tail);
+
+  await previous;
+
+  let _released = false;
+  return {
+    async release(): Promise<void> {
+      if (_released) return;
+      _released = true;
+      release();
+      if (registry.chains.get(lockId) === tail) {
+        registry.chains.delete(lockId);
       }
     },
   };

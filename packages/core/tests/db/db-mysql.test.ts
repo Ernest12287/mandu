@@ -194,9 +194,7 @@ describeIfMysql("@mandujs/core/db — MySQL integration", () => {
       await admin.transaction(async (tx) => {
         await tx`INSERT INTO mandu_test_users (email, name) VALUES (${"tx-ok@example.com"}, ${"TxOK"})`;
       });
-    });
 
-    await withMysqlDb(async (admin) => {
       const row = await admin.one<{ email: string }>`
         SELECT email FROM mandu_test_users WHERE email = ${"tx-ok@example.com"}
       `;
@@ -224,9 +222,7 @@ describeIfMysql("@mandujs/core/db — MySQL integration", () => {
       }
 
       expect(caught).toBe(sentinel);
-    });
 
-    await withMysqlDb(async (admin) => {
       const row = await admin.one`
         SELECT email FROM mandu_test_users WHERE email = ${"tx-rollback@example.com"}
         `;
@@ -338,21 +334,22 @@ describeIfMysql("@mandujs/core/db — MySQL integration", () => {
 
   it("MySQL LAST_INSERT_ID() within a transaction returns the inserted row id", async () => {
     const lastId = await withMysqlDb(async (admin) => {
-      return await admin.transaction(async (tx) => {
+      const insertedId = await admin.transaction(async (tx) => {
         await tx`INSERT INTO mandu_test_users (email, name) VALUES (${"lid@example.com"}, ${"LID"})`;
         const row = await tx.one<{ id: number }>`SELECT LAST_INSERT_ID() AS id`;
         return row?.id ?? -1;
       });
-    });
 
-    expect(lastId).toBeGreaterThan(0);
+      expect(insertedId).toBeGreaterThan(0);
 
-    await withMysqlDb(async (admin) => {
       const persisted = await admin.one<{ id: number; email: string }>`
         SELECT id, email FROM mandu_test_users WHERE email = ${"lid@example.com"}
       `;
       expect(persisted).not.toBeNull();
-      expect(persisted!.id).toBe(lastId);
+      expect(persisted!.id).toBe(insertedId);
+      return insertedId;
     });
+
+    expect(lastId).toBeGreaterThan(0);
   });
 });

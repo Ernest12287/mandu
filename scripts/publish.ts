@@ -169,6 +169,14 @@ async function main() {
   }
   console.log();
 
+  // Tracks packages we actually publish in this run so we can tag
+  // them at the end. Tags are required by the
+  // .github/workflows/release-binaries.yml `@mandujs/cli@*` trigger —
+  // without an annotated tag push, no GitHub Release / standalone
+  // binary gets cut, and the install.ps1 / install.sh one-liners
+  // 404 on first download. See issue #257.
+  const publishedPackages: Array<{ name: string; version: string }> = [];
+
   for (const pkg of PACKAGES) {
     const pkgPath = join(ROOT, pkg);
     const pkgJson: PackageJson = JSON.parse(
@@ -205,6 +213,7 @@ async function main() {
         const result = await $`cd ${pkgPath} && bun publish --access public --registry=${NPM_REGISTRY}`.text();
         console.log(`   ✅ Published to npm`);
         console.log(result);
+        publishedPackages.push({ name: pkgJson.name, version: pkgJson.version });
       }
 
       // 2) GitHub Packages 배포
@@ -228,6 +237,40 @@ async function main() {
     if (resolved) {
       await restorePackageJson(pkgPath, original);
       console.log(`   🔄 Restored workspace:* in package.json`);
+    }
+  }
+
+  // Push annotated git tags for every package we just published.
+  //
+  // Why annotated and not lightweight: GitHub Actions `on.push.tags`
+  // triggers fire reliably for annotated tags but skipped lightweight
+  // ones in our setup (release-binaries.yml never ran when tags were
+  // created with bare `git tag <name>`). Annotated tags also carry a
+  // tagger identity which makes `gh release` / SLSA attestations
+  // happier. Tag name format mirrors what changesets would emit
+  // (`@scope/name@version`) so any tooling pinned to that shape keeps
+  // working.
+  if (!isDryRun && publishedPackages.length > 0) {
+    console.log("\n🏷️  Tagging published packages...");
+    for (const { name, version } of publishedPackages) {
+      const tag = `${name}@${version}`;
+      const exists = await $`git rev-parse -q --verify refs/tags/${tag}`
+        .quiet()
+        .nothrow();
+      if (exists.exitCode === 0) {
+        console.log(`   ⏭️  ${tag} — tag already exists, skipping`);
+        continue;
+      }
+      try {
+        await $`git tag -a ${tag} -m ${tag}`.quiet();
+        await $`git push origin ${tag}`.quiet();
+        console.log(`   ✅ Pushed tag ${tag}`);
+      } catch (err) {
+        console.warn(
+          `   ⚠️  Failed to push tag ${tag} — push manually with:\n      git tag -a ${tag} -m ${tag} && git push origin ${tag}`
+        );
+        console.warn(`   ${err}`);
+      }
     }
   }
 

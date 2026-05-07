@@ -419,6 +419,30 @@ describe("emitChange — add-column", () => {
     expect(emitChange(change, "sqlite"))
       .toBe('ALTER TABLE "users" ADD COLUMN "age" REAL;');
   });
+
+  test("indexed:true field emits ADD COLUMN plus auto CREATE INDEX", () => {
+    const indexed: Change = {
+      kind: "add-column",
+      resourceName: "users",
+      field: field({ name: "role", type: "string", indexed: true }),
+    };
+
+    expect(emitChange(indexed, "postgres")).toBe(
+      [
+        'ALTER TABLE "users" ADD COLUMN "role" TEXT NOT NULL;',
+        'CREATE INDEX "idx_users_role" ON "users" ("role");',
+      ].join("\n"),
+    );
+  });
+
+  test("indexed:true unique or primary add-column does not create redundant index", () => {
+    const unique: Change = {
+      kind: "add-column",
+      resourceName: "users",
+      field: field({ name: "slug", type: "string", indexed: true, unique: true }),
+    };
+    expect(emitChange(unique, "postgres")).not.toContain("idx_users_slug");
+  });
 });
 
 describe("emitChange — drop-column", () => {

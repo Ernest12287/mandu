@@ -1,7 +1,9 @@
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { z } from "zod";
 
 const baselinePath = new URL("../tests/perf/perf-baseline.json", import.meta.url);
+const demoRoot = new URL("../demo/", import.meta.url);
 
 const MetricDefinitionSchema = z.object({
   unit: z.enum(["ms", "kb", "count"]),
@@ -18,8 +20,8 @@ const BudgetEntrySchema = z.object({
 const ScenarioSchema = z.object({
   id: z.string().min(1),
   app: z.string().min(1),
-  status: z.enum(["active", "planned"]),
-  mode: z.enum(["dev", "prod", "build"]),
+  status: z.enum(["active", "manual", "planned"]),
+  mode: z.enum(["dev", "prod", "build", "hmr"]),
   url: z.string().min(1),
   runner: z.string().min(1),
   measuredMetrics: z.array(z.string().min(1)).min(1),
@@ -41,6 +43,13 @@ function validateCrossReferences(config: PerfBaseline): void {
   const metricKeys = new Set(Object.keys(config.metrics));
 
   for (const scenario of config.scenarios) {
+    if (scenario.status === "active" || scenario.status === "manual") {
+      const demoPath = new URL(`${scenario.app}/`, demoRoot);
+      if (!existsSync(demoPath)) {
+        throw new Error(`${scenario.status} scenario '${scenario.id}' points to missing demo '${scenario.app}'`);
+      }
+    }
+
     for (const metric of scenario.measuredMetrics) {
       if (!metricKeys.has(metric)) {
         throw new Error(`Unknown metric '${metric}' referenced by scenario '${scenario.id}'`);

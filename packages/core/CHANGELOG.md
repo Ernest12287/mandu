@@ -1,5 +1,13 @@
 # @mandujs/core
 
+## 0.53.2
+
+### Patch Changes
+
+- [`a472bdf`](https://github.com/konamgil/mandu/commit/a472bdf3d565efe7744d993cb899360a78372e43) Thanks [@konamgil](https://github.com/konamgil)! - Fix resource DB generation and migration edge cases: generated repos now insert caller-supplied primary keys unless the key has a DB default, indexed added columns emit their auto index, and concurrent migration apply re-checks history after acquiring the lock while serializing same-process MySQL lock attempts.
+
+- [`63d8575`](https://github.com/konamgil/mandu/commit/63d8575c9a9a67585e8bde6116fa0aa681950489) Thanks [@konamgil](https://github.com/konamgil)! - Stabilize production hydration gates and client bundle output. Production builds now use explicit build modes, default client output resolves to `.mandu/client`, and the perf harness reports hydration failures without overwriting HTTP-derived metrics.
+
 ## 0.53.1
 
 ### Patch Changes

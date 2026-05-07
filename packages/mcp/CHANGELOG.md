@@ -1,5 +1,11 @@
 # @mandujs/mcp
 
+## 0.36.2
+
+### Patch Changes
+
+- Bump `@mandujs/core` peer dep range to `^0.53.2` to track the resource DB generation + hydration gate fixes shipped in core 0.53.2.
+
 ## 0.36.1
 
 ### Patch Changes

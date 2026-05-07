@@ -46,7 +46,7 @@ describe("ManduConfigSchema — valid configs", () => {
       // the server instead of hitting ECONNREFUSED.
       expect(result.data.server.hostname).toBe("::");
       expect(result.data.guard.preset).toBe("mandu");
-      expect(result.data.build.outDir).toBe(".mandu");
+      expect(result.data.build.outDir).toBe(".mandu/client");
       expect(result.data.build.minify).toBe(true);
       expect(result.data.dev.hmr).toBe(true);
       expect(result.data.fsRoutes.routesDir).toBe("app");

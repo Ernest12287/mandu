@@ -124,6 +124,11 @@ export interface IslandFileEntry {
  * 번들러 옵션
  */
 export interface BundlerOptions {
+  /**
+   * Build mode. This controls development-only transforms such as React
+   * Fast Refresh independently from minification.
+   */
+  mode?: "development" | "production";
   /** 코드 압축 여부 (기본: production에서 true) */
   minify?: boolean;
   /** 소스맵 생성 여부 */

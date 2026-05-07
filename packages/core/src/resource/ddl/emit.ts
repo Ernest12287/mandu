@@ -345,7 +345,18 @@ function emitAddColumn(
 ): string {
   const table = quoteIdent(resourceName, provider);
   const columnDef = emitColumnDef(field, provider);
-  return `ALTER TABLE ${table} ADD COLUMN ${columnDef};`;
+  const addColumn = `ALTER TABLE ${table} ADD COLUMN ${columnDef};`;
+  if (!field.indexed || field.unique || field.primary) return addColumn;
+  return [
+    addColumn,
+    emitCreateIndex(
+      resourceName,
+      autoIndexName(resourceName, field.name),
+      [field.name],
+      false,
+      provider,
+    ),
+  ].join("\n");
 }
 
 /**

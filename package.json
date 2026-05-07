@@ -21,6 +21,7 @@
   "scripts": {
     "test": "bun test",
     "test:core": "bun run scripts/test-core.ts",
+    "test:core:mysql-e2e": "bun run scripts/test-mysql-resource-e2e.ts",
     "test:cli": "bun test packages/cli/src packages/cli/tests packages/cli/templates/default/tests packages/cli/templates/realtime-chat/tests",
     "test:mcp": "bun test packages/mcp/tests",
     "test:ate": "bun test packages/ate/src packages/ate/tests packages/ate/__tests__",
@@ -34,6 +35,7 @@
     "perf:budget:check": "bun run scripts/perf-budget.ts",
     "perf:run": "bun run scripts/perf-run.ts",
     "perf:ci": "bun run perf:run -- --runs 1 --warmup 0 && bun run perf:budget:check -- --summary .perf/latest/summary.json --markdown-out .perf/latest/budget-check.md",
+    "perf:expanded": "bun run perf:run -- --scenario auth-starter-hmr-island --runs 1 --warmup 0 && bun run perf:budget:check -- --summary .perf/latest/summary.json --markdown-out .perf/latest/budget-check.md",
     "perf:hydration": "bun run packages/core/benchmark/hydration-benchmark.ts",
     "mandu": "bun run packages/cli/src/main.ts",
     "changeset": "changeset",

@@ -1,5 +1,25 @@
 # @mandujs/cli
 
+## 0.44.0
+
+### Minor Changes
+
+- [`b5b4598`](https://github.com/konamgil/mandu/commit/b5b45980457f56628721bb3b4e0fad416e56e1bd) Thanks [@konamgil](https://github.com/konamgil)! - Split `mandu init` and `mandu create` semantics, matching the npm/bun ecosystem convention. `mandu create <name>` is now the canonical new-folder scaffold path; `mandu init` (no positional) is a _retrofit_ that drops Mandu structure into the current directory — `package.json` is merged (existing entries preserved unless `--force`) and `app/page.tsx` is created if absent.
+
+  The retrofit flow refuses to run on top of foreign frameworks (Next.js / Vite / Remix detected via config files or deps) and an existing Mandu project (`@mandujs/core` already in deps). For polyglot directories where partial Mandu structure exists, `--force` is required. `--dry-run` prints the planned changes without writing.
+
+  For one deprecation cycle, `mandu init <name>` continues to work — it prints a warning and forwards to `mandu create <name>`. The forwarding will be removed in a future major.
+
+### Patch Changes
+
+- [`be8da02`](https://github.com/konamgil/mandu/commit/be8da023df338d24badb21ffdf213a39b04df016) Thanks [@konamgil](https://github.com/konamgil)! - Add `aliases` field to CommandRegistration so a single registration can be bound under multiple names. Use it to make `mandu create` a true alias of `mandu init` (closes #256 — docs advertised `mandu create` while only `init` was bound). Also makes `mandu g` actually dispatch to `mandu guard` — the `g` alias was previously documented in `--help` but never wired up.
+
+- [`63d8575`](https://github.com/konamgil/mandu/commit/63d8575c9a9a67585e8bde6116fa0aa681950489) Thanks [@konamgil](https://github.com/konamgil)! - Stabilize production hydration gates and client bundle output. Production builds now use explicit build modes, default client output resolves to `.mandu/client`, and the perf harness reports hydration failures without overwriting HTTP-derived metrics.
+
+- Updated dependencies [[`a472bdf`](https://github.com/konamgil/mandu/commit/a472bdf3d565efe7744d993cb899360a78372e43), [`63d8575`](https://github.com/konamgil/mandu/commit/63d8575c9a9a67585e8bde6116fa0aa681950489)]:
+  - @mandujs/core@0.53.2
+  - @mandujs/edge@0.4.47
+
 ## 0.43.0
 
 ### Minor Changes

@@ -158,7 +158,16 @@ export interface Db {
    * Closes the connection pool. Subsequent queries reject with a clear
    * "pool closed" error. Calling `close()` twice is a no-op (idempotent).
    */
-  close(): Promise<void>;
+  close(options?: DbCloseOptions): Promise<void>;
+}
+
+/** Options forwarded to Bun.SQL pool shutdown. */
+export interface DbCloseOptions {
+  /**
+   * Maximum seconds to wait for in-flight queries before closing the pool.
+   * `0` asks Bun.SQL to close immediately.
+   */
+  timeout?: number;
 }
 
 // ─── Bun runtime surface (structural; no `any`) ─────────────────────────────
@@ -186,7 +195,7 @@ interface BunSqlInstance {
     T[] & { count?: number; command?: string }
   >;
   begin<R>(fn: (tx: BunSqlInstance) => Promise<R>): Promise<R>;
-  close(): Promise<void>;
+  close(options?: DbCloseOptions): Promise<void>;
   readonly options?: BunSqlOptions;
 }
 
@@ -252,6 +261,28 @@ function getBunSqlCtor(): BunSqlCtor {
 
 const POOL_CLOSED_MESSAGE =
   "[@mandujs/core/db] pool closed — query issued after Db.close().";
+
+const PIN_DB_HANDLE = Symbol.for("@mandujs/core/db/pin-handle");
+
+interface DbHandlePin {
+  [PIN_DB_HANDLE]?: <R>(fn: () => Promise<R>) => Promise<R>;
+}
+
+/**
+ * Internal helper for code paths that must keep a MySQL session alive across
+ * transaction boundaries, such as named advisory locks. Public Db callers do
+ * not need this; normal MySQL transactions recycle the handle afterwards.
+ *
+ * @internal
+ */
+export async function withPinnedDbHandle<R>(
+  db: Db,
+  fn: () => Promise<R>,
+): Promise<R> {
+  const pin = (db as DbHandlePin)[PIN_DB_HANDLE];
+  if (!pin) return await fn();
+  return await pin(fn);
+}
 
 /**
  * Structural check for "connection/pool closed" errors that Bun.SQL raises
@@ -427,11 +458,13 @@ function buildDbHandle(bunSql: BunSqlInstance, provider: SqlProvider): Db {
       });
     };
 
-  (db as { close: Db["close"] }).close = async function close(): Promise<void> {
+  (db as { close: Db["close"] }).close = async function close(
+    options?: DbCloseOptions,
+  ): Promise<void> {
     if (closed) return; // idempotent
     closed = true;
     try {
-      await bunSql.close();
+      await bunSql.close(options);
     } catch (err) {
       // Bun.SQL can throw if already-closed under the hood (mostly from a
       // racing concurrent close). We already flipped our flag so subsequent
@@ -471,10 +504,35 @@ export function createDb(config: DbConfig): Db {
   // We still need to *return* a Db now, so call through a forwarding
   // function that probes on demand.
   let real: Db | null = null;
+  let closed = false;
+  let pinDepth = 0;
+  let pendingMysqlRecycle = false;
   function materialize(): Db {
+    if (closed) {
+      throw new Error(POOL_CLOSED_MESSAGE);
+    }
     if (real) return real;
     real = _createDbWith(getBunSqlCtor(), config);
     return real;
+  }
+
+  async function flushPendingMysqlRecycle(): Promise<void> {
+    if (provider !== "mysql" || pinDepth > 0 || !pendingMysqlRecycle) return;
+    pendingMysqlRecycle = false;
+    if (closed || !real) return;
+    const db = real;
+    real = null;
+    await db.close({ timeout: 0 });
+  }
+
+  async function recycleMysqlHandle(db: Db): Promise<void> {
+    if (provider !== "mysql" || real !== db || closed) return;
+    if (pinDepth > 0) {
+      pendingMysqlRecycle = true;
+      return;
+    }
+    real = null;
+    await db.close({ timeout: 0 });
   }
 
   const forward = async function forwardCall<T extends Row = Row>(
@@ -500,14 +558,43 @@ export function createDb(config: DbConfig): Db {
   };
   (forward as { transaction: Db["transaction"] }).transaction =
     async function transaction<R>(fn: (tx: Db) => Promise<R>): Promise<R> {
-      return await materialize().transaction(fn);
+      const hadMaterializedHandle = real !== null;
+      let db = materialize();
+      if (provider === "mysql" && hadMaterializedHandle) {
+        await recycleMysqlHandle(db);
+        db = materialize();
+      }
+      try {
+        return await db.transaction(fn);
+      } finally {
+        await recycleMysqlHandle(db);
+      }
     };
-  (forward as { close: Db["close"] }).close = async function close(): Promise<void> {
-    // If no query ever ran, materialize() was never called — nothing to
-    // close. Only materialize + close if a real handle exists.
+  (forward as { close: Db["close"] }).close = async function close(
+    options?: DbCloseOptions,
+  ): Promise<void> {
+    if (closed) return;
+    closed = true;
+    // If no query ever ran, materialize() was never called — nothing to close.
     if (!real) return;
-    await real.close();
+    const db = real;
+    real = null;
+    await db.close(options);
   };
+  Object.defineProperty(forward, PIN_DB_HANDLE, {
+    value: async function withPinnedHandle<R>(fn: () => Promise<R>): Promise<R> {
+      pinDepth += 1;
+      try {
+        return await fn();
+      } finally {
+        pinDepth -= 1;
+        await flushPendingMysqlRecycle();
+      }
+    },
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
 
   return forward;
 }

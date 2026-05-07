@@ -35,7 +35,7 @@
  *     return {
  *       async findById(id): User | null { ... },
  *       async findMany(limit = 100, offset = 0): User[] { ... },
- *       async create(row): User { ... },   // PG/SQLite: RETURNING *; MySQL: INSERT + SELECT
+ *       async create(row): User { ... },   // PG/SQLite: RETURNING *; MySQL: INSERT + re-select
  *       async update(id, patch): User | null { ... },
  *       async delete(id): boolean { ... },
  *     };
@@ -65,7 +65,7 @@ import type { ParsedResource } from "./parser";
 import type { ResourceField } from "./schema";
 import { quoteIdent } from "./ddl/emit";
 import { toSnakeCase } from "./ddl/snapshot";
-import { asPersistence, type ExtendedResourcePersistence } from "./ddl/persistence-types";
+import { asPersistence, type ExtendedResourcePersistence, type FieldOverride } from "./ddl/persistence-types";
 import type { SqlProvider } from "./ddl/types";
 
 // ============================================
@@ -172,9 +172,10 @@ function renderRepoFile(
   const primaryKeyColumn = columns.find((c) => c.primary)?.column ?? "id";
   const primaryKeyField = columns.find((c) => c.primary)?.field ?? "id";
   const insertColumns = columns.filter((c) => !c.omitOnInsert);
+  const createInputType = createMethodInputType(pascalName, columns);
 
   // Quoted identifiers — precomputed so each builder reads cleanly.
-  const q = (name: string) => quoteIdent(name, provider);
+  const q = (name: string) => escapeSqlTemplateText(quoteIdent(name, provider));
   const qTable = q(table);
 
   // Column list for SELECT: we don't use `*` because aliasing
@@ -194,7 +195,7 @@ function renderRepoFile(
   const body = [
     findByIdMethod(pascalName, qTable, selectList, q, primaryKeyColumn, primaryKeyField),
     findManyMethod(pascalName, qTable, selectList),
-    createMethod(pascalName, table, qTable, selectList, insertColumns, primaryKeyColumn, primaryKeyField, q, provider),
+    createMethod(pascalName, table, qTable, selectList, insertColumns, createInputType, primaryKeyColumn, primaryKeyField, q, provider),
     updateMethod(pascalName, table, qTable, selectList, columns, primaryKeyColumn, primaryKeyField, q, provider),
     deleteMethod(pascalName, qTable, q, primaryKeyColumn, primaryKeyField, provider),
   ].join(",\n\n");
@@ -232,7 +233,7 @@ function renderHeader(
 // - The repo never constructs a Db itself — callers (slots, scripts) pass
 //   in either \`ctx.deps.db\` or a module-level singleton.
 // - Provider-specific SQL (INSERT ... RETURNING * on PG/SQLite vs
-//   INSERT + SELECT LAST_INSERT_ID on MySQL) is resolved at generation
+//   INSERT + re-select on MySQL) is resolved at generation
 //   time; the generated file has one code path per provider.
 `;
 }
@@ -348,6 +349,7 @@ function createMethod(
   qTable: string,
   selectList: string,
   insertColumns: ResolvedColumn[],
+  createInputType: string,
   pkColumn: string,
   pkField: string,
   q: (n: string) => string,
@@ -371,7 +373,7 @@ function createMethod(
      * Insert a new row and return the inserted record. Errors from
      * constraint violations (UNIQUE, NOT NULL, FK) bubble unchanged.
      */
-    async create(input: Omit<${pascalName}, "${pkField}">): Promise<${pascalName}> {
+    async create(input: ${createInputType}): Promise<${pascalName}> {
       const row = await db.one<${pascalName}>\`
         INSERT INTO ${qTable} (${columnList})
         VALUES (${valuePlaceholders})
@@ -382,17 +384,20 @@ function createMethod(
     }`;
   }
 
-  // MySQL: no RETURNING. INSERT then SELECT by LAST_INSERT_ID() OR by the
-  // primary key if caller provided one. For v1 LCD we use a post-INSERT
-  // SELECT that matches on the primary-key the caller supplied; if the
-  // caller omitted it (AUTO_INCREMENT), we fall back to LAST_INSERT_ID().
+  const mysqlLookup = insertColumns.some((c) => c.field === pkField)
+    ? `${q(pkColumn)} = \${input.${pkField}}`
+    : `${q(pkColumn)} = LAST_INSERT_ID()`;
+
+  // MySQL: no RETURNING. INSERT then SELECT by the supplied primary key when
+  // the caller provides it; if the primary key is DB-generated, fall back to
+  // LAST_INSERT_ID().
   return `    /**
      * Insert a new row and return the inserted record via a follow-up SELECT.
      * MySQL lacks RETURNING; the generator uses LAST_INSERT_ID() when the
      * primary key is server-generated, otherwise it re-selects by the
      * provided primary key value.
      */
-    async create(input: Omit<${pascalName}, "${pkField}">): Promise<${pascalName}> {
+    async create(input: ${createInputType}): Promise<${pascalName}> {
       await db\`
         INSERT INTO ${qTable} (${columnList})
         VALUES (${valuePlaceholders})
@@ -400,7 +405,7 @@ function createMethod(
       const row = await db.one<${pascalName}>\`
         SELECT ${selectList}
         FROM ${qTable}
-        WHERE ${q(pkColumn)} = LAST_INSERT_ID()
+        WHERE ${mysqlLookup}
       \`;
       if (!row) throw new Error("${tableName} create: follow-up SELECT returned no row");
       return row;
@@ -541,14 +546,7 @@ function resolveColumns(
     const primary = declaredPkMatch || fieldLevelPk;
     if (primary) pkCount++;
 
-    // Omit PK from INSERT list only when:
-    //   - it's a UUID with a DB-side default (we don't know this at
-    //     generation time for all providers); OR
-    //   - it's an integer and the user didn't explicitly opt in.
-    // Safe default: let the user supply the PK. The generated
-    // `Omit<T, pkField>` on `create` means the caller CAN'T pass it
-    // anyway, so we omit PK from the insert column list unconditionally.
-    const omitOnInsert = primary;
+    const omitOnInsert = primary && hasDbDefault(field, override);
 
     columns.push({ field: fieldKey, column, primary, omitOnInsert });
   }
@@ -573,6 +571,28 @@ function resolveDeclaredPrimaryKey(
   if (declared === undefined) return undefined;
   if (typeof declared === "string") return declared;
   return declared[0];
+}
+
+function createMethodInputType(
+  pascalName: string,
+  columns: ResolvedColumn[],
+): string {
+  const omittedFields = columns
+    .filter((c) => c.omitOnInsert)
+    .map((c) => JSON.stringify(c.field));
+  if (omittedFields.length === 0) return pascalName;
+  return `Omit<${pascalName}, ${omittedFields.join(" | ")}>`;
+}
+
+function hasDbDefault(
+  field: ResourceField,
+  override: FieldOverride | undefined,
+): boolean {
+  return override?.default !== undefined || field.default !== undefined;
+}
+
+function escapeSqlTemplateText(text: string): string {
+  return text.replace(/`/g, "\\`");
 }
 
 function resolveTableName(
