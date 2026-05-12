@@ -59,6 +59,7 @@ export function renderKitchenHTML(): string {
 
     <nav class="tabs">
       <button class="tab" data-panel="activity">Activity</button>
+      <button class="tab" data-panel="agent">Agent</button>
       <button class="tab active" data-panel="routes">Routes</button>
       <button class="tab" data-panel="guard">Guard</button>
       <button class="tab" data-panel="preview">Preview</button>
@@ -80,6 +81,19 @@ export function renderKitchenHTML(): string {
         </div>
         <div id="activity-list" class="activity-list">
           <div class="empty-state">Waiting for MCP activity...</div>
+        </div>
+      </section>
+
+      <section id="panel-agent" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Agent Supervisor</h2>
+            <p class="panel-subtitle">Situation brief, tool routing, prompt pack, and next safe action for supervised agents.</p>
+          </div>
+          <button id="refresh-agent" class="btn-sm">Refresh</button>
+        </div>
+        <div id="agent-content" class="agent-content">
+          <div class="empty-state">Open Agent to build a context pack.</div>
         </div>
       </section>
 
@@ -1188,10 +1202,140 @@ const CSS = /* css */ `
     box-shadow: 0 12px 28px rgba(30, 42, 58, 0.22);
   }
 
-  .requests-list, .mcp-list, .cache-content, .metrics-content {
+  .requests-list, .mcp-list, .cache-content, .metrics-content, .agent-content {
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .agent-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+    gap: 14px;
+  }
+
+  .agent-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .agent-card {
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .agent-card-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .agent-card-body {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .agent-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .agent-pill {
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(30, 42, 58, 0.08);
+    color: var(--ink);
+    font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+    font-size: 11px;
+  }
+
+  .agent-severity {
+    padding: 3px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .agent-severity.info { background: rgba(46, 102, 184, 0.12); color: var(--info); }
+  .agent-severity.warn { background: rgba(173, 122, 18, 0.14); color: var(--warning); }
+  .agent-severity.error { background: rgba(188, 61, 61, 0.12); color: var(--danger); }
+
+  .agent-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .agent-stat {
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(220, 207, 186, 0.7);
+    background: rgba(255, 253, 250, 0.84);
+  }
+
+  .agent-stat-label {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .agent-stat-value {
+    color: var(--ink);
+    font-size: 19px;
+    font-weight: 700;
+    margin-top: 3px;
+  }
+
+  .agent-rec {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid rgba(220, 207, 186, 0.65);
+  }
+
+  .agent-rec:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .agent-rec-title {
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  .agent-rec-detail {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .agent-prompt {
+    width: 100%;
+    min-height: 220px;
+    margin-top: 10px;
+    padding: 12px;
+    resize: vertical;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #fffdfa;
+    color: var(--ink);
+    font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+    font-size: 12px;
+    line-height: 1.45;
   }
 
   .req-row {
@@ -1317,6 +1461,10 @@ const CSS = /* css */ `
       grid-template-columns: 1fr;
     }
 
+    .agent-grid {
+      grid-template-columns: 1fr;
+    }
+
     .guard-summary {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1349,6 +1497,14 @@ const CSS = /* css */ `
     .panel-header {
       flex-direction: column;
     }
+
+    .agent-stat-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .agent-rec {
+      grid-template-columns: 1fr;
+    }
   }
 `;
 
@@ -1368,7 +1524,7 @@ const JS = /* js */ `
   }
 
   function escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     var d = document.createElement('div');
     d.appendChild(document.createTextNode(String(str)));
     return d.innerHTML;
@@ -1896,6 +2052,7 @@ const JS = /* js */ `
   // ─── Requests Tab ─────────────────────────────
   var requestsListEl = document.getElementById('requests-list');
   var requestsDetailEl = document.getElementById('requests-detail');
+  var agentContentEl = document.getElementById('agent-content');
 
   function fetchJson(url, cb) {
     var xhr = new XMLHttpRequest();
@@ -1917,6 +2074,132 @@ const JS = /* js */ `
     if (s >= 300) return 's3';
     return 's2';
   }
+
+  // ─── Agent Supervisor Tab ─────────────────────
+  function renderAgentPills(items) {
+    if (!items || !items.length) return '';
+    var html = '<div class="agent-pill-row">';
+    for (var i = 0; i < items.length; i++) {
+      html += '<span class="agent-pill">' + escapeHtml(items[i]) + '</span>';
+    }
+    return html + '</div>';
+  }
+
+  function renderAgentDetails(items) {
+    if (!items || !items.length) return '';
+    var html = '<ul>';
+    for (var i = 0; i < items.length; i++) {
+      html += '<li>' + escapeHtml(items[i]) + '</li>';
+    }
+    return html + '</ul>';
+  }
+
+  function renderAgentContext(data) {
+    var situation = data.situation || {};
+    var summary = data.summary || {};
+    var routes = summary.routes || {};
+    var status = data.agentStatus || {};
+    var brain = status.brain || {};
+    var action = data.nextSafeAction || {};
+    var prompt = data.prompt || {};
+    var recs = data.toolRecommendations || [];
+    var cards = data.knowledgeCards || [];
+    var promptText = prompt.copyText || '';
+
+    var html = '<div class="agent-grid">' +
+      '<div class="agent-stack">' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title">' +
+            '<span>' + escapeHtml(situation.title || 'No situation') + '</span>' +
+            '<span class="agent-severity ' + escapeHtml(situation.severity || 'info') + '">' + escapeHtml(situation.category || 'agent') + '</span>' +
+          '</div>' +
+          '<div class="agent-card-body">' + renderAgentDetails(situation.details || []) + '</div>' +
+          '<div class="agent-stat-grid">' +
+            '<div class="agent-stat"><div class="agent-stat-label">Routes</div><div class="agent-stat-value">' + escapeHtml(routes.total || 0) + '</div></div>' +
+            '<div class="agent-stat"><div class="agent-stat-label">Islands</div><div class="agent-stat-value">' + escapeHtml(routes.islands || 0) + '</div></div>' +
+            '<div class="agent-stat"><div class="agent-stat-label">Contracts</div><div class="agent-stat-value">' + escapeHtml(routes.contracts || 0) + '</div></div>' +
+            '<div class="agent-stat"><div class="agent-stat-label">MCP Calls</div><div class="agent-stat-value">' + escapeHtml(status.observedToolCalls || 0) + '</div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Next Safe Action</span><span class="agent-severity info">' + escapeHtml(action.mode || 'observe') + '</span></div>' +
+          '<div class="agent-card-body"><strong>' + escapeHtml(action.title || '-') + '</strong><br>' + escapeHtml(action.reason || '') + '</div>' +
+          renderAgentPills([action.tool || '', action.command || ''].filter(Boolean)) +
+          renderAgentPills(action.validation || []) +
+        '</div>' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Prompt Pack</span><button id="copy-agent-prompt" class="btn-sm">Copy</button></div>' +
+          '<textarea id="agent-prompt-text" class="agent-prompt" readonly>' + escapeHtml(promptText) + '</textarea>' +
+        '</div>' +
+      '</div>' +
+      '<div class="agent-stack">' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Brain</span><span class="agent-severity info">' + escapeHtml(brain.oauth || 'unknown') + '</span></div>' +
+          '<div class="agent-card-body">' + escapeHtml(brain.note || '') + '</div>' +
+          renderAgentPills([brain.statusTool || 'mandu.brain.status']) +
+        '</div>' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Tool Router</span></div>';
+
+    for (var i = 0; i < recs.length; i++) {
+      var r = recs[i];
+      html += '<div class="agent-rec">' +
+        '<div class="agent-rec-title">' + escapeHtml(r.skill) + '</div>' +
+        '<div class="agent-rec-detail">' +
+          '<strong>' + escapeHtml(r.task) + '</strong><br>' +
+          escapeHtml(r.useWhen) +
+          renderAgentPills(r.mcpTools || []) +
+          '<div style="margin-top:6px;">Fallback: <code>' + escapeHtml(r.cliFallback) + '</code></div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    html += '</div><div class="agent-card">' +
+      '<div class="agent-card-title"><span>Knowledge</span></div>';
+
+    for (var c = 0; c < cards.length; c++) {
+      var card = cards[c];
+      html += '<div class="agent-rec">' +
+        '<div class="agent-rec-title">' + escapeHtml(card.title) + '</div>' +
+        '<div class="agent-rec-detail">' + escapeHtml(card.body) + renderAgentPills(card.references || []) + '</div>' +
+      '</div>';
+    }
+
+    html += '</div></div></div>';
+    agentContentEl.innerHTML = html;
+
+    var copyBtn = document.getElementById('copy-agent-prompt');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() {
+        var textEl = document.getElementById('agent-prompt-text');
+        var text = textEl ? textEl.value : promptText;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function() {
+            copyBtn.textContent = 'Copied';
+            setTimeout(function() { copyBtn.textContent = 'Copy'; }, 900);
+          }).catch(function() {
+            textEl && textEl.select();
+          });
+        } else if (textEl) {
+          textEl.select();
+        }
+      });
+    }
+  }
+
+  function loadAgentContext() {
+    if (!agentContentEl) return;
+    agentContentEl.innerHTML = '<div class="empty-state">Building agent context...</div>';
+    fetchJson('/__kitchen/api/agent-context', function(err, data) {
+      if (err) {
+        agentContentEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      renderAgentContext(data);
+    });
+  }
+
+  document.getElementById('refresh-agent').addEventListener('click', loadAgentContext);
 
   function loadRequests() {
     requestsListEl.innerHTML = '<div class="empty-state">Loading requests...</div>';
@@ -2117,6 +2400,7 @@ const JS = /* js */ `
 
   // Lazy-load new tab data when clicked (avoids loading everything up front)
   var tabLoaders = {
+    'agent': loadAgentContext,
     'requests': loadRequests,
     'mcp-activity': loadMcpActivity,
     'cache': loadCacheStats,

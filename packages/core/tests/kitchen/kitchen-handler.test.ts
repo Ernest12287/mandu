@@ -62,6 +62,8 @@ describe("KitchenHandler", () => {
     const html = await result!.text();
     expect(html).toContain("Mandu Kitchen");
     expect(html).toContain("Activity");
+    expect(html).toContain('data-panel="agent"');
+    expect(html).toContain("Agent Supervisor");
     expect(html).toContain("Routes");
     expect(html).toContain("Guard");
   });

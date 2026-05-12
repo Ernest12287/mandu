@@ -14,6 +14,7 @@ import { handleRoutesRequest } from "./api/routes-api";
 import { FileAPI } from "./api/file-api";
 import { GuardDecisionManager } from "./api/guard-decisions";
 import { ContractPlaygroundAPI } from "./api/contract-api";
+import { handleAgentContextRequest } from "./api/agent-devtools-api";
 import { renderKitchenHTML } from "./kitchen-ui";
 import { eventBus } from "../observability/event-bus";
 import fs from "fs/promises";
@@ -230,6 +231,7 @@ export class KitchenHandler {
 
   /** Update guard config when mandu.config.ts changes */
   updateGuardConfig(config: GuardConfig | null): void {
+    this.options.guardConfig = config;
     this.guardAPI.updateConfig(config);
   }
 
@@ -363,6 +365,21 @@ export class KitchenHandler {
     // Agent Stats API — per-agent (sessionId) aggregation of MCP events
     if (sub === "/api/agent-stats" && req.method === "GET") {
       return Response.json(computeAgentStats());
+    }
+
+    // Agent DevTools API — read-only context pack for supervised coding sessions
+    if (sub === "/api/agent-context" && req.method === "GET") {
+      return handleAgentContextRequest({
+        rootDir: this.options.rootDir,
+        manifest: this.manifest,
+        guardEnabled: !!this.options.guardConfig,
+        errors: getKitchenErrors(),
+        requests: getRecentRequests().slice(0, 100),
+        httpEvents: eventBus.getRecent(100, { type: "http" }),
+        mcpEvents: eventBus.getRecent(100, { type: "mcp" }),
+        guardEvents: eventBus.getRecent(100, { type: "guard" }),
+        agentStats: computeAgentStats(),
+      });
     }
 
     // Cache API — cache store stats
