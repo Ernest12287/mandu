@@ -772,10 +772,11 @@ export function renderToHTML(element: ReactElement, options: SSROptions = {}): s
     ? generateFastRefreshPreambleTag(isDev, bundleManifest, resolvedCspNonce)
     : "";
 
-  // Issue #191 — DevTools 번들 (~1.15 MB) 주입 결정.
-  //   - 기본: island 이 하나라도 있을 때만 주입. Pure-SSR 페이지는 0 bytes 다운로드.
-  //   - `devtools === true`  → 강제 주입 (SSR-only 프로젝트에서 Kitchen panel 원할 때)
-  //   - `devtools === false` → 강제 스킵 (island 프로젝트에서도 Kitchen 비활성화)
+  // Issue #191 + #259 — DevTools 번들 (~1.15 MB) 주입 결정.
+  //   - 기본 (dev only): 항상 주입. SSR-only 랜딩에서도 Kitchen 패널 사용 가능.
+  //   - `devtools === true`  → 강제 주입 (의미 변화 없음)
+  //   - `devtools === false` → 강제 스킵 (필요 시 1.15 MB 절약)
+  // 프로덕션 빌드는 `isDev` 가드로 0 bytes 보장.
   // Cache-bust 은 `manifest.buildTime` 우선, 없으면 `Date.now()`.
   let devtoolsScript = "";
   if (isDev && shouldInjectDevtools(devtools, bundleManifest)) {
@@ -1039,27 +1040,27 @@ window.__MANDU_HMR_PORT__ = ${hmrPort};
 }
 
 /**
- * Issue #191 — Determine whether the dev-only `_devtools.js` bundle
- * (~1.15 MB React dev runtime + Kitchen panel) should be injected
- * into the HTML response.
+ * Issue #191 + #259 — Determine whether the dev-only `_devtools.js`
+ * bundle (~1.15 MB React dev runtime + Kitchen panel) should be injected
+ * into the HTML response. The caller gates with `isDev`, so this only
+ * affects dev-mode responses (prod always skips, regardless of the
+ * decision below).
  *
  * Decision table (`devtools` option × manifest shape):
  *
- *   | `devtools`  | hasIslands | inject? | rationale                   |
- *   |-------------|------------|---------|-----------------------------|
- *   | `true`      | any        | YES     | explicit opt-in             |
- *   | `false`     | any        | NO      | explicit opt-out            |
- *   | `undefined` | true       | YES     | default, hydration runtime  |
- *   | `undefined` | false      | NO      | pure-SSR — save 1.15 MB     |
- *   | `undefined` | no manifest| NO      | nothing to hydrate anyway   |
+ *   | `devtools`  | hasIslands | inject? | rationale                    |
+ *   |-------------|------------|---------|------------------------------|
+ *   | `true`      | any        | YES     | explicit opt-in              |
+ *   | `false`     | any        | NO      | explicit opt-out             |
+ *   | `undefined` | true       | YES     | default, hydration runtime   |
+ *   | `undefined` | false      | YES     | dev DX: Kitchen on SSR pages |
+ *   | `undefined` | no manifest| YES     | dev DX: Kitchen pre-build    |
  *
- * `hasIslands` is derived from the existing manifest shape rather than
- * a new field, so no bundler-side change is required:
- *   - `manifest.islands` is populated only when per-island code
- *     splitting produced at least one bundle (build.ts:1654).
- *   - `manifest.bundles` entries exist only for routes where
- *     `needsHydration()` is true (build.ts:70 filter).
- * Either non-empty ⇒ some route on this server hydrates ⇒ devtools useful.
+ * #259 reverted the original #191 default (skip when no islands): SSR-only
+ * landing/marketing pages are the exact place where Kitchen network/error
+ * panels are most needed, and the 1.15 MB cost only applies in dev — prod
+ * builds never emit `_devtools.js`. Users who explicitly want the old
+ * behavior on a per-app basis can still set `dev.devtools: false`.
  *
  * @internal Exported via `_testOnly_shouldInjectDevtools` below so
  * `tests/runtime/devtools-inject.test.ts` can table-test the matrix
@@ -1067,19 +1068,11 @@ window.__MANDU_HMR_PORT__ = ${hmrPort};
  */
 function shouldInjectDevtools(
   devtools: boolean | undefined,
-  manifest: BundleManifest | undefined,
+  _manifest: BundleManifest | undefined,
 ): boolean {
-  // Explicit overrides take absolute precedence.
   if (devtools === true) return true;
   if (devtools === false) return false;
-
-  // Default behavior: inject only when there is at least one island.
-  if (!manifest) return false;
-  const hasIslandsMap =
-    manifest.islands && Object.keys(manifest.islands).length > 0;
-  const hasBundles =
-    manifest.bundles && Object.keys(manifest.bundles).length > 0;
-  return Boolean(hasIslandsMap || hasBundles);
+  return true;
 }
 
 /**

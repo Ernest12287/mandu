@@ -11,6 +11,7 @@ export {
   checkCloneElementWarnings,
   checkDevArtifactsInProd,
   checkPackageExportGaps,
+  checkNestedInternalCore,
   checkA11yHints,
 } from "./checks";
 export { EXTENDED_CHECKS, runExtendedDiagnose, buildReport } from "./run";

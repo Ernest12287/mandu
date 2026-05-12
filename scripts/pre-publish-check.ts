@@ -6,6 +6,7 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import * as fs from "fs/promises";
+import { Glob } from "bun";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -48,11 +49,27 @@ function loadVersionMap(packageDirs: string[]): Map<string, string> {
   return versions;
 }
 
-function isAcceptableInternalSourceSpec(blockName: string, spec: string, version: string): boolean {
+/**
+ * Issue #262 — Open-ended peer ranges (`">=0.1.0"`, `"*"`, `">=0"`) on
+ * internal packages effectively claim compatibility with every past and
+ * future version, which silently lets package managers pick a stale
+ * core into the resolver tree (see #261 for the downstream impact).
+ *
+ * Accept only specs that close the upper bound: `workspace:*`, caret,
+ * tilde, exact pin, or any range containing `<`. `catalog:` is rejected
+ * for peerDeps because catalog refs don't survive the published tarball.
+ */
+function isAcceptableInternalSourceSpec(blockName: string, spec: string, _version: string): boolean {
   if (blockName === "peerDependencies") {
-    return !spec.startsWith("catalog:");
+    if (spec.startsWith("catalog:")) return false;
+    if (spec.startsWith("workspace:")) return true;
+    if (/^\^[0-9]/.test(spec)) return true;
+    if (/^~[0-9]/.test(spec)) return true;
+    if (/^[0-9]+\.[0-9]+\.[0-9]+(-[^ ]+)?$/.test(spec)) return true; // exact pin
+    if (/<[0-9]/.test(spec)) return true; // explicit upper bound
+    return false;
   }
-  return spec.startsWith("workspace:") || spec === version || spec === `^${version}`;
+  return spec.startsWith("workspace:") || spec === _version || spec === `^${_version}`;
 }
 
 function checkPackage(
@@ -71,6 +88,10 @@ function checkPackage(
 
       if (isAcceptableInternalSourceSpec(blockName, spec, workspaceVersion)) {
         ok.push(`✅ ${blockName}.${dep}: ${spec}`);
+      } else if (blockName === "peerDependencies") {
+        issues.push(
+          `❌ ${blockName}.${dep}: ${spec} (open-ended — use ^${workspaceVersion}, exact pin, or explicit upper bound; #262)`
+        );
       } else {
         issues.push(
           `❌ ${blockName}.${dep}: ${spec} (expected workspace:* or ${workspaceVersion}/^${workspaceVersion})`
@@ -228,6 +249,127 @@ async function assertPackedPackageJson(
   return issues;
 }
 
+/**
+ * Issue #260 — Cross-package subpath audit.
+ *
+ * Background: `@mandujs/mcp@0.36.1` shipped against `@mandujs/core@^0.53.0`,
+ * but core 0.53.0's `exports` map omitted `./guard/design-inline-class` even
+ * though the file existed on disk and mcp imported it. Bootstrapping the MCP
+ * server died with `Cannot find module @mandujs/core/guard/design-inline-class`,
+ * making `bunx @mandujs/mcp` unusable for every end-user that hit that
+ * version pair.
+ *
+ * This step grep-walks each publishable package's `src/**` for `from
+ * "@mandujs/<other>/<subpath>"` imports, then asserts every subpath is
+ * declared in the target package's `exports` map. Catches the regression at
+ * publish time instead of at user-install time.
+ *
+ * Scope: explicit subpath imports only. Root-level (`@mandujs/core`) and
+ * dynamic imports are ignored — those don't trigger the subpath gate.
+ * Markdown / docs files are ignored — those are illustrative snippets, not
+ * runtime code paths.
+ */
+const INTERNAL_PACKAGE_NAMES = [
+  "@mandujs/core",
+  "@mandujs/ate",
+  "@mandujs/skills",
+  "@mandujs/mcp",
+  "@mandujs/cli",
+  "@mandujs/edge",
+];
+
+const INTERNAL_NAME_PATTERN = INTERNAL_PACKAGE_NAMES
+  .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
+
+const SUBPATH_IMPORT_RE = new RegExp(
+  `(?:from|import|require)\\s*\\(?\\s*["'\\\`](${INTERNAL_NAME_PATTERN})/([^"'\\\`]+)["'\\\`]`,
+  "g",
+);
+
+interface ImportSite {
+  consumerPackage: string;
+  file: string;
+  pkg: string;
+  subpath: string;
+}
+
+async function scanInternalSubpathImports(pkgDir: string, pkgName: string): Promise<ImportSite[]> {
+  const srcDir = resolve(pkgDir, "src");
+  if (!existsSync(srcDir)) return [];
+
+  const sites: ImportSite[] = [];
+  const glob = new Glob("**/*.{ts,tsx,js,mjs,cjs}");
+
+  for await (const rel of glob.scan({ cwd: srcDir })) {
+    const file = resolve(srcDir, rel);
+    const text = await fs.readFile(file, "utf-8");
+    SUBPATH_IMPORT_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = SUBPATH_IMPORT_RE.exec(text)) !== null) {
+      const pkg = m[1];
+      const subpath = m[2];
+      if (pkg === pkgName) continue; // intra-package, doesn't traverse exports
+      sites.push({ consumerPackage: pkgName, file, pkg, subpath });
+    }
+  }
+
+  return sites;
+}
+
+function exportsKeySet(pkg: PackageJson): Set<string> {
+  if (!pkg.exports) return new Set();
+  return new Set(Object.keys(pkg.exports));
+}
+
+function subpathToExportsKey(subpath: string): string {
+  return `./${subpath}`;
+}
+
+/**
+ * Walk the exports map keys for any pattern entry (`./foo/*`) that would
+ * resolve the given subpath. Conservative — only handles trailing `*`,
+ * which is the only pattern shape currently used by @mandujs/*.
+ */
+function exportsCovers(exportsKeys: Set<string>, subpathKey: string): boolean {
+  if (exportsKeys.has(subpathKey)) return true;
+  for (const key of exportsKeys) {
+    if (!key.endsWith("/*")) continue;
+    const prefix = key.slice(0, -1); // "./foo/"
+    if (subpathKey.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+async function auditCrossPackageSubpaths(versionMap: Map<string, string>): Promise<string[]> {
+  const issues: string[] = [];
+
+  const pkgInfoByName = new Map<string, { dir: string; pkg: PackageJson; exportsKeys: Set<string> }>();
+  for (const pkgDir of PUBLISHABLE_PACKAGE_DIRS) {
+    const abs = resolve(process.cwd(), pkgDir);
+    const pkg: PackageJson = JSON.parse(readFileSync(resolve(abs, "package.json"), "utf-8"));
+    pkgInfoByName.set(pkg.name, { dir: abs, pkg, exportsKeys: exportsKeySet(pkg) });
+  }
+
+  for (const [consumerName, info] of pkgInfoByName) {
+    const sites = await scanInternalSubpathImports(info.dir, consumerName);
+    for (const site of sites) {
+      const target = pkgInfoByName.get(site.pkg);
+      if (!target) continue; // foreign internal name (shouldn't happen, but be defensive)
+
+      const key = subpathToExportsKey(site.subpath);
+      if (exportsCovers(target.exportsKeys, key)) continue;
+
+      const relFile = site.file.replace(process.cwd() + "/", "").replace(process.cwd() + "\\", "");
+      issues.push(
+        `❌ ${consumerName} imports ${site.pkg}/${site.subpath} (${relFile}) — missing "${key}" in ${site.pkg}/package.json#exports`
+      );
+    }
+  }
+
+  return issues;
+}
+
 console.log("🔍 Pre-publish check: workspace 의존성 검증\n");
 
 // 1. lockfile 업데이트 확인
@@ -306,6 +448,32 @@ for (const pkgDir of PUBLISHABLE_PACKAGE_DIRS) {
     readFileSync(resolve(process.cwd(), pkgDir, "package.json"), "utf-8")
   );
   console.log(`  ${pkg.name}: ${pkg.version}`);
+}
+
+console.log();
+
+// 5. Cross-package subpath audit (#260 회귀 방지)
+console.log("🔗 Step 5: Cross-package subpath audit (#260)...\n");
+
+try {
+  const auditIssues = await auditCrossPackageSubpaths(versions);
+  if (auditIssues.length > 0) {
+    hasIssues = true;
+    auditIssues.forEach((issue) => console.log(`  ${issue}`));
+    console.log();
+    console.log(
+      "  💡 Fix by adding the missing subpath to the target package's exports map,"
+    );
+    console.log("     or rewrite the consumer import to go through a public entry.");
+  } else {
+    console.log("  ✅ All internal subpath imports are reachable via exports map");
+  }
+} catch (err) {
+  hasIssues = true;
+  console.error(
+    "  ❌ subpath audit failed:",
+    err instanceof Error ? err.message : String(err)
+  );
 }
 
 console.log();

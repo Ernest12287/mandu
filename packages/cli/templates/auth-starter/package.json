@@ -18,7 +18,7 @@
     "lint:fix": "oxlint --fix .",
     "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
     "test:e2e:ci": "playwright test --config=tests/e2e/playwright.config.ts --reporter=html,json,junit",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install 2>/dev/null || echo '[prepare] lefthook install skipped — install git CLI to enable pre-commit hooks (#258)'"
   },
   "dependencies": {
     "@mandujs/core": "^1.0.0",

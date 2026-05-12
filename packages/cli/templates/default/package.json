@@ -18,7 +18,7 @@
     "test": "bun test",
     "test:auto": "mandu test:auto",
     "test:e2e:ci": "mandu test:auto --ci",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install 2>/dev/null || echo '[prepare] lefthook install skipped — install git CLI to enable pre-commit hooks (#258)'"
   },
   "dependencies": {
     "@mandujs/core": "{{CORE_VERSION}}",

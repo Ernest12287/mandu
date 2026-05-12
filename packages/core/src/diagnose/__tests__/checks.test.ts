@@ -17,6 +17,7 @@ import {
   checkCloneElementWarnings,
   checkDevArtifactsInProd,
   checkPackageExportGaps,
+  checkNestedInternalCore,
 } from "../checks";
 import { runExtendedDiagnose, buildReport } from "../run";
 
@@ -320,6 +321,75 @@ describe("checkPackageExportGaps", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────
+// nested_internal_core (#261)
+// ──────────────────────────────────────────────────────────────────
+
+describe("checkNestedInternalCore", () => {
+  let rootDir: string;
+  beforeEach(async () => { rootDir = await mkTmpRoot(); });
+  afterEach(async () => { await fs.rm(rootDir, { recursive: true, force: true }); });
+
+  async function seedHoistedCore(version: string): Promise<void> {
+    await writeFile(rootDir, "node_modules/@mandujs/core/package.json", JSON.stringify({
+      name: "@mandujs/core", version,
+    }));
+  }
+
+  async function seedNestedCore(parent: string, version: string): Promise<void> {
+    await writeFile(
+      rootDir,
+      `node_modules/@mandujs/${parent}/node_modules/@mandujs/core/package.json`,
+      JSON.stringify({ name: "@mandujs/core", version }),
+    );
+  }
+
+  it("skips when hoisted @mandujs/core is not installed", async () => {
+    const result = await checkNestedInternalCore(rootDir);
+    expect(result.ok).toBe(true);
+    expect(result.details?.skipped).toBe(true);
+  });
+
+  it("passes when no nested core exists", async () => {
+    await seedHoistedCore("0.53.2");
+    // Seed a sibling without nested core
+    await writeFile(rootDir, "node_modules/@mandujs/mcp/package.json", JSON.stringify({
+      name: "@mandujs/mcp", version: "0.36.2",
+    }));
+    const result = await checkNestedInternalCore(rootDir);
+    expect(result.ok).toBe(true);
+    expect(result.details?.scannedSiblings).toBe(1);
+  });
+
+  it("passes when nested core matches hoisted version exactly", async () => {
+    await seedHoistedCore("0.53.2");
+    await seedNestedCore("mcp", "0.53.2");
+    const result = await checkNestedInternalCore(rootDir);
+    expect(result.ok).toBe(true);
+  });
+
+  it("flags a stale nested core that shadows hoisted (#261 repro)", async () => {
+    await seedHoistedCore("0.53.2");
+    await seedNestedCore("mcp", "0.47.0");
+    const result = await checkNestedInternalCore(rootDir);
+    expect(result.ok).toBe(false);
+    expect(result.severity).toBe("error");
+    expect(result.message).toMatch(/@mandujs\/mcp/);
+    expect(result.message).toMatch(/0\.47\.0/);
+    expect(result.suggestion).toMatch(/rm -rf node_modules\/@mandujs\/mcp\/node_modules/);
+    expect(result.details?.mismatchCount).toBe(1);
+  });
+
+  it("reports every mismatched sibling, not just one", async () => {
+    await seedHoistedCore("0.53.2");
+    await seedNestedCore("mcp", "0.47.0");
+    await seedNestedCore("ate", "0.50.0");
+    const result = await checkNestedInternalCore(rootDir);
+    expect(result.ok).toBe(false);
+    expect(result.details?.mismatchCount).toBe(2);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────
 // aggregator
 // ──────────────────────────────────────────────────────────────────
 
@@ -328,10 +398,10 @@ describe("runExtendedDiagnose", () => {
   beforeEach(async () => { rootDir = await mkTmpRoot(); });
   afterEach(async () => { await fs.rm(rootDir, { recursive: true, force: true }); });
 
-  it("runs all 6 extended checks and returns a structured report", async () => {
+  it("runs all 7 extended checks and returns a structured report", async () => {
     const report = await runExtendedDiagnose(rootDir);
-    // Phase 18.χ added `a11y_hints` — total is now 6.
-    expect(report.summary.total).toBe(6);
+    // #261 added `nested_internal_core` — total is now 7.
+    expect(report.summary.total).toBe(7);
     // manifest is missing → at least one error
     expect(report.healthy).toBe(false);
     expect(report.errorCount).toBeGreaterThanOrEqual(1);
@@ -341,6 +411,7 @@ describe("runExtendedDiagnose", () => {
     expect(rules).toContain("cloneelement_warnings");
     expect(rules).toContain("dev_artifacts_in_prod");
     expect(rules).toContain("package_export_gaps");
+    expect(rules).toContain("nested_internal_core");
     expect(rules).toContain("a11y_hints");
   });
 

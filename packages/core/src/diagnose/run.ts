@@ -12,6 +12,7 @@ import {
   checkCloneElementWarnings,
   checkDevArtifactsInProd,
   checkPackageExportGaps,
+  checkNestedInternalCore,
   checkA11yHints,
 } from "./checks";
 
@@ -30,6 +31,7 @@ export const EXTENDED_CHECKS = [
   { name: "cloneelement_warnings", run: checkCloneElementWarnings },
   { name: "dev_artifacts_in_prod", run: checkDevArtifactsInProd },
   { name: "package_export_gaps", run: checkPackageExportGaps },
+  { name: "nested_internal_core", run: checkNestedInternalCore },
   { name: "a11y_hints", run: checkA11yHints },
 ] as const;
 

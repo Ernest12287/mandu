@@ -718,3 +718,115 @@ export async function checkA11yHints(rootDir: string): Promise<DiagnoseCheckResu
     },
   };
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// 7. nested_internal_core (#261)
+// ────────────────────────────────────────────────────────────────────────
+
+interface NestedCoreSite {
+  parentPackage: string;
+  nestedVersion: string;
+  relativePath: string;
+}
+
+async function readPackageVersion(pkgJsonPath: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(pkgJsonPath, "utf-8");
+    const parsed = JSON.parse(raw) as { version?: string };
+    return typeof parsed.version === "string" ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+
+async function listMandujsSiblings(rootDir: string): Promise<string[]> {
+  const dir = path.join(rootDir, "node_modules", "@mandujs");
+  try {
+    const entries = (await fs.readdir(dir, { withFileTypes: true })) as Dirent[];
+    return entries
+      .filter((e) => e.isDirectory() && e.name !== "core")
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * #261 check 7: detect a stale `@mandujs/core` nested inside another
+ * `@mandujs/*` package's `node_modules`.
+ *
+ * Symptom: `bunx @mandujs/mcp` fails with `Cannot find module
+ * @mandujs/core/<subpath>` even though the project has the latest
+ * `@mandujs/core` hoisted at the top level. Cause: a previous install
+ * left an older core nested under `@mandujs/<sibling>/node_modules`,
+ * which wins module resolution from inside that sibling's code, and the
+ * older core's `exports` map lacks the subpath the sibling now imports.
+ *
+ * This check walks `node_modules/@mandujs/*` siblings, looks for a
+ * nested `node_modules/@mandujs/core/package.json`, and compares the
+ * version to the hoisted core. A mismatch is reported as `error`
+ * (boot-breaking on the user's machine) with a copy-pastable fix.
+ */
+export async function checkNestedInternalCore(rootDir: string): Promise<DiagnoseCheckResult> {
+  const hoistedPath = path.join(rootDir, "node_modules", "@mandujs", "core", "package.json");
+  const hoistedVersion = await readPackageVersion(hoistedPath);
+
+  if (!hoistedVersion) {
+    return {
+      ok: true,
+      rule: "nested_internal_core",
+      message: "@mandujs/core not installed at the project root — skipping nested-version check.",
+      details: { skipped: true },
+    };
+  }
+
+  const siblings = await listMandujsSiblings(rootDir);
+  const mismatches: NestedCoreSite[] = [];
+
+  for (const sibling of siblings) {
+    const nestedPkgJson = path.join(
+      rootDir,
+      "node_modules",
+      "@mandujs",
+      sibling,
+      "node_modules",
+      "@mandujs",
+      "core",
+      "package.json",
+    );
+    const nestedVersion = await readPackageVersion(nestedPkgJson);
+    if (!nestedVersion) continue;
+    if (nestedVersion === hoistedVersion) continue;
+    mismatches.push({
+      parentPackage: `@mandujs/${sibling}`,
+      nestedVersion,
+      relativePath: path.relative(rootDir, nestedPkgJson),
+    });
+  }
+
+  if (mismatches.length === 0) {
+    return {
+      ok: true,
+      rule: "nested_internal_core",
+      message: `No stale nested @mandujs/core found (hoisted: ${hoistedVersion}, scanned ${siblings.length} sibling(s)).`,
+      details: { hoistedVersion, scannedSiblings: siblings.length },
+    };
+  }
+
+  const first = mismatches[0];
+  const fixCommand = `rm -rf node_modules/${first.parentPackage}/node_modules`;
+  return {
+    ok: false,
+    rule: "nested_internal_core",
+    severity: "error",
+    message:
+      `${mismatches.length} stale nested @mandujs/core install(s) shadow the hoisted ${hoistedVersion}. ` +
+      `First: ${first.parentPackage} pinned to ${first.nestedVersion} (${first.relativePath}).`,
+    suggestion: `Run \`${fixCommand}\` and re-test \`bunx @mandujs/mcp\`, or remove node_modules and bun.lock entirely and \`bun install\`.`,
+    details: {
+      hoistedVersion,
+      mismatchCount: mismatches.length,
+      mismatches,
+    },
+  };
+}
