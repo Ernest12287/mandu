@@ -1,5 +1,7 @@
 import type { ObservabilityEvent } from "../../observability/event-bus";
 import type { RoutesManifest, RouteSpec } from "../../spec/schema";
+import type { BundleManifest } from "../../bundler/types";
+import type { DiagnoseReport, DiagnoseCheckResult } from "../../diagnose/types";
 
 export type AgentDevToolsCategory =
   | "hydration"
@@ -7,7 +9,9 @@ export type AgentDevToolsCategory =
   | "contract"
   | "runtime"
   | "release"
-  | "agent-tools";
+  | "agent-tools"
+  | "build-broken"
+  | "boot-breaking";
 
 export type AgentDevToolsMode = "observe" | "suggest" | "assist" | "approval_required";
 
@@ -56,6 +60,16 @@ export interface BuildAgentContextPackInput {
   mcpEvents: ObservabilityEvent[];
   guardEvents: ObservabilityEvent[];
   agentStats: AgentStatsInput;
+  /**
+   * Plan 18 P0-2 — additional signals so `pickSituation` can distinguish
+   * build-broken / boot-breaking from runtime errors. All three are
+   * optional: the handler passes them when collection succeeds and
+   * leaves them undefined on environments where the source is missing
+   * (fixture roots, tests, fresh project before first build).
+   */
+  bundleManifest?: BundleManifest | null;
+  diagnoseReport?: DiagnoseReport | null;
+  changedFiles?: string[];
 }
 
 export interface AgentToolRecommendation {
@@ -110,6 +124,27 @@ export interface AgentContextPack {
     recentRequests: number;
     recentHttpErrors: number;
     recentMcpEvents: number;
+    /**
+     * Plan 18 P0-2 — bundle / diagnose / diff summary. Each block is
+     * absent when the corresponding signal was not provided.
+     */
+    bundle?: {
+      env: "development" | "production";
+      buildTime: string;
+      bundleCount: number;
+      islandCount: number;
+    };
+    diagnose?: {
+      healthy: boolean;
+      errorCount: number;
+      warningCount: number;
+      total: number;
+      failedRules: string[];
+    };
+    changedFiles?: {
+      count: number;
+      sample: string[];
+    };
   };
   agentStatus: {
     totalAgents: number;
@@ -177,6 +212,20 @@ const TOOL_ROUTER: Record<AgentDevToolsCategory, AgentToolRecommendation> = {
     cliFallback: "bun run lint",
     useWhen: "The next step is unclear, an agent skipped Mandu tools, or a supervised coding session is starting.",
   },
+  "build-broken": {
+    task: "Build artifact recovery",
+    skill: "mandu-debug",
+    mcpTools: ["mandu.build.status", "mandu.build", "mandu.diagnose"],
+    cliFallback: "bun run build",
+    useWhen: "Bundle manifest is missing, stale, or the diagnose pipeline reports a broken build artifact.",
+  },
+  "boot-breaking": {
+    task: "Install or boot-time failure",
+    skill: "mandu-debug",
+    mcpTools: ["mandu.diagnose", "mandu.brain.doctor", "mandu.brain.checkImport"],
+    cliFallback: "bun install",
+    useWhen: "Diagnose surfaces nested_internal_core, package_export_gaps, or other install-time regressions (e.g. #260/#261).",
+  },
 };
 
 function routeSummary(manifest: RoutesManifest): AgentContextPack["summary"]["routes"] {
@@ -219,7 +268,90 @@ function isHydrationError(error: AgentDevToolsError): boolean {
     || textContains(error.type, patterns);
 }
 
+/**
+ * Plan 18 P0-2 — install/boot-time regressions that make the next dev
+ * step impossible. Surfaced ahead of every other category because the
+ * symptom (`Cannot find module ...`, nested core shadowing) blocks the
+ * tools the agent would otherwise use to investigate.
+ */
+const BOOT_BREAKING_RULES = new Set([
+  "nested_internal_core",
+  "package_export_gaps",
+  "manifest_validation",
+]);
+
+function findBootBreakingCheck(report: DiagnoseReport | null | undefined): DiagnoseCheckResult | undefined {
+  if (!report) return undefined;
+  return report.checks.find(
+    (check) => !check.ok && check.severity === "error" && BOOT_BREAKING_RULES.has(check.rule),
+  );
+}
+
+function findBuildBrokenCheck(report: DiagnoseReport | null | undefined): DiagnoseCheckResult | undefined {
+  if (!report) return undefined;
+  return report.checks.find(
+    (check) => !check.ok && check.severity === "error" && check.rule === "manifest_freshness",
+  );
+}
+
+function isBundleManifestEmpty(manifest: BundleManifest | null | undefined): boolean {
+  if (!manifest) return false; // null/undefined means "not collected", not "empty"
+  const hasBundles = Object.keys(manifest.bundles ?? {}).length > 0;
+  const hasIslands = Object.keys(manifest.islands ?? {}).length > 0;
+  return !hasBundles && !hasIslands;
+}
+
 function pickSituation(input: BuildAgentContextPackInput): AgentContextPack["situation"] {
+  // Boot-breaking has the highest priority: if the project can't load,
+  // the agent's first move should be a recovery command, not a code edit.
+  const bootBreaking = findBootBreakingCheck(input.diagnoseReport);
+  if (bootBreaking) {
+    return {
+      category: "boot-breaking",
+      severity: "error",
+      title: "Install or boot regression detected",
+      details: [
+        `${bootBreaking.rule}: ${bootBreaking.message}`,
+        bootBreaking.suggestion ?? "Run `mandu diagnose` for the copy-pastable fix.",
+      ],
+    };
+  }
+
+  // Build-broken comes next: missing or stale bundle manifest means
+  // hydration / island / SSR diagnosis can't be trusted yet.
+  const buildBroken = findBuildBrokenCheck(input.diagnoseReport);
+  if (buildBroken) {
+    return {
+      category: "build-broken",
+      severity: "error",
+      title: "Build artifact is missing or stale",
+      details: [
+        buildBroken.message,
+        buildBroken.suggestion ?? "Run `mandu build` and re-check.",
+      ],
+    };
+  }
+
+  // Bundle manifest absent on a hydrated project is the silent variant
+  // of the above — diagnose may not have flagged it yet on a fresh
+  // clone, but the supervisor should still hint at the missing build.
+  const hydratedRoutes = input.manifest.routes.filter((route) => !!route.clientModule).length;
+  if (
+    input.bundleManifest !== undefined &&
+    isBundleManifestEmpty(input.bundleManifest) &&
+    hydratedRoutes > 0
+  ) {
+    return {
+      category: "build-broken",
+      severity: "warn",
+      title: "Bundle manifest empty but hydration is declared",
+      details: [
+        `${hydratedRoutes} route(s) declare client hydration but no bundles are emitted.`,
+        "Run `mandu build` before opening the page — DevTools will not see island bundles otherwise.",
+      ],
+    };
+  }
+
   const hydrationError = input.errors.find(isHydrationError);
   if (hydrationError) {
     return {
@@ -348,6 +480,26 @@ function buildKnowledgeCards(
     });
   }
 
+  if (situation.category === "build-broken") {
+    cards.push({
+      id: "build-first",
+      title: "Bundle manifest is the source of truth",
+      category: "build-broken",
+      body: "Hydration / island / DevTools all read .mandu/manifest.json. When it is missing or stale, every downstream signal is unreliable — rebuild first, diagnose second.",
+      references: ["packages/core/src/bundler/types.ts", "packages/core/src/diagnose/checks.ts"],
+    });
+  }
+
+  if (situation.category === "boot-breaking") {
+    cards.push({
+      id: "boot-recovery",
+      title: "Install regressions need install-time recovery",
+      category: "boot-breaking",
+      body: "nested_internal_core and package_export_gaps shadow module resolution. Code edits won't help until node_modules is reconciled — let mandu diagnose print the exact rm/install command.",
+      references: ["packages/core/src/diagnose/checks.ts", "docs/issues (#260, #261)"],
+    });
+  }
+
   return cards.slice(0, 6);
 }
 
@@ -358,7 +510,8 @@ function buildPrompt(
 ): PromptSuggestion {
   const summary = routeSummary(input.manifest);
   const routeHint = pickRouteHint(input.manifest.routes, situation.category);
-  const copyText = [
+
+  const lines: string[] = [
     "You are working inside a Mandu agent-native project.",
     `Task domain: ${situation.category}`,
     `Selected skill: ${recommendation.skill}`,
@@ -368,13 +521,40 @@ function buildPrompt(
     `Details: ${situation.details.join(" | ")}`,
     `Route hint: ${routeHint}`,
     `Project shape: ${summary.pages} pages, ${summary.apis} APIs, ${summary.islands} islands, ${summary.contracts} contracts.`,
+  ];
+
+  // Plan 18 P0-2 — surface build / diagnose / diff signals into the
+  // prompt so the agent does not need a second tool call to learn the
+  // environment shape.
+  const bundle = summarizeBundleManifest(input.bundleManifest);
+  if (bundle) {
+    lines.push(
+      `Build state: env=${bundle.env}, bundles=${bundle.bundleCount}, islands=${bundle.islandCount}, builtAt=${bundle.buildTime}.`,
+    );
+  }
+  const diag = summarizeDiagnose(input.diagnoseReport);
+  if (diag) {
+    lines.push(
+      diag.healthy
+        ? `Diagnose: healthy (${diag.total} checks).`
+        : `Diagnose: ${diag.errorCount} error / ${diag.warningCount} warning — failed rules: ${diag.failedRules.join(", ") || "(none listed)"}.`,
+    );
+  }
+  const changed = summarizeChangedFiles(input.changedFiles);
+  if (changed && changed.count > 0) {
+    lines.push(
+      `Changed files (${changed.count}, first ${changed.sample.length}): ${changed.sample.join(", ")}.`,
+    );
+  }
+
+  lines.push(
     "Before editing: inspect affected files and state the exact tool/skill choice.",
     "After editing: report changed files, validation commands, and any fallback reason.",
-  ].join("\n");
+  );
 
   return {
     title: `Prompt for ${situation.category} work`,
-    copyText,
+    copyText: lines.join("\n"),
     variables: [
       { name: "task_domain", value: situation.category },
       { name: "selected_skill", value: recommendation.skill },
@@ -460,6 +640,26 @@ function buildNextSafeAction(
         validation: ["mandu.brain.status", "mandu.ai.brief"],
         risk: "low",
       };
+    case "build-broken":
+      return {
+        mode: "assist",
+        title: "Rebuild before any other change",
+        reason: "Bundle manifest is missing or stale — DevTools, hydration, and island inventory all read it.",
+        tool: "mandu.build",
+        command: "bun run build",
+        validation: ["mandu.build.status", "mandu.diagnose"],
+        risk: "low",
+      };
+    case "boot-breaking":
+      return {
+        mode: "observe",
+        title: "Run mandu diagnose for the recovery command",
+        reason: "An install regression is shadowing module resolution; let diagnose print the exact rm/install fix.",
+        tool: "mandu.diagnose",
+        command: "bun install",
+        validation: ["mandu.diagnose", "bunx @mandujs/mcp --help"],
+        risk: "low",
+      };
   }
 }
 
@@ -479,6 +679,8 @@ function flattenTopTools(agentStats: AgentStatsInput): Array<{ tool: string; cou
 function uniqueRecommendations(primary: AgentDevToolsCategory): AgentToolRecommendation[] {
   const order: AgentDevToolsCategory[] = [
     primary,
+    "boot-breaking",
+    "build-broken",
     "agent-tools",
     "guard",
     "contract",
@@ -494,6 +696,36 @@ function uniqueRecommendations(primary: AgentDevToolsCategory): AgentToolRecomme
     result.push(TOOL_ROUTER[category]);
   }
   return result.slice(0, 4);
+}
+
+function summarizeBundleManifest(manifest: BundleManifest | null | undefined): AgentContextPack["summary"]["bundle"] {
+  if (!manifest) return undefined;
+  return {
+    env: manifest.env,
+    buildTime: manifest.buildTime,
+    bundleCount: Object.keys(manifest.bundles ?? {}).length,
+    islandCount: Object.keys(manifest.islands ?? {}).length,
+  };
+}
+
+function summarizeDiagnose(report: DiagnoseReport | null | undefined): AgentContextPack["summary"]["diagnose"] {
+  if (!report) return undefined;
+  const failedRules = report.checks.filter((c) => !c.ok).map((c) => c.rule);
+  return {
+    healthy: report.healthy,
+    errorCount: report.errorCount,
+    warningCount: report.warningCount,
+    total: report.summary.total,
+    failedRules,
+  };
+}
+
+function summarizeChangedFiles(files: string[] | undefined): AgentContextPack["summary"]["changedFiles"] {
+  if (!files) return undefined;
+  return {
+    count: files.length,
+    sample: files.slice(0, 8),
+  };
 }
 
 export function buildAgentContextPack(input: BuildAgentContextPackInput): AgentContextPack {
@@ -519,6 +751,9 @@ export function buildAgentContextPack(input: BuildAgentContextPackInput): AgentC
       recentRequests: input.requests.length + input.httpEvents.length,
       recentHttpErrors,
       recentMcpEvents: input.mcpEvents.length,
+      bundle: summarizeBundleManifest(input.bundleManifest),
+      diagnose: summarizeDiagnose(input.diagnoseReport),
+      changedFiles: summarizeChangedFiles(input.changedFiles),
     },
     agentStatus: {
       totalAgents: input.agentStats.totalAgents,

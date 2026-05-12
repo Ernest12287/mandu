@@ -103,6 +103,123 @@ describe("buildAgentContextPack", () => {
     expect(pack.prompt.copyText).toContain("Selected skill: mandu-hydration");
   });
 
+  it("classifies a hydrated project with empty bundle manifest as build-broken (plan 18 P0-2)", () => {
+    const pack = buildAgentContextPack(createInput({
+      manifest: appManifest,
+      bundleManifest: {
+        version: 1,
+        buildTime: "2026-05-12T00:00:00.000Z",
+        env: "development",
+        bundles: {},
+        shared: { runtime: "/.mandu/client/runtime.js", vendor: "/.mandu/client/vendor.js" },
+      },
+    }));
+
+    expect(pack.situation.category).toBe("build-broken");
+    expect(pack.situation.severity).toBe("warn");
+    expect(pack.toolRecommendations[0].mcpTools).toContain("mandu.build.status");
+    expect(pack.nextSafeAction.tool).toBe("mandu.build");
+    expect(pack.summary.bundle?.bundleCount).toBe(0);
+    expect(pack.summary.bundle?.islandCount).toBe(0);
+    expect(pack.prompt.copyText).toContain("Build state:");
+  });
+
+  it("classifies manifest_freshness diagnose error as build-broken", () => {
+    const pack = buildAgentContextPack(createInput({
+      manifest: appManifest,
+      diagnoseReport: {
+        healthy: false,
+        errorCount: 1,
+        warningCount: 0,
+        summary: { total: 1, passed: 0, failed: 1 },
+        checks: [
+          {
+            ok: false,
+            rule: "manifest_freshness",
+            severity: "error",
+            message: "Bundle manifest .mandu/manifest.json is missing.",
+            suggestion: "Run `mandu build`.",
+          },
+        ],
+      },
+    }));
+
+    expect(pack.situation.category).toBe("build-broken");
+    expect(pack.situation.severity).toBe("error");
+    expect(pack.prompt.copyText).toContain("Diagnose:");
+    expect(pack.prompt.copyText).toContain("manifest_freshness");
+  });
+
+  it("classifies nested_internal_core diagnose error as boot-breaking (#261)", () => {
+    const pack = buildAgentContextPack(createInput({
+      manifest: pageOnlyManifest,
+      diagnoseReport: {
+        healthy: false,
+        errorCount: 1,
+        warningCount: 0,
+        summary: { total: 1, passed: 0, failed: 1 },
+        checks: [
+          {
+            ok: false,
+            rule: "nested_internal_core",
+            severity: "error",
+            message: "1 stale nested @mandujs/core install(s) shadow the hoisted 0.53.3.",
+            suggestion: "Run `rm -rf node_modules/@mandujs/mcp/node_modules`.",
+          },
+        ],
+      },
+    }));
+
+    expect(pack.situation.category).toBe("boot-breaking");
+    expect(pack.situation.severity).toBe("error");
+    expect(pack.toolRecommendations[0].mcpTools).toContain("mandu.diagnose");
+    expect(pack.nextSafeAction.tool).toBe("mandu.diagnose");
+    expect(pack.summary.diagnose?.failedRules).toContain("nested_internal_core");
+  });
+
+  it("boot-breaking takes priority over hydration error", () => {
+    const pack = buildAgentContextPack(createInput({
+      manifest: appManifest,
+      errors: [
+        {
+          message: "Hydration failed",
+          source: "./app/page.island.tsx",
+        },
+      ],
+      diagnoseReport: {
+        healthy: false,
+        errorCount: 1,
+        warningCount: 0,
+        summary: { total: 1, passed: 0, failed: 1 },
+        checks: [
+          {
+            ok: false,
+            rule: "package_export_gaps",
+            severity: "error",
+            message: "1 @mandujs/core subpath(s) imported but not in exports map.",
+          },
+        ],
+      },
+    }));
+
+    expect(pack.situation.category).toBe("boot-breaking");
+  });
+
+  it("includes changed files in the prompt when supplied", () => {
+    const pack = buildAgentContextPack(createInput({
+      manifest: pageOnlyManifest,
+      changedFiles: [
+        "app/page.tsx",
+        "app/api/users/route.ts",
+        "spec/contracts/users.ts",
+      ],
+    }));
+
+    expect(pack.summary.changedFiles?.count).toBe(3);
+    expect(pack.summary.changedFiles?.sample).toContain("app/page.tsx");
+    expect(pack.prompt.copyText).toContain("Changed files (3");
+  });
+
   it("uses contract guidance when API routes do not expose contracts", () => {
     const pack = buildAgentContextPack(createInput({
       manifest: appManifest,
@@ -183,7 +300,13 @@ describe("KitchenHandler /api/agent-context endpoint", () => {
     const postRes = await handler.handle(post, `${KITCHEN_PREFIX}/api/errors`);
     expect(postRes!.status).toBe(200);
 
-    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/agent-context`);
+    // Plan 18 P0-2 — bundle/diagnose/diff signals would otherwise flag
+    // this fixture as build-broken (no .mandu/manifest.json in tmpDir).
+    // This test isolates the hydration-error classification path, so we
+    // opt out of those signals via query params.
+    const req = new Request(
+      `http://localhost:3000${KITCHEN_PREFIX}/api/agent-context?bundle=0&diagnose=0&diff=0`,
+    );
     const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/agent-context`);
     const body = await res!.json() as {
       situation: { category: string };
