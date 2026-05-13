@@ -59,6 +59,7 @@ export function renderKitchenHTML(): string {
 
     <nav class="tabs">
       <button class="tab" data-panel="activity">Activity</button>
+      <button class="tab" data-panel="errors">Errors</button>
       <button class="tab" data-panel="agent">Agent</button>
       <button class="tab active" data-panel="routes">Routes</button>
       <button class="tab" data-panel="guard">Guard</button>
@@ -75,12 +76,42 @@ export function renderKitchenHTML(): string {
         <div class="panel-header">
           <div>
             <h2>Activity Stream</h2>
-            <p class="panel-subtitle">Recent Kitchen events and MCP activity.</p>
+            <p class="panel-subtitle">Recent eventBus signals — switch the chips to surface build, cache, ws, and ate categories that are normally invisible.</p>
           </div>
           <button id="clear-activity" class="btn-sm">Clear</button>
         </div>
+        <div id="activity-filter" class="activity-filter" role="tablist" aria-label="Activity category">
+          <button class="chip active" data-type="all">All</button>
+          <button class="chip" data-type="mcp">MCP</button>
+          <button class="chip" data-type="http">HTTP</button>
+          <button class="chip" data-type="guard">Guard</button>
+          <button class="chip" data-type="build">Build</button>
+          <button class="chip" data-type="cache">Cache</button>
+          <button class="chip" data-type="ws">WS</button>
+          <button class="chip" data-type="ate">ATE</button>
+          <button class="chip" data-type="error">Error</button>
+        </div>
         <div id="activity-list" class="activity-list">
-          <div class="empty-state">Waiting for MCP activity...</div>
+          <div class="empty-state">Waiting for activity...</div>
+        </div>
+      </section>
+
+      <section id="panel-errors" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Errors</h2>
+            <p class="panel-subtitle">Browser errors grouped by signature — repeated occurrences collapse into one row with count, first/last seen, and affected sources.</p>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button id="refresh-errors" class="btn-sm">Refresh</button>
+            <button id="clear-errors" class="btn-sm">Clear</button>
+          </div>
+        </div>
+        <div id="errors-summary" class="errors-summary">
+          <span id="errors-summary-text">Open Errors to see grouped browser errors.</span>
+        </div>
+        <div id="errors-list" class="errors-list">
+          <div class="empty-state">No errors captured yet.</div>
         </div>
       </section>
 
@@ -383,10 +414,155 @@ const CSS = /* css */ `
   }
 
   /* Activity */
+  .activity-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 0 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .chip {
+    padding: 4px 10px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease, background 0.2s;
+  }
+
+  .chip:hover {
+    background: var(--accent-soft);
+  }
+
+  .chip.active {
+    background: var(--accent);
+    color: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .chip.active:hover {
+    background: var(--accent-strong);
+  }
+
   .activity-list {
-    max-height: calc(100vh - 180px);
+    max-height: calc(100vh - 220px);
     overflow-y: auto;
   }
+
+  /* Plan 18 P1-4 — Errors panel grouped view */
+  .errors-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--surface-strong);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .errors-list {
+    max-height: calc(100vh - 240px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .error-group {
+    background: var(--surface);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease;
+  }
+
+  .error-group:hover {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+  }
+
+  .error-group.expanded {
+    transform: none;
+    box-shadow: var(--shadow);
+  }
+
+  .error-group-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .error-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--surface);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .error-count.dim {
+    background: var(--accent-soft);
+    color: var(--ink);
+  }
+
+  .error-severity {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(200, 84, 80, 0.18);
+    color: var(--danger);
+  }
+
+  .error-message {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink);
+    flex: 1 1 100%;
+    word-break: break-word;
+  }
+
+  .error-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .error-detail {
+    display: none;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+    color: var(--muted);
+  }
+
+  .error-group.expanded .error-detail { display: block; }
 
   .activity-item {
     padding: 8px 12px;
@@ -1620,6 +1796,39 @@ const JS = /* js */ `
   var activityCount = 0;
   var MAX_ITEMS = 200;
   var sseRetryCount = 0;
+  var activityCurrentSSE = null;
+  var activityFilter = 'all'; // plan 18 P1-3
+
+  function disconnectSSE() {
+    if (activityCurrentSSE) {
+      try { activityCurrentSSE.close(); } catch(_) {}
+      activityCurrentSSE = null;
+    }
+    statusDot.className = 'status-dot disconnected';
+    statusLabel.textContent = 'Filter: ' + activityFilter;
+  }
+
+  function loadFilteredEvents(type) {
+    activityList.innerHTML = '<div class="empty-state">Loading ' + escapeHtml(type) + ' events...</div>';
+    fetchJson('/__kitchen/api/events?type=' + encodeURIComponent(type) + '&limit=100', function(err, data) {
+      if (err) {
+        activityList.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var events = data.events || [];
+      if (!events.length) {
+        activityList.innerHTML = '<div class="empty-state">No ' + escapeHtml(type) + ' events yet — try interacting with the app or run a build.</div>';
+        return;
+      }
+      activityList.innerHTML = '';
+      activityCount = 0;
+      for (var i = 0; i < events.length; i++) {
+        // events come newest-first from reverseCopy in the handler; appendActivity inserts at top.
+        // Reverse so newest stays on top after insertBefore.
+        appendActivity(events[events.length - 1 - i]);
+      }
+    });
+  }
 
   function connectSSE() {
     statusDot.className = 'status-dot connecting';
@@ -1629,6 +1838,7 @@ const JS = /* js */ `
     var es;
     try {
       es = new EventSource('/__kitchen/sse/activity');
+      activityCurrentSSE = es;
     } catch(e) {
       log('SSE EventSource failed: ' + e.message, 'err');
       statusDot.className = 'status-dot disconnected';
@@ -1697,10 +1907,36 @@ const JS = /* js */ `
   }
 
   document.getElementById('clear-activity').addEventListener('click', function() {
-    activityList.innerHTML = '<div class="empty-state">Waiting for MCP activity...</div>';
+    activityList.innerHTML = '<div class="empty-state">Waiting for activity...</div>';
     activityCount = 0;
     setMetric('metric-activity', 0);
   });
+
+  // Plan 18 P1-3 — Activity filter chips. "All" reconnects SSE for live
+  // mcp tailing; the other chips switch to a one-shot fetch of the bus's
+  // typed slice (build / cache / ws / ate / error / etc) so signals that
+  // would normally stay invisible in the jsonl tail surface here.
+  var filterEl = document.getElementById('activity-filter');
+  if (filterEl) {
+    var chips = filterEl.querySelectorAll('.chip');
+    for (var ci = 0; ci < chips.length; ci++) {
+      chips[ci].addEventListener('click', function() {
+        var all = filterEl.querySelectorAll('.chip');
+        for (var k = 0; k < all.length; k++) all[k].classList.remove('active');
+        this.classList.add('active');
+        var t = this.getAttribute('data-type') || 'all';
+        activityFilter = t;
+        activityList.innerHTML = '';
+        activityCount = 0;
+        if (t === 'all') {
+          connectSSE();
+        } else {
+          disconnectSSE();
+          loadFilteredEvents(t);
+        }
+      });
+    }
+  }
 
   connectSSE();
 
@@ -2262,6 +2498,86 @@ const JS = /* js */ `
 
   document.getElementById('refresh-agent').addEventListener('click', loadAgentContext);
 
+  // ─── Errors (plan 18 P1-4) ──────────────────
+  var errorsSummaryEl = document.getElementById('errors-summary-text');
+  var errorsListEl = document.getElementById('errors-list');
+
+  function fmtRelTime(ts) {
+    if (!ts) return '-';
+    var diff = Date.now() - ts;
+    if (diff < 0) diff = 0;
+    if (diff < 5_000) return 'just now';
+    if (diff < 60_000) return Math.round(diff / 1000) + 's ago';
+    if (diff < 3_600_000) return Math.round(diff / 60_000) + 'm ago';
+    if (diff < 86_400_000) return Math.round(diff / 3_600_000) + 'h ago';
+    return new Date(ts).toLocaleString();
+  }
+
+  function loadErrors() {
+    if (!errorsListEl) return;
+    errorsListEl.innerHTML = '<div class="empty-state">Loading errors...</div>';
+    fetchJson('/__kitchen/api/errors/grouped', function(err, data) {
+      if (err) {
+        errorsListEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var groups = data.groups || [];
+      var total = data.totalCount || 0;
+      var groupCount = data.groupCount || 0;
+      if (errorsSummaryEl) {
+        errorsSummaryEl.textContent = total === 0
+          ? 'No errors captured yet.'
+          : total + ' raw error(s) collapsed into ' + groupCount + ' group(s).';
+      }
+      if (!groups.length) {
+        errorsListEl.innerHTML = '<div class="empty-state">No errors captured yet.</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < groups.length; i++) {
+        var g = groups[i];
+        var sample = g.sample || {};
+        var sources = (g.affectedSources || []).join(', ') || sample.source || 'unknown';
+        var sev = sample.severity || g.severity || 'error';
+        var countCls = g.count >= 5 ? 'error-count' : 'error-count dim';
+        var stackBlock = sample.stack
+          ? '<div class="error-detail">' + escapeHtml(sample.stack) + '</div>'
+          : '<div class="error-detail">No stack frame captured.</div>';
+        html += '<div class="error-group" data-key="' + escapeHtml(g.key) + '">' +
+          '<div class="error-group-head">' +
+            '<span class="' + countCls + '">x' + g.count + '</span>' +
+            '<span class="error-severity">' + escapeHtml(sev) + '</span>' +
+            '<div class="error-message">' + escapeHtml(sample.message || '(no message)') + '</div>' +
+          '</div>' +
+          '<div class="error-meta">' +
+            '<span>first: ' + escapeHtml(fmtRelTime(g.firstSeen)) + '</span>' +
+            '<span>last: ' + escapeHtml(fmtRelTime(g.lastSeen)) + '</span>' +
+            '<span>sources: ' + escapeHtml(sources) + '</span>' +
+            (sample.line ? '<span>line ' + escapeHtml(String(sample.line)) + '</span>' : '') +
+          '</div>' +
+          stackBlock +
+          '</div>';
+      }
+      errorsListEl.innerHTML = html;
+      var rows = errorsListEl.querySelectorAll('.error-group');
+      for (var r = 0; r < rows.length; r++) {
+        rows[r].addEventListener('click', function() {
+          this.classList.toggle('expanded');
+        });
+      }
+    });
+  }
+
+  var refreshErrorsBtn = document.getElementById('refresh-errors');
+  if (refreshErrorsBtn) refreshErrorsBtn.addEventListener('click', loadErrors);
+
+  var clearErrorsBtn = document.getElementById('clear-errors');
+  if (clearErrorsBtn) clearErrorsBtn.addEventListener('click', function() {
+    fetch('/__kitchen/api/errors', { method: 'DELETE' })
+      .then(function() { loadErrors(); })
+      .catch(function() { /* noop */ });
+  });
+
   function loadRequests() {
     requestsListEl.innerHTML = '<div class="empty-state">Loading requests...</div>';
     fetchJson('/__kitchen/api/requests?limit=100', function(err, data) {
@@ -2462,6 +2778,7 @@ const JS = /* js */ `
   // Lazy-load new tab data when clicked (avoids loading everything up front)
   var tabLoaders = {
     'agent': loadAgentContext,
+    'errors': loadErrors,
     'requests': loadRequests,
     'mcp-activity': loadMcpActivity,
     'cache': loadCacheStats,

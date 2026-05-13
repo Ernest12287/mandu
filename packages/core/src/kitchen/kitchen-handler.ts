@@ -15,6 +15,7 @@ import { FileAPI } from "./api/file-api";
 import { GuardDecisionManager } from "./api/guard-decisions";
 import { ContractPlaygroundAPI } from "./api/contract-api";
 import { handleAgentContextRequest } from "./api/agent-devtools-api";
+import { groupErrors } from "./api/errors-grouping";
 import type { BundleManifest } from "../bundler/types";
 import type { DiagnoseReport } from "../diagnose/types";
 import { runExtendedDiagnose } from "../diagnose/run";
@@ -428,6 +429,35 @@ export class KitchenHandler {
       return Response.json(computeAgentStats());
     }
 
+    // Generic events API (plan 18 P1-3).
+    // Exposes the full eventBus surface — `build` / `cache` / `ws` / `ate`
+    // / `error` categories live on the bus but were previously invisible
+    // because /api/activity and /api/requests filter to mcp/http only.
+    // Query params:
+    //   ?type=build|cache|ws|ate|http|mcp|guard|error  (optional — omit for all)
+    //   ?severity=info|warn|error                       (optional)
+    //   ?limit=N                                        (default 100, max 500)
+    //   ?stats=1                                        (return per-type counts instead of events)
+    if (sub === "/api/events" && req.method === "GET") {
+      const url = new URL(req.url);
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
+
+      if (url.searchParams.get("stats") === "1") {
+        return Response.json({ stats: eventBus.getStats() });
+      }
+
+      const typeParam = url.searchParams.get("type");
+      const sevParam = url.searchParams.get("severity");
+      const allowedTypes = new Set(["http", "mcp", "guard", "build", "error", "cache", "ws", "ate"]);
+      const allowedSev = new Set(["info", "warn", "error"]);
+      const filter: { type?: "http" | "mcp" | "guard" | "build" | "error" | "cache" | "ws" | "ate"; severity?: "info" | "warn" | "error" } = {};
+      if (typeParam && allowedTypes.has(typeParam)) filter.type = typeParam as typeof filter.type;
+      if (sevParam && allowedSev.has(sevParam)) filter.severity = sevParam as typeof filter.severity;
+
+      const events = eventBus.getRecent(limit, filter);
+      return Response.json({ events: reverseCopy(events) });
+    }
+
     // Agent DevTools API — read-only context pack for supervised coding sessions.
     //
     // Plan 18 P0-2 — collect three additional signals (bundle manifest,
@@ -543,6 +573,19 @@ export class KitchenHandler {
 
     if (sub === "/api/errors" && req.method === "GET") {
       return Response.json({ errors: storedErrors, count: storedErrors.length });
+    }
+
+    // Plan 18 P1-4 — Errors panel grouped view. Collapses identical
+    // signatures into one row with count/firstSeen/lastSeen/affected
+    // sources. The operator no longer scrolls past five copies of the
+    // same hydration error to find the new one underneath.
+    if (sub === "/api/errors/grouped" && req.method === "GET") {
+      const groups = groupErrors(storedErrors);
+      return Response.json({
+        groups,
+        groupCount: groups.length,
+        totalCount: storedErrors.length,
+      });
     }
 
     if (sub === "/api/errors" && req.method === "DELETE") {

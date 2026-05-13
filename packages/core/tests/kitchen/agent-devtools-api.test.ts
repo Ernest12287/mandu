@@ -245,6 +245,150 @@ describe("buildAgentContextPack", () => {
   });
 });
 
+describe("KitchenHandler /api/errors/grouped endpoint (plan 18 P1-4)", () => {
+  let tmpDir: string;
+  let handler: KitchenHandler;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kitchen-errors-grouped-"));
+    clearKitchenErrors();
+    handler = new KitchenHandler({
+      rootDir: tmpDir,
+      manifest: pageOnlyManifest,
+      guardConfig: null,
+    });
+  });
+
+  afterEach(() => {
+    handler.stop();
+    clearKitchenErrors();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function postError(payload: Record<string, unknown>): Promise<void> {
+    const post = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/errors`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    await handler.handle(post, `${KITCHEN_PREFIX}/api/errors`);
+  }
+
+  it("collapses three identical hydration errors into one group with count=3", async () => {
+    for (let i = 0; i < 3; i++) {
+      await postError({
+        type: "runtime",
+        severity: "error",
+        message: "Hydration failed while rendering the cart island.",
+        source: "./app/page.island.tsx",
+      });
+    }
+
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/errors/grouped`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/errors/grouped`);
+    const body = await res!.json() as {
+      groups: Array<{ count: number; sample: { message: string } }>;
+      groupCount: number;
+      totalCount: number;
+    };
+
+    expect(body.totalCount).toBe(3);
+    expect(body.groupCount).toBe(1);
+    expect(body.groups[0].count).toBe(3);
+    expect(body.groups[0].sample.message).toMatch(/Hydration failed/);
+  });
+
+  it("keeps distinct messages in separate groups", async () => {
+    await postError({ type: "runtime", severity: "error", message: "Hydration failed.", source: "./a.tsx" });
+    await postError({ type: "runtime", severity: "error", message: "Network refused.", source: "./b.tsx" });
+
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/errors/grouped`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/errors/grouped`);
+    const body = await res!.json() as { groupCount: number; totalCount: number };
+
+    expect(body.totalCount).toBe(2);
+    expect(body.groupCount).toBe(2);
+  });
+});
+
+describe("KitchenHandler /api/events endpoint (plan 18 P1-3)", () => {
+  let tmpDir: string;
+  let handler: KitchenHandler;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kitchen-events-"));
+    resetBus();
+    handler = new KitchenHandler({
+      rootDir: tmpDir,
+      manifest: pageOnlyManifest,
+      guardConfig: null,
+    });
+  });
+
+  afterEach(() => {
+    handler.stop();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns all event types when no filter is supplied", async () => {
+    eventBus.emit({ type: "build", severity: "info", source: "test", message: "build ok" });
+    eventBus.emit({ type: "cache", severity: "info", source: "test", message: "cache hit" });
+    eventBus.emit({ type: "ws", severity: "info", source: "test", message: "ws open" });
+
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/events`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/events`);
+    const body = await res!.json() as { events: Array<{ type: string }> };
+
+    const types = body.events.map((e) => e.type);
+    expect(types).toEqual(expect.arrayContaining(["build", "cache", "ws"]));
+  });
+
+  it("filters by ?type=build (previously invisible category)", async () => {
+    eventBus.emit({ type: "build", severity: "info", source: "test", message: "rebuild 1" });
+    eventBus.emit({ type: "build", severity: "info", source: "test", message: "rebuild 2" });
+    eventBus.emit({ type: "http", severity: "info", source: "test", message: "GET /" });
+
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/events?type=build`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/events`);
+    const body = await res!.json() as { events: Array<{ type: string; message: string }> };
+
+    expect(body.events.length).toBe(2);
+    expect(body.events.every((e) => e.type === "build")).toBe(true);
+  });
+
+  it("rejects unknown type values (no filter applied)", async () => {
+    eventBus.emit({ type: "build", severity: "info", source: "test", message: "build" });
+    eventBus.emit({ type: "http", severity: "info", source: "test", message: "http" });
+
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/events?type=badtype`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/events`);
+    const body = await res!.json() as { events: Array<{ type: string }> };
+
+    // Unknown type is silently dropped → all events returned
+    const types = body.events.map((e) => e.type);
+    expect(types).toEqual(expect.arrayContaining(["build", "http"]));
+  });
+
+  it("?stats=1 returns per-type counters covering all 8 categories", async () => {
+    eventBus.emit({ type: "ate", severity: "info", source: "test", message: "spec done" });
+    eventBus.emit({ type: "ate", severity: "error", source: "test", message: "spec failed" });
+
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/events?stats=1`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/events`);
+    const body = await res!.json() as {
+      stats: Record<string, { count: number; errors: number; avgDuration: number }>;
+    };
+
+    expect(body.stats.ate.count).toBe(2);
+    expect(body.stats.ate.errors).toBe(1);
+    // All 8 categories should always be present so the UI can render
+    // a stable per-chip stat row.
+    expect(Object.keys(body.stats)).toEqual(
+      expect.arrayContaining(["http", "mcp", "guard", "build", "error", "cache", "ws", "ate"]),
+    );
+  });
+});
+
 describe("KitchenHandler /api/agent-context endpoint", () => {
   let tmpDir: string;
   let handler: KitchenHandler;
