@@ -4,6 +4,15 @@ Bun 기반 풀스택 React 프레임워크. Island 아키텍처, AI 네이티브
 
 Mandu는 SSR과 스트리밍을 기본 탑재하고, Island을 통해 페이지에 실제로 필요한 JavaScript만 전달하며, 85개 MCP 도구와 9개 스킬 파일을 통해 AI 코딩 에이전트와 직접 연동됩니다.
 
+## 제품 방향
+
+Mandu의 제품 방향은 **Agent-Native Fullstack Framework**입니다. 에이전트가 코드를 작성해도 아키텍처, 계약, 런타임 안정성, 릴리즈 신뢰도가 무너지지 않도록 돕는 감독형 AI 개발 프레임워크입니다.
+
+- [Agent-Native Framework Strategy v1](./product/02_agent_native_framework_strategy.md)
+- [Agent-Native Framework Launch Plan](./plans/17_agent_native_launch_plan.md)
+- [Mandu Agent Workflow](./guides/07_agent_workflow.md)
+- [Agent DevTools Plan](./devtools/AGENT_DEVTOOLS_PLAN.md)
+
 ## 빠른 시작
 
 ```bash

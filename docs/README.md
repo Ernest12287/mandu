@@ -4,6 +4,15 @@ A Bun-based fullstack React framework with island architecture, AI-native toolin
 
 Mandu gives you SSR and streaming out of the box, ships only the JavaScript your page actually needs through islands, and integrates directly with AI coding agents through 85 MCP tools and 9 skill files.
 
+## Product Direction
+
+Mandu's product direction is **Agent-Native Fullstack Framework**: a framework for supervised AI development where agents can write code without losing architecture, contracts, runtime safety, or release confidence.
+
+- [Agent-Native Framework Strategy v1](./product/02_agent_native_framework_strategy.md)
+- [Agent-Native Framework Launch Plan](./plans/17_agent_native_launch_plan.md)
+- [Mandu Agent Workflow](./guides/07_agent_workflow.md)
+- [Agent DevTools Plan](./devtools/AGENT_DEVTOOLS_PLAN.md)
+
 ## Quick Start
 
 ```bash

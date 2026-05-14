@@ -269,11 +269,10 @@ describe("renderToHTML — HMR script", () => {
 
 // ---------------------------------------------------------------------------
 // 6. DevTools script injection
-//    Issue #191 — the ~1.15 MB `_devtools.js` bundle is no longer injected
-//    unconditionally in dev. Default: inject iff the manifest has at least
-//    one island. Exhaustive matrix coverage lives in `devtools-inject.test.ts`;
-//    this block keeps a minimal smoke suite so a regression breaking the
-//    island-present happy path still fails here.
+//    Issue #191 + #259 — dev-mode default is to inject the `_devtools.js`
+//    bundle regardless of island count, so SSR-only landing pages still get
+//    the Kitchen panel. Prod always skips. Exhaustive matrix coverage lives
+//    in `devtools-inject.test.ts`; this block keeps a minimal smoke suite.
 // ---------------------------------------------------------------------------
 
 describe("renderToHTML — DevTools script", () => {
@@ -288,13 +287,12 @@ describe("renderToHTML — DevTools script", () => {
     expect(html).toContain("_devtools.js");
   });
 
-  it("does NOT inject DevTools script in dev mode when hasIslands is false", () => {
-    // Issue #191 — pure-SSR page skips the 1.15 MB devtools download.
+  it("injects DevTools script in dev mode even when hasIslands is false (#259)", () => {
     const html = renderToHTML(React.createElement("div"), {
       isDev: true,
     });
 
-    expect(html).not.toContain("_devtools.js");
+    expect(html).toContain("_devtools.js");
   });
 
   it("does NOT inject DevTools script in production mode", () => {

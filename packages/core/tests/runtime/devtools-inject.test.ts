@@ -1,11 +1,13 @@
 /**
- * Issue #191 — DevTools bundle injection policy
+ * Issue #191 + #259 — DevTools bundle injection policy
  *
  * The ~1.15 MB `_devtools.js` bundle (React dev runtime + Kitchen panel)
- * is no longer injected unconditionally in dev mode. Default behavior:
- * inject iff the bundle manifest declares at least one island. SSR-only
- * pages save the full 1.15 MB transfer. Explicit `devtools: true / false`
- * on `SSROptions` / `ManduConfig.dev.devtools` overrides the default.
+ * is injected by default in dev mode regardless of whether the route
+ * has islands. #259 reverted #191's "skip when no islands" heuristic
+ * because SSR-only landing/marketing pages were the exact place where
+ * Kitchen panels were most needed. The 1.15 MB cost is dev-only — prod
+ * builds never emit `_devtools.js`. Users can still set
+ * `dev.devtools: false` to opt out on a per-app basis.
  *
  * Covers:
  *   1. Decision matrix for `shouldInjectDevtools(devtools, manifest)`
@@ -14,9 +16,9 @@
  *      cache-bust. `manifest.buildTime` preferred when present,
  *      `?t=Date.now()` fallback otherwise.
  *   3. End-to-end through `renderToHTML`:
- *      - hasIslands: false + no override       → absent
+ *      - hasIslands: false + no override       → present (#259 default)
  *      - hasIslands: false + devtools: true    → present (forced)
- *      - hasIslands: false + devtools: false   → absent (belt & braces)
+ *      - hasIslands: false + devtools: false   → absent (opt-out)
  *      - hasIslands: true                      → present (default)
  *      - hasIslands: true + devtools: false    → absent (opt-out)
  *      - prod (isDev: false) + devtools: true  → absent (prod no-op)
@@ -87,12 +89,12 @@ function manifestWithIsland(
 // ---------------------------------------------------------------------------
 
 describe("shouldInjectDevtools — decision matrix", () => {
-  it("returns false when manifest is undefined and no override", () => {
-    expect(_testOnly_shouldInjectDevtools(undefined, undefined)).toBe(false);
+  it("returns true when manifest is undefined and no override (#259)", () => {
+    expect(_testOnly_shouldInjectDevtools(undefined, undefined)).toBe(true);
   });
 
-  it("returns false for empty manifest (hasIslands: false)", () => {
-    expect(_testOnly_shouldInjectDevtools(undefined, emptyManifest())).toBe(false);
+  it("returns true for empty manifest — SSR-only landing (#259)", () => {
+    expect(_testOnly_shouldInjectDevtools(undefined, emptyManifest())).toBe(true);
   });
 
   it("returns true when manifest has islands and no override", () => {
@@ -100,7 +102,6 @@ describe("shouldInjectDevtools — decision matrix", () => {
   });
 
   it("returns true when manifest has bundles even without islands map", () => {
-    // Simulates a route with hydration config but no per-island code splitting.
     const m = emptyManifest();
     m.bundles["home"] = {
       js: "/.mandu/client/home.js",
@@ -110,13 +111,15 @@ describe("shouldInjectDevtools — decision matrix", () => {
     expect(_testOnly_shouldInjectDevtools(undefined, m)).toBe(true);
   });
 
-  it("devtools: true — forces inject even with empty manifest", () => {
+  it("devtools: true — forces inject (no-op vs new default but still honored)", () => {
     expect(_testOnly_shouldInjectDevtools(true, undefined)).toBe(true);
     expect(_testOnly_shouldInjectDevtools(true, emptyManifest())).toBe(true);
   });
 
-  it("devtools: false — forces skip even when hasIslands is true", () => {
+  it("devtools: false — explicit opt-out skips even when islands exist", () => {
     expect(_testOnly_shouldInjectDevtools(false, manifestWithIsland())).toBe(false);
+    expect(_testOnly_shouldInjectDevtools(false, emptyManifest())).toBe(false);
+    expect(_testOnly_shouldInjectDevtools(false, undefined)).toBe(false);
   });
 });
 
@@ -184,12 +187,12 @@ describe("generateDevtoolsScript — URL shape", () => {
 // 4. End-to-end through renderToHTML
 // ---------------------------------------------------------------------------
 
-describe("renderToHTML — #191 integration", () => {
-  it("hasIslands:false + no override → devtools absent", () => {
+describe("renderToHTML — #191 + #259 integration", () => {
+  it("hasIslands:false + no override → devtools present (#259 default)", () => {
     const html = renderToHTML(React.createElement("p", null, "hi"), {
       isDev: true,
     });
-    expect(html).not.toContain("_devtools.js");
+    expect(html).toContain("_devtools.js");
   });
 
   it("hasIslands:false + devtools:true → devtools present (forced inject)", () => {

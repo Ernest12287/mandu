@@ -19,6 +19,28 @@ bun test                 # 테스트 실행
 npm install / yarn install / pnpm install
 ```
 
+## Agent-Native 작업 프로토콜
+
+파일을 바로 수정하기 전에 Mandu MCP와 설치된 Mandu skills를 먼저 확인하세요.
+
+1. 작업 도메인을 분류하세요: route, API, contract, slot, island, guard, debug, deploy, release, docs.
+2. 해당 Mandu skill이 있으면 먼저 사용하세요.
+3. route/contract/slot/guard/hydration/build/diagnosis 작업은 MCP tool이 있으면 우선 사용하세요.
+4. MCP나 skill을 사용할 수 없으면 이유를 기록하고 CLI/source fallback을 사용하세요.
+
+도구 선택 기준:
+
+| 작업 | 우선 경로 |
+|------|----------|
+| route/page/API 생성 | MCP route/scaffold tools 또는 `mandu-fs-routes`, `mandu-create-api` skill |
+| contract 변경 | contract MCP tools, contract validation |
+| slot/filling 변경 | `mandu-slot` skill, slot MCP tools |
+| architecture/import 문제 | Guard MCP tools, `mandu-guard-guide` skill |
+| island/hydration 문제 | `mandu-hydration` skill, hydration/build checks |
+| 오류 조사 | `mandu-debug` skill, `mandu_doctor`/targeted tests |
+
+작업 완료 보고에는 선택한 skill, 사용한 MCP tool, fallback, 변경 파일, 검증 명령을 포함하세요.
+
 ## 프로젝트 구조
 
 ```

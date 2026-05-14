@@ -202,7 +202,7 @@ export interface StreamingSSROptions {
 }
 
 /**
- * Issue #191 — Streaming-SSR mirror of `ssr.ts:shouldInjectDevtools`.
+ * Issue #191 + #259 — Streaming-SSR mirror of `ssr.ts:shouldInjectDevtools`.
  * Kept in sync manually (tiny pure function, not worth a cross-module
  * runtime import — the ssr.ts → streaming-ssr.ts re-export direction
  * means a circular import here would force a refactor of the whole
@@ -211,16 +211,11 @@ export interface StreamingSSROptions {
  */
 function shouldInjectDevtoolsStreaming(
   devtools: boolean | undefined,
-  manifest: BundleManifest | undefined,
+  _manifest: BundleManifest | undefined,
 ): boolean {
   if (devtools === true) return true;
   if (devtools === false) return false;
-  if (!manifest) return false;
-  const hasIslandsMap =
-    manifest.islands && Object.keys(manifest.islands).length > 0;
-  const hasBundles =
-    manifest.bundles && Object.keys(manifest.bundles).length > 0;
-  return Boolean(hasIslandsMap || hasBundles);
+  return true;
 }
 
 /**
@@ -778,10 +773,10 @@ function generateHTMLTailContent(options: StreamingSSROptions): string {
     scripts.push(generateHMRScript(hmrPort));
   }
 
-  // 11. Issue #191 — DevTools 번들 (~1.15 MB) 주입 결정.
-  //   - 기본: manifest 에 island/bundle 이 있을 때만 주입 (pure-SSR 페이지는 스킵).
-  //   - `devtools === true`  → 강제 주입 (SSR-only 프로젝트에서 Kitchen 원할 때).
-  //   - `devtools === false` → 강제 스킵.
+  // 11. Issue #191 + #259 — DevTools 번들 (~1.15 MB) 주입 결정.
+  //   - 기본 (dev only): 항상 주입. SSR-only 랜딩에서도 Kitchen 사용 가능.
+  //   - `devtools === false` → 강제 스킵 (필요 시 1.15 MB 절약).
+  //   - 프로덕션 빌드는 `isDev` 가드로 0 bytes 보장.
   //   - Cache-bust (`?v=buildTime`) 로 HMR 후 stale 방지.
   if (isDev && shouldInjectDevtoolsStreaming(devtools, bundleManifest)) {
     scripts.push(generateStreamingDevtoolsScript(bundleManifest));

@@ -59,6 +59,8 @@ export function renderKitchenHTML(): string {
 
     <nav class="tabs">
       <button class="tab" data-panel="activity">Activity</button>
+      <button class="tab" data-panel="errors">Errors</button>
+      <button class="tab" data-panel="agent">Agent</button>
       <button class="tab active" data-panel="routes">Routes</button>
       <button class="tab" data-panel="guard">Guard</button>
       <button class="tab" data-panel="preview">Preview</button>
@@ -74,12 +76,55 @@ export function renderKitchenHTML(): string {
         <div class="panel-header">
           <div>
             <h2>Activity Stream</h2>
-            <p class="panel-subtitle">Recent Kitchen events and MCP activity.</p>
+            <p class="panel-subtitle">Recent eventBus signals — switch the chips to surface build, cache, ws, and ate categories that are normally invisible.</p>
           </div>
           <button id="clear-activity" class="btn-sm">Clear</button>
         </div>
+        <div id="activity-filter" class="activity-filter" role="tablist" aria-label="Activity category">
+          <button class="chip active" data-type="all">All</button>
+          <button class="chip" data-type="mcp">MCP</button>
+          <button class="chip" data-type="http">HTTP</button>
+          <button class="chip" data-type="guard">Guard</button>
+          <button class="chip" data-type="build">Build</button>
+          <button class="chip" data-type="cache">Cache</button>
+          <button class="chip" data-type="ws">WS</button>
+          <button class="chip" data-type="ate">ATE</button>
+          <button class="chip" data-type="error">Error</button>
+        </div>
         <div id="activity-list" class="activity-list">
-          <div class="empty-state">Waiting for MCP activity...</div>
+          <div class="empty-state">Waiting for activity...</div>
+        </div>
+      </section>
+
+      <section id="panel-errors" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Errors</h2>
+            <p class="panel-subtitle">Browser errors grouped by signature — repeated occurrences collapse into one row with count, first/last seen, and affected sources.</p>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button id="refresh-errors" class="btn-sm">Refresh</button>
+            <button id="clear-errors" class="btn-sm">Clear</button>
+          </div>
+        </div>
+        <div id="errors-summary" class="errors-summary">
+          <span id="errors-summary-text">Open Errors to see grouped browser errors.</span>
+        </div>
+        <div id="errors-list" class="errors-list">
+          <div class="empty-state">No errors captured yet.</div>
+        </div>
+      </section>
+
+      <section id="panel-agent" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Agent Supervisor</h2>
+            <p class="panel-subtitle">Situation brief, tool routing, prompt pack, and next safe action for supervised agents.</p>
+          </div>
+          <button id="refresh-agent" class="btn-sm">Refresh</button>
+        </div>
+        <div id="agent-content" class="agent-content">
+          <div class="empty-state">Open Agent to build a context pack.</div>
         </div>
       </section>
 
@@ -227,10 +272,19 @@ export function renderKitchenHTML(): string {
 const CSS = /* css */ `
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  /*
+   * Plan 18 DA-1 — the legacy dark-tool palette below is intentionally
+   * redirected to the Stitch tokens defined at the bottom of this file.
+   * Component layout / spacing / interaction is preserved; only the
+   * literal colors and the font family swap. The :root block (later in
+   * the cascade) wins, so any later override stays effective.
+   */
+
+  body.legacy-dark-tool-shell, /* kept as a hook for future toggle */
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #0f1117;
-    color: #e4e4e7;
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    background: var(--bg, #FFFDF5);
+    color: var(--ink, #4A3222);
     min-height: 100vh;
   }
 
@@ -239,8 +293,8 @@ const CSS = /* css */ `
     align-items: center;
     justify-content: space-between;
     padding: 12px 20px;
-    background: #18181b;
-    border-bottom: 1px solid #27272a;
+    background: var(--surface-strong, #FBF6EC);
+    border-bottom: 1px solid var(--line, #4A3222);
   }
 
   .logo {
@@ -248,7 +302,8 @@ const CSS = /* css */ `
     align-items: center;
     gap: 8px;
     font-size: 18px;
-    font-weight: 600;
+    font-weight: 700;
+    font-family: var(--font-display, var(--font-sans));
   }
 
   .logo-icon { font-size: 24px; }
@@ -258,7 +313,7 @@ const CSS = /* css */ `
     align-items: center;
     gap: 6px;
     font-size: 13px;
-    color: #a1a1aa;
+    color: var(--muted, #7A6B5D);
   }
 
   .status-dot {
@@ -268,15 +323,15 @@ const CSS = /* css */ `
     transition: background 0.3s;
   }
 
-  .status-dot.connected { background: #22c55e; }
-  .status-dot.disconnected { background: #ef4444; }
-  .status-dot.connecting { background: #eab308; }
+  .status-dot.connected { background: var(--success, #6B9E47); }
+  .status-dot.disconnected { background: var(--danger, #C85450); }
+  .status-dot.connecting { background: var(--warning, #E8A93A); }
 
   .tabs {
     display: flex;
     gap: 0;
-    background: #18181b;
-    border-bottom: 1px solid #27272a;
+    background: var(--surface-strong, #FBF6EC);
+    border-bottom: 1px solid var(--line, #4A3222);
     padding: 0 20px;
   }
 
@@ -284,17 +339,20 @@ const CSS = /* css */ `
     padding: 10px 20px;
     background: none;
     border: none;
-    color: #71717a;
+    color: var(--muted, #7A6B5D);
     font-size: 14px;
+    font-family: var(--font-sans);
+    font-weight: 500;
     cursor: pointer;
     border-bottom: 2px solid transparent;
     transition: all 0.2s;
   }
 
-  .tab:hover { color: #e4e4e7; }
+  .tab:hover { color: var(--ink, #4A3222); }
   .tab.active {
-    color: #a78bfa;
-    border-bottom-color: #a78bfa;
+    color: var(--accent, #FF8C66);
+    border-bottom-color: var(--accent, #FF8C66);
+    font-weight: 700;
   }
 
   .panels { padding: 16px 20px; }
@@ -314,38 +372,203 @@ const CSS = /* css */ `
     font-weight: 600;
   }
 
+  /*
+   * Stitch primary button — hard shadow + bold + larger radius.
+   * Hover lifts: shadow 0 + translate so the surface "presses" into the
+   * shadow slot. Mirrors the .btn-hard pattern in mandujs.com globals.css.
+   */
   .btn-sm {
-    padding: 4px 12px;
-    background: #27272a;
-    border: 1px solid #3f3f46;
-    border-radius: 6px;
-    color: #e4e4e7;
+    padding: 6px 14px;
+    background: var(--surface);
+    border: 2px solid var(--ink);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    color: var(--ink);
     font-size: 12px;
+    font-weight: 700;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: transform 150ms ease, box-shadow 150ms ease, background 0.2s;
   }
 
-  .btn-sm:hover { background: #3f3f46; }
-  .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm:hover {
+    background: var(--accent-soft);
+    box-shadow: none;
+    transform: translate(2px, 2px);
+  }
+  .btn-sm:active {
+    box-shadow: none;
+    transform: translate(2px, 2px);
+  }
+  .btn-sm:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: var(--shadow-sm);
+    transform: none;
+  }
 
   .empty-state {
     padding: 40px 20px;
     text-align: center;
-    color: #52525b;
+    color: var(--muted);
     font-size: 14px;
   }
 
   /* Activity */
+  .activity-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 0 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .chip {
+    padding: 4px 10px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease, background 0.2s;
+  }
+
+  .chip:hover {
+    background: var(--accent-soft);
+  }
+
+  .chip.active {
+    background: var(--accent);
+    color: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .chip.active:hover {
+    background: var(--accent-strong);
+  }
+
   .activity-list {
-    max-height: calc(100vh - 180px);
+    max-height: calc(100vh - 220px);
     overflow-y: auto;
   }
 
+  /* Plan 18 P1-4 — Errors panel grouped view */
+  .errors-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--surface-strong);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .errors-list {
+    max-height: calc(100vh - 240px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .error-group {
+    background: var(--surface);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease;
+  }
+
+  .error-group:hover {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+  }
+
+  .error-group.expanded {
+    transform: none;
+    box-shadow: var(--shadow);
+  }
+
+  .error-group-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .error-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--surface);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .error-count.dim {
+    background: var(--accent-soft);
+    color: var(--ink);
+  }
+
+  .error-severity {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(200, 84, 80, 0.18);
+    color: var(--danger);
+  }
+
+  .error-message {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink);
+    flex: 1 1 100%;
+    word-break: break-word;
+  }
+
+  .error-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .error-detail {
+    display: none;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+    color: var(--muted);
+  }
+
+  .error-group.expanded .error-detail { display: block; }
+
   .activity-item {
     padding: 8px 12px;
-    border-bottom: 1px solid #1e1e22;
+    border-bottom: 1px solid var(--line);
     font-size: 13px;
-    font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+    font-family: var(--font-mono);
     display: flex;
     gap: 10px;
     align-items: flex-start;
@@ -358,19 +581,19 @@ const CSS = /* css */ `
   }
 
   .activity-time {
-    color: #52525b;
+    color: var(--muted);
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .activity-tool {
-    color: #a78bfa;
+    color: var(--accent);
     font-weight: 500;
     flex-shrink: 0;
   }
 
   .activity-detail {
-    color: #a1a1aa;
+    color: var(--muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -381,7 +604,7 @@ const CSS = /* css */ `
     display: flex;
     gap: 12px;
     font-size: 12px;
-    color: #a1a1aa;
+    color: var(--muted);
   }
 
   .summary-item {
@@ -392,7 +615,7 @@ const CSS = /* css */ `
 
   .summary-count {
     font-weight: 600;
-    color: #e4e4e7;
+    color: var(--ink);
   }
 
   .route-item {
@@ -400,7 +623,7 @@ const CSS = /* css */ `
     align-items: center;
     gap: 12px;
     padding: 10px 12px;
-    border-bottom: 1px solid #1e1e22;
+    border-bottom: 1px solid var(--line);
     font-size: 13px;
   }
 
@@ -416,12 +639,12 @@ const CSS = /* css */ `
     text-align: center;
   }
 
-  .route-kind.page { background: #1e3a5f; color: #60a5fa; }
-  .route-kind.api { background: #1a3c34; color: #4ade80; }
+  .route-kind.page { background: rgba(74, 144, 194, 0.15); color: var(--info); }
+  .route-kind.api { background: rgba(107, 158, 71, 0.18); color: var(--success); }
 
   .route-pattern {
-    font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
-    color: #e4e4e7;
+    font-family: var(--font-mono);
+    color: var(--ink);
     flex: 1;
   }
 
@@ -435,22 +658,22 @@ const CSS = /* css */ `
     padding: 1px 6px;
     border-radius: 3px;
     font-size: 10px;
-    background: #27272a;
-    color: #a1a1aa;
+    background: var(--surface-alt);
+    color: var(--muted);
   }
 
   /* Guard */
   .guard-status {
     margin-bottom: 12px;
     font-size: 13px;
-    color: #a1a1aa;
+    color: var(--muted);
   }
 
   .guard-summary {
     display: flex;
     gap: 16px;
     padding: 12px;
-    background: #18181b;
+    background: var(--surface-strong);
     border-radius: 8px;
     margin-bottom: 12px;
   }
@@ -466,28 +689,28 @@ const CSS = /* css */ `
 
   .guard-stat-label {
     font-size: 11px;
-    color: #71717a;
+    color: var(--muted);
     text-transform: uppercase;
   }
 
-  .sev-error { color: #ef4444; }
-  .sev-warning { color: #eab308; }
-  .sev-info { color: #3b82f6; }
+  .sev-error { color: var(--danger); }
+  .sev-warning { color: var(--warning); }
+  .sev-info { color: var(--info); }
 
   .violation-item {
     padding: 8px 12px;
-    border-bottom: 1px solid #1e1e22;
+    border-bottom: 1px solid var(--line);
     font-size: 13px;
   }
 
   .violation-file {
-    font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
-    color: #a78bfa;
+    font-family: var(--font-mono);
+    color: var(--accent);
     margin-bottom: 2px;
   }
 
   .violation-msg {
-    color: #a1a1aa;
+    color: var(--muted);
     font-size: 12px;
   }
 
@@ -500,9 +723,9 @@ const CSS = /* css */ `
     margin-right: 4px;
   }
 
-  .violation-sev.error { background: #3b1111; color: #ef4444; }
-  .violation-sev.warning { background: #3b2f11; color: #eab308; }
-  .violation-sev.info { background: #112840; color: #3b82f6; }
+  .violation-sev.error { background: rgba(200, 84, 80, 0.18); color: var(--danger); }
+  .violation-sev.warning { background: rgba(232, 169, 58, 0.20); color: var(--warning); }
+  .violation-sev.info { background: rgba(74, 144, 194, 0.18); color: var(--info); }
 
   /* Preview */
   .preview-list { max-height: 40vh; overflow-y: auto; }
@@ -513,16 +736,16 @@ const CSS = /* css */ `
     align-items: center;
     gap: 10px;
     padding: 8px 12px;
-    border-bottom: 1px solid #1e1e22;
+    border-bottom: 1px solid var(--line);
     font-size: 13px;
     cursor: pointer;
     transition: background 0.15s;
   }
-  .change-item:hover { background: #27272a; }
+  .change-item:hover { background: var(--surface-alt); }
   .change-icon { flex-shrink: 0; }
   .change-path {
-    font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
-    color: #e4e4e7;
+    font-family: var(--font-mono);
+    color: var(--ink);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -536,81 +759,81 @@ const CSS = /* css */ `
     font-weight: 600;
     flex-shrink: 0;
   }
-  .change-status.added { background: #1a3c34; color: #4ade80; }
-  .change-status.modified { background: #1e3a5f; color: #60a5fa; }
-  .change-status.deleted { background: #3b1111; color: #ef4444; }
-  .change-status.untracked { background: #3b2f11; color: #eab308; }
-  .change-status.renamed { background: #2a1a3c; color: #a78bfa; }
+  .change-status.added { background: rgba(107, 158, 71, 0.18); color: var(--success); }
+  .change-status.modified { background: rgba(74, 144, 194, 0.15); color: var(--info); }
+  .change-status.deleted { background: rgba(200, 84, 80, 0.18); color: var(--danger); }
+  .change-status.untracked { background: rgba(232, 169, 58, 0.20); color: var(--warning); }
+  .change-status.renamed { background: var(--accent-soft); color: var(--accent); }
 
   .diff-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px; background: #18181b; border-radius: 6px 6px 0 0;
-    border-bottom: 1px solid #27272a;
+    padding: 8px 12px; background: var(--surface-strong); border-radius: 6px 6px 0 0;
+    border-bottom: 1px solid var(--surface-alt);
   }
-  .diff-file { font-family: monospace; color: #a78bfa; font-size: 13px; }
+  .diff-file { font-family: monospace; color: var(--accent); font-size: 13px; }
   .diff-stats { font-size: 12px; }
-  .diff-add { color: #4ade80; margin-right: 8px; }
-  .diff-del { color: #ef4444; }
-  .diff-hunk-header { padding: 4px 12px; background: #112840; color: #3b82f6; font-size: 12px; font-family: monospace; }
+  .diff-add { color: var(--success); margin-right: 8px; }
+  .diff-del { color: var(--danger); }
+  .diff-hunk-header { padding: 4px 12px; background: rgba(74, 144, 194, 0.18); color: var(--info); font-size: 12px; font-family: monospace; }
   .diff-line { display: flex; font-family: monospace; font-size: 12px; line-height: 20px; }
-  .diff-line-num { width: 40px; text-align: right; padding: 0 4px; color: #52525b; user-select: none; flex-shrink: 0; }
+  .diff-line-num { width: 40px; text-align: right; padding: 0 4px; color: var(--muted); user-select: none; flex-shrink: 0; }
   .diff-line-content { flex: 1; padding: 0 8px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
   .diff-line.add { background: rgba(74,222,128,0.08); }
-  .diff-line.add .diff-line-content::before { content: '+'; color: #4ade80; }
+  .diff-line.add .diff-line-content::before { content: '+'; color: var(--success); }
   .diff-line.remove { background: rgba(239,68,68,0.08); }
-  .diff-line.remove .diff-line-content::before { content: '-'; color: #ef4444; }
+  .diff-line.remove .diff-line-content::before { content: '-'; color: var(--danger); }
   .diff-line.context .diff-line-content::before { content: ' '; }
 
   /* Contracts */
   .contracts-layout { display: flex; gap: 12px; height: calc(100vh - 180px); }
-  .contracts-list { width: 300px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid #27272a; padding-right: 12px; }
+  .contracts-list { width: 300px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--surface-alt); padding-right: 12px; }
   .contracts-detail { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 
   .contract-item {
     display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px; border-bottom: 1px solid #1e1e22;
+    padding: 8px 12px; border-bottom: 1px solid var(--line);
     cursor: pointer; transition: background 0.15s; font-size: 13px;
   }
-  .contract-item:hover { background: #27272a; }
-  .contract-item.selected { background: #27272a; border-left: 2px solid #a78bfa; }
+  .contract-item:hover { background: var(--surface-alt); }
+  .contract-item.selected { background: var(--surface-alt); border-left: 2px solid var(--accent); }
 
   .method-badge {
     display: inline-block; padding: 1px 6px; border-radius: 3px;
     font-size: 10px; font-weight: 600; text-transform: uppercase;
     flex-shrink: 0; min-width: 36px; text-align: center;
   }
-  .method-badge.get { background: #1a3c34; color: #4ade80; }
-  .method-badge.post { background: #1e3a5f; color: #60a5fa; }
-  .method-badge.put { background: #3b2f11; color: #eab308; }
-  .method-badge.patch { background: #2a1a3c; color: #a78bfa; }
-  .method-badge.delete { background: #3b1111; color: #ef4444; }
+  .method-badge.get { background: rgba(107, 158, 71, 0.18); color: var(--success); }
+  .method-badge.post { background: rgba(74, 144, 194, 0.15); color: var(--info); }
+  .method-badge.put { background: rgba(232, 169, 58, 0.20); color: var(--warning); }
+  .method-badge.patch { background: var(--accent-soft); color: var(--accent); }
+  .method-badge.delete { background: rgba(200, 84, 80, 0.18); color: var(--danger); }
 
-  .contract-pattern { font-family: monospace; color: #e4e4e7; }
+  .contract-pattern { font-family: monospace; color: var(--ink); }
 
   .contract-schema {
-    background: #18181b; border-radius: 8px; padding: 12px;
+    background: var(--surface-strong); border-radius: 8px; padding: 12px;
     font-family: monospace; font-size: 12px; white-space: pre-wrap;
     max-height: 40vh; overflow-y: auto;
   }
 
-  .contract-playground { background: #18181b; border-radius: 8px; padding: 12px; }
+  .contract-playground { background: var(--surface-strong); border-radius: 8px; padding: 12px; }
   .contract-playground h3 { font-size: 14px; margin-bottom: 8px; }
 
   .playground-controls { display: flex; gap: 8px; margin-bottom: 8px; }
   .select-sm {
-    padding: 4px 8px; background: #27272a; border: 1px solid #3f3f46;
-    border-radius: 6px; color: #e4e4e7; font-size: 12px;
+    padding: 4px 8px; background: var(--surface-alt); border: 1px solid var(--line);
+    border-radius: 6px; color: var(--ink); font-size: 12px;
   }
   .playground-inputs { display: flex; flex-direction: column; gap: 6px; }
-  .playground-inputs label { font-size: 11px; color: #71717a; display: flex; flex-direction: column; gap: 2px; }
+  .playground-inputs label { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
   .playground-inputs textarea {
-    background: #27272a; border: 1px solid #3f3f46; border-radius: 4px;
-    color: #e4e4e7; font-family: monospace; font-size: 12px; padding: 6px;
+    background: var(--surface-alt); border: 1px solid var(--line); border-radius: 4px;
+    color: var(--ink); font-family: monospace; font-size: 12px; padding: 6px;
     resize: vertical;
   }
   .validate-result { margin-top: 8px; padding: 8px; border-radius: 4px; font-size: 12px; font-family: monospace; }
-  .validate-result.success { background: #1a3c34; color: #4ade80; }
-  .validate-result.error { background: #3b1111; color: #ef4444; }
+  .validate-result.success { background: rgba(107, 158, 71, 0.18); color: var(--success); }
+  .validate-result.error { background: rgba(200, 84, 80, 0.18); color: var(--danger); }
 
   .debug-bar {
     position: fixed;
@@ -618,43 +841,71 @@ const CSS = /* css */ `
     left: 0;
     right: 0;
     padding: 4px 12px;
-    background: #1a1a2e;
-    border-top: 1px solid #27272a;
+    background: var(--bg);
+    border-top: 1px solid var(--surface-alt);
     font-size: 11px;
     font-family: monospace;
-    color: #71717a;
+    color: var(--muted);
     max-height: 60px;
     overflow-y: auto;
   }
 
-  .debug-bar .err { color: #ef4444; }
-  .debug-bar .ok { color: #22c55e; }
+  .debug-bar .err { color: var(--danger); }
+  .debug-bar .ok { color: var(--success); }
 
+  /*
+   * Plan 18 DA-1 — token values aligned to mandujs.com Stitch system
+   * (app/globals.css + tokens.css). Variable names stay the same so the
+   * cascade with the legacy dark-mode block earlier in this file does
+   * not break. Stitch identity: Peach #FF8C66 / Dark Brown #4A3222 /
+   * Cream #FFFDF5 + hard shadow (blur 0).
+   */
   :root {
-    --bg: #f4efe6;
-    --bg-soft: rgba(255, 252, 246, 0.7);
-    --surface: #fffdfa;
-    --surface-strong: #f8f1e4;
-    --surface-alt: #f0e5d2;
-    --ink: #1e2a3a;
-    --muted: #677181;
-    --line: #dccfba;
-    --accent: #b86a12;
-    --accent-strong: #8d4f0e;
-    --accent-soft: rgba(184, 106, 18, 0.14);
-    --success: #177f56;
-    --danger: #bc3d3d;
-    --info: #2e66b8;
-    --warning: #ad7a12;
-    --shadow: 0 20px 50px rgba(49, 39, 23, 0.08);
+    /* Page surfaces */
+    --bg: #FFFDF5;                  /* mandujs.com --color-background (cream) */
+    --bg-soft: rgba(255, 253, 245, 0.7);
+    --surface: #FFFFFF;             /* --color-surface */
+    --surface-strong: #FBF6EC;      /* --color-code-bg-light, slightly darker cream */
+    --surface-alt: #F5F0E8;         /* --color-muted */
+
+    /* Text */
+    --ink: #4A3222;                 /* --color-foreground (dark brown, not black) */
+    --muted: #7A6B5D;               /* --color-muted-foreground (warm gray) */
+    --line: #4A3222;                /* --color-border (2px brown lines are Stitch) */
+
+    /* Brand */
+    --accent: #FF8C66;              /* --color-primary (peach) */
+    --accent-strong: #FF7A4F;       /* --color-primary-hover */
+    --accent-soft: rgba(255, 140, 102, 0.14);
+
+    /* Semantic — docs-grade muted channels (tokens.css) */
+    --success: #6B9E47;             /* olive green */
+    --danger:  #C85450;             /* muted red-brown */
+    --info:    #4A90C2;             /* calm blue */
+    --warning: #E8A93A;             /* warm amber */
+
+    /* Hard shadow (Stitch signature — blur 0, solid color block). The
+     * standard variant is exposed as --shadow so existing references
+     * inherit the new look without per-selector edits. */
+    --shadow: 4px 4px 0 0 var(--ink);
+    --shadow-sm: 2px 2px 0 0 var(--ink);
+    --shadow-lg: 6px 6px 0 0 var(--ink);
+
+    /* Radius scale — rounded & playful */
+    --radius-sm: 0.5rem;
+    --radius-md: 1rem;
+    --radius-lg: 1.5rem;
+    --radius-xl: 2rem;
+
+    /* Typography */
+    --font-sans: 'Pretendard Variable', 'Pretendard', 'Noto Sans JP', 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Nunito', 'Jua', 'Pretendard Variable', 'Pretendard', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'Consolas', 'Monaco', 'Ubuntu Mono', ui-monospace, monospace;
   }
 
   body {
-    font-family: "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif;
-    background:
-      radial-gradient(circle at top left, rgba(226, 186, 124, 0.35), transparent 30%),
-      radial-gradient(circle at top right, rgba(152, 191, 193, 0.22), transparent 24%),
-      linear-gradient(180deg, #f8f3ea 0%, #efe7d8 100%);
+    font-family: var(--font-sans);
+    background: var(--bg);
     color: var(--ink);
     padding: 24px;
   }
@@ -1188,10 +1439,140 @@ const CSS = /* css */ `
     box-shadow: 0 12px 28px rgba(30, 42, 58, 0.22);
   }
 
-  .requests-list, .mcp-list, .cache-content, .metrics-content {
+  .requests-list, .mcp-list, .cache-content, .metrics-content, .agent-content {
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .agent-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+    gap: 14px;
+  }
+
+  .agent-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .agent-card {
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .agent-card-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .agent-card-body {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .agent-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .agent-pill {
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(30, 42, 58, 0.08);
+    color: var(--ink);
+    font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+    font-size: 11px;
+  }
+
+  .agent-severity {
+    padding: 3px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .agent-severity.info { background: rgba(46, 102, 184, 0.12); color: var(--info); }
+  .agent-severity.warn { background: rgba(173, 122, 18, 0.14); color: var(--warning); }
+  .agent-severity.error { background: rgba(188, 61, 61, 0.12); color: var(--danger); }
+
+  .agent-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .agent-stat {
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(220, 207, 186, 0.7);
+    background: rgba(255, 253, 250, 0.84);
+  }
+
+  .agent-stat-label {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .agent-stat-value {
+    color: var(--ink);
+    font-size: 19px;
+    font-weight: 700;
+    margin-top: 3px;
+  }
+
+  .agent-rec {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid rgba(220, 207, 186, 0.65);
+  }
+
+  .agent-rec:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .agent-rec-title {
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  .agent-rec-detail {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .agent-prompt {
+    width: 100%;
+    min-height: 220px;
+    margin-top: 10px;
+    padding: 12px;
+    resize: vertical;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+    font-size: 12px;
+    line-height: 1.45;
   }
 
   .req-row {
@@ -1317,6 +1698,10 @@ const CSS = /* css */ `
       grid-template-columns: 1fr;
     }
 
+    .agent-grid {
+      grid-template-columns: 1fr;
+    }
+
     .guard-summary {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1349,6 +1734,14 @@ const CSS = /* css */ `
     .panel-header {
       flex-direction: column;
     }
+
+    .agent-stat-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .agent-rec {
+      grid-template-columns: 1fr;
+    }
   }
 `;
 
@@ -1368,7 +1761,7 @@ const JS = /* js */ `
   }
 
   function escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     var d = document.createElement('div');
     d.appendChild(document.createTextNode(String(str)));
     return d.innerHTML;
@@ -1403,6 +1796,39 @@ const JS = /* js */ `
   var activityCount = 0;
   var MAX_ITEMS = 200;
   var sseRetryCount = 0;
+  var activityCurrentSSE = null;
+  var activityFilter = 'all'; // plan 18 P1-3
+
+  function disconnectSSE() {
+    if (activityCurrentSSE) {
+      try { activityCurrentSSE.close(); } catch(_) {}
+      activityCurrentSSE = null;
+    }
+    statusDot.className = 'status-dot disconnected';
+    statusLabel.textContent = 'Filter: ' + activityFilter;
+  }
+
+  function loadFilteredEvents(type) {
+    activityList.innerHTML = '<div class="empty-state">Loading ' + escapeHtml(type) + ' events...</div>';
+    fetchJson('/__kitchen/api/events?type=' + encodeURIComponent(type) + '&limit=100', function(err, data) {
+      if (err) {
+        activityList.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var events = data.events || [];
+      if (!events.length) {
+        activityList.innerHTML = '<div class="empty-state">No ' + escapeHtml(type) + ' events yet — try interacting with the app or run a build.</div>';
+        return;
+      }
+      activityList.innerHTML = '';
+      activityCount = 0;
+      for (var i = 0; i < events.length; i++) {
+        // events come newest-first from reverseCopy in the handler; appendActivity inserts at top.
+        // Reverse so newest stays on top after insertBefore.
+        appendActivity(events[events.length - 1 - i]);
+      }
+    });
+  }
 
   function connectSSE() {
     statusDot.className = 'status-dot connecting';
@@ -1412,6 +1838,7 @@ const JS = /* js */ `
     var es;
     try {
       es = new EventSource('/__kitchen/sse/activity');
+      activityCurrentSSE = es;
     } catch(e) {
       log('SSE EventSource failed: ' + e.message, 'err');
       statusDot.className = 'status-dot disconnected';
@@ -1480,10 +1907,36 @@ const JS = /* js */ `
   }
 
   document.getElementById('clear-activity').addEventListener('click', function() {
-    activityList.innerHTML = '<div class="empty-state">Waiting for MCP activity...</div>';
+    activityList.innerHTML = '<div class="empty-state">Waiting for activity...</div>';
     activityCount = 0;
     setMetric('metric-activity', 0);
   });
+
+  // Plan 18 P1-3 — Activity filter chips. "All" reconnects SSE for live
+  // mcp tailing; the other chips switch to a one-shot fetch of the bus's
+  // typed slice (build / cache / ws / ate / error / etc) so signals that
+  // would normally stay invisible in the jsonl tail surface here.
+  var filterEl = document.getElementById('activity-filter');
+  if (filterEl) {
+    var chips = filterEl.querySelectorAll('.chip');
+    for (var ci = 0; ci < chips.length; ci++) {
+      chips[ci].addEventListener('click', function() {
+        var all = filterEl.querySelectorAll('.chip');
+        for (var k = 0; k < all.length; k++) all[k].classList.remove('active');
+        this.classList.add('active');
+        var t = this.getAttribute('data-type') || 'all';
+        activityFilter = t;
+        activityList.innerHTML = '';
+        activityCount = 0;
+        if (t === 'all') {
+          connectSSE();
+        } else {
+          disconnectSSE();
+          loadFilteredEvents(t);
+        }
+      });
+    }
+  }
 
   connectSSE();
 
@@ -1896,6 +2349,7 @@ const JS = /* js */ `
   // ─── Requests Tab ─────────────────────────────
   var requestsListEl = document.getElementById('requests-list');
   var requestsDetailEl = document.getElementById('requests-detail');
+  var agentContentEl = document.getElementById('agent-content');
 
   function fetchJson(url, cb) {
     var xhr = new XMLHttpRequest();
@@ -1917,6 +2371,212 @@ const JS = /* js */ `
     if (s >= 300) return 's3';
     return 's2';
   }
+
+  // ─── Agent Supervisor Tab ─────────────────────
+  function renderAgentPills(items) {
+    if (!items || !items.length) return '';
+    var html = '<div class="agent-pill-row">';
+    for (var i = 0; i < items.length; i++) {
+      html += '<span class="agent-pill">' + escapeHtml(items[i]) + '</span>';
+    }
+    return html + '</div>';
+  }
+
+  function renderAgentDetails(items) {
+    if (!items || !items.length) return '';
+    var html = '<ul>';
+    for (var i = 0; i < items.length; i++) {
+      html += '<li>' + escapeHtml(items[i]) + '</li>';
+    }
+    return html + '</ul>';
+  }
+
+  function renderAgentContext(data) {
+    var situation = data.situation || {};
+    var summary = data.summary || {};
+    var routes = summary.routes || {};
+    var status = data.agentStatus || {};
+    var brain = status.brain || {};
+    var action = data.nextSafeAction || {};
+    var prompt = data.prompt || {};
+    var recs = data.toolRecommendations || [];
+    var cards = data.knowledgeCards || [];
+    var promptText = prompt.copyText || '';
+
+    var html = '<div class="agent-grid">' +
+      '<div class="agent-stack">' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title">' +
+            '<span>' + escapeHtml(situation.title || 'No situation') + '</span>' +
+            '<span class="agent-severity ' + escapeHtml(situation.severity || 'info') + '">' + escapeHtml(situation.category || 'agent') + '</span>' +
+          '</div>' +
+          '<div class="agent-card-body">' + renderAgentDetails(situation.details || []) + '</div>' +
+          '<div class="agent-stat-grid">' +
+            '<div class="agent-stat"><div class="agent-stat-label">Routes</div><div class="agent-stat-value">' + escapeHtml(routes.total || 0) + '</div></div>' +
+            '<div class="agent-stat"><div class="agent-stat-label">Islands</div><div class="agent-stat-value">' + escapeHtml(routes.islands || 0) + '</div></div>' +
+            '<div class="agent-stat"><div class="agent-stat-label">Contracts</div><div class="agent-stat-value">' + escapeHtml(routes.contracts || 0) + '</div></div>' +
+            '<div class="agent-stat"><div class="agent-stat-label">MCP Calls</div><div class="agent-stat-value">' + escapeHtml(status.observedToolCalls || 0) + '</div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Next Safe Action</span><span class="agent-severity info">' + escapeHtml(action.mode || 'observe') + '</span></div>' +
+          '<div class="agent-card-body"><strong>' + escapeHtml(action.title || '-') + '</strong><br>' + escapeHtml(action.reason || '') + '</div>' +
+          renderAgentPills([action.tool || '', action.command || ''].filter(Boolean)) +
+          renderAgentPills(action.validation || []) +
+        '</div>' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Prompt Pack</span><button id="copy-agent-prompt" class="btn-sm">Copy</button></div>' +
+          '<textarea id="agent-prompt-text" class="agent-prompt" readonly>' + escapeHtml(promptText) + '</textarea>' +
+        '</div>' +
+      '</div>' +
+      '<div class="agent-stack">' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Brain</span><span class="agent-severity info">' + escapeHtml(brain.oauth || 'unknown') + '</span></div>' +
+          '<div class="agent-card-body">' + escapeHtml(brain.note || '') + '</div>' +
+          renderAgentPills([brain.statusTool || 'mandu.brain.status']) +
+        '</div>' +
+        '<div class="agent-card">' +
+          '<div class="agent-card-title"><span>Tool Router</span></div>';
+
+    for (var i = 0; i < recs.length; i++) {
+      var r = recs[i];
+      html += '<div class="agent-rec">' +
+        '<div class="agent-rec-title">' + escapeHtml(r.skill) + '</div>' +
+        '<div class="agent-rec-detail">' +
+          '<strong>' + escapeHtml(r.task) + '</strong><br>' +
+          escapeHtml(r.useWhen) +
+          renderAgentPills(r.mcpTools || []) +
+          '<div style="margin-top:6px;">Fallback: <code>' + escapeHtml(r.cliFallback) + '</code></div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    html += '</div><div class="agent-card">' +
+      '<div class="agent-card-title"><span>Knowledge</span></div>';
+
+    for (var c = 0; c < cards.length; c++) {
+      var card = cards[c];
+      html += '<div class="agent-rec">' +
+        '<div class="agent-rec-title">' + escapeHtml(card.title) + '</div>' +
+        '<div class="agent-rec-detail">' + escapeHtml(card.body) + renderAgentPills(card.references || []) + '</div>' +
+      '</div>';
+    }
+
+    html += '</div></div></div>';
+    agentContentEl.innerHTML = html;
+
+    var copyBtn = document.getElementById('copy-agent-prompt');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() {
+        var textEl = document.getElementById('agent-prompt-text');
+        var text = textEl ? textEl.value : promptText;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function() {
+            copyBtn.textContent = 'Copied';
+            setTimeout(function() { copyBtn.textContent = 'Copy'; }, 900);
+          }).catch(function() {
+            textEl && textEl.select();
+          });
+        } else if (textEl) {
+          textEl.select();
+        }
+      });
+    }
+  }
+
+  function loadAgentContext() {
+    if (!agentContentEl) return;
+    agentContentEl.innerHTML = '<div class="empty-state">Building agent context...</div>';
+    fetchJson('/__kitchen/api/agent-context', function(err, data) {
+      if (err) {
+        agentContentEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      renderAgentContext(data);
+    });
+  }
+
+  document.getElementById('refresh-agent').addEventListener('click', loadAgentContext);
+
+  // ─── Errors (plan 18 P1-4) ──────────────────
+  var errorsSummaryEl = document.getElementById('errors-summary-text');
+  var errorsListEl = document.getElementById('errors-list');
+
+  function fmtRelTime(ts) {
+    if (!ts) return '-';
+    var diff = Date.now() - ts;
+    if (diff < 0) diff = 0;
+    if (diff < 5_000) return 'just now';
+    if (diff < 60_000) return Math.round(diff / 1000) + 's ago';
+    if (diff < 3_600_000) return Math.round(diff / 60_000) + 'm ago';
+    if (diff < 86_400_000) return Math.round(diff / 3_600_000) + 'h ago';
+    return new Date(ts).toLocaleString();
+  }
+
+  function loadErrors() {
+    if (!errorsListEl) return;
+    errorsListEl.innerHTML = '<div class="empty-state">Loading errors...</div>';
+    fetchJson('/__kitchen/api/errors/grouped', function(err, data) {
+      if (err) {
+        errorsListEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var groups = data.groups || [];
+      var total = data.totalCount || 0;
+      var groupCount = data.groupCount || 0;
+      if (errorsSummaryEl) {
+        errorsSummaryEl.textContent = total === 0
+          ? 'No errors captured yet.'
+          : total + ' raw error(s) collapsed into ' + groupCount + ' group(s).';
+      }
+      if (!groups.length) {
+        errorsListEl.innerHTML = '<div class="empty-state">No errors captured yet.</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < groups.length; i++) {
+        var g = groups[i];
+        var sample = g.sample || {};
+        var sources = (g.affectedSources || []).join(', ') || sample.source || 'unknown';
+        var sev = sample.severity || g.severity || 'error';
+        var countCls = g.count >= 5 ? 'error-count' : 'error-count dim';
+        var stackBlock = sample.stack
+          ? '<div class="error-detail">' + escapeHtml(sample.stack) + '</div>'
+          : '<div class="error-detail">No stack frame captured.</div>';
+        html += '<div class="error-group" data-key="' + escapeHtml(g.key) + '">' +
+          '<div class="error-group-head">' +
+            '<span class="' + countCls + '">x' + g.count + '</span>' +
+            '<span class="error-severity">' + escapeHtml(sev) + '</span>' +
+            '<div class="error-message">' + escapeHtml(sample.message || '(no message)') + '</div>' +
+          '</div>' +
+          '<div class="error-meta">' +
+            '<span>first: ' + escapeHtml(fmtRelTime(g.firstSeen)) + '</span>' +
+            '<span>last: ' + escapeHtml(fmtRelTime(g.lastSeen)) + '</span>' +
+            '<span>sources: ' + escapeHtml(sources) + '</span>' +
+            (sample.line ? '<span>line ' + escapeHtml(String(sample.line)) + '</span>' : '') +
+          '</div>' +
+          stackBlock +
+          '</div>';
+      }
+      errorsListEl.innerHTML = html;
+      var rows = errorsListEl.querySelectorAll('.error-group');
+      for (var r = 0; r < rows.length; r++) {
+        rows[r].addEventListener('click', function() {
+          this.classList.toggle('expanded');
+        });
+      }
+    });
+  }
+
+  var refreshErrorsBtn = document.getElementById('refresh-errors');
+  if (refreshErrorsBtn) refreshErrorsBtn.addEventListener('click', loadErrors);
+
+  var clearErrorsBtn = document.getElementById('clear-errors');
+  if (clearErrorsBtn) clearErrorsBtn.addEventListener('click', function() {
+    fetch('/__kitchen/api/errors', { method: 'DELETE' })
+      .then(function() { loadErrors(); })
+      .catch(function() { /* noop */ });
+  });
 
   function loadRequests() {
     requestsListEl.innerHTML = '<div class="empty-state">Loading requests...</div>';
@@ -2117,6 +2777,8 @@ const JS = /* js */ `
 
   // Lazy-load new tab data when clicked (avoids loading everything up front)
   var tabLoaders = {
+    'agent': loadAgentContext,
+    'errors': loadErrors,
     'requests': loadRequests,
     'mcp-activity': loadMcpActivity,
     'cache': loadCacheStats,

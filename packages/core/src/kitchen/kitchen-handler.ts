@@ -14,6 +14,11 @@ import { handleRoutesRequest } from "./api/routes-api";
 import { FileAPI } from "./api/file-api";
 import { GuardDecisionManager } from "./api/guard-decisions";
 import { ContractPlaygroundAPI } from "./api/contract-api";
+import { handleAgentContextRequest } from "./api/agent-devtools-api";
+import { groupErrors } from "./api/errors-grouping";
+import type { BundleManifest } from "../bundler/types";
+import type { DiagnoseReport } from "../diagnose/types";
+import { runExtendedDiagnose } from "../diagnose/run";
 import { renderKitchenHTML } from "./kitchen-ui";
 import { eventBus } from "../observability/event-bus";
 import fs from "fs/promises";
@@ -98,6 +103,64 @@ function parseWindow(input: string): number {
     case "m": return value * 60 * 1000;
     case "h": return value * 60 * 60 * 1000;
     default: return 5 * 60 * 1000;
+  }
+}
+
+// ========== Agent Context Pack — signal collectors (plan 18 P0-2) ==========
+
+/**
+ * Read the bundle manifest from `.mandu/manifest.json`. Returns `null`
+ * when the file is missing or malformed — the builder treats `null` as
+ * "not collected" rather than "empty", so missing-vs-empty stays
+ * distinguishable for the build-broken classifier.
+ */
+async function readBundleManifest(rootDir: string): Promise<BundleManifest | null> {
+  const manifestPath = path.join(rootDir, ".mandu", "manifest.json");
+  try {
+    const raw = await fs.readFile(manifestPath, "utf-8");
+    return JSON.parse(raw) as BundleManifest;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run the extended diagnose suite. Returns `null` on failure so the
+ * supervisor degrades gracefully — no diagnose summary, but the rest
+ * of the context pack still works.
+ */
+async function runDiagnoseSignal(rootDir: string): Promise<DiagnoseReport | null> {
+  try {
+    return await runExtendedDiagnose(rootDir);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Collect changed file paths via `git diff --name-only <base>`. Base
+ * defaults to `HEAD` (uncommitted changes only), overridable with the
+ * `MANDU_DIFF_BASE` environment variable. Returns `undefined` (not
+ * `[]`) when git is unavailable so the builder can omit the summary
+ * block entirely.
+ */
+async function collectChangedFiles(rootDir: string): Promise<string[] | undefined> {
+  const base = process.env.MANDU_DIFF_BASE ?? "HEAD";
+  try {
+    const proc = Bun.spawnSync({
+      cmd: ["git", "diff", "--name-only", base],
+      cwd: rootDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (proc.exitCode !== 0) return undefined;
+    const text = new TextDecoder().decode(proc.stdout);
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch {
+    return undefined;
   }
 }
 
@@ -230,6 +293,7 @@ export class KitchenHandler {
 
   /** Update guard config when mandu.config.ts changes */
   updateGuardConfig(config: GuardConfig | null): void {
+    this.options.guardConfig = config;
     this.guardAPI.updateConfig(config);
   }
 
@@ -365,6 +429,75 @@ export class KitchenHandler {
       return Response.json(computeAgentStats());
     }
 
+    // Generic events API (plan 18 P1-3).
+    // Exposes the full eventBus surface — `build` / `cache` / `ws` / `ate`
+    // / `error` categories live on the bus but were previously invisible
+    // because /api/activity and /api/requests filter to mcp/http only.
+    // Query params:
+    //   ?type=build|cache|ws|ate|http|mcp|guard|error  (optional — omit for all)
+    //   ?severity=info|warn|error                       (optional)
+    //   ?limit=N                                        (default 100, max 500)
+    //   ?stats=1                                        (return per-type counts instead of events)
+    if (sub === "/api/events" && req.method === "GET") {
+      const url = new URL(req.url);
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
+
+      if (url.searchParams.get("stats") === "1") {
+        return Response.json({ stats: eventBus.getStats() });
+      }
+
+      const typeParam = url.searchParams.get("type");
+      const sevParam = url.searchParams.get("severity");
+      const allowedTypes = new Set(["http", "mcp", "guard", "build", "error", "cache", "ws", "ate"]);
+      const allowedSev = new Set(["info", "warn", "error"]);
+      const filter: { type?: "http" | "mcp" | "guard" | "build" | "error" | "cache" | "ws" | "ate"; severity?: "info" | "warn" | "error" } = {};
+      if (typeParam && allowedTypes.has(typeParam)) filter.type = typeParam as typeof filter.type;
+      if (sevParam && allowedSev.has(sevParam)) filter.severity = sevParam as typeof filter.severity;
+
+      const events = eventBus.getRecent(limit, filter);
+      return Response.json({ events: reverseCopy(events) });
+    }
+
+    // Agent DevTools API — read-only context pack for supervised coding sessions.
+    //
+    // Plan 18 P0-2 — collect three additional signals (bundle manifest,
+    // diagnose report, changed files) so the supervisor can distinguish
+    // build-broken / boot-breaking categories from runtime errors.
+    // Each collector is fail-safe: failure to read disk or run a
+    // sub-process yields `null` / `[]` rather than throwing. Query
+    // params allow callers to skip expensive signals:
+    //   ?bundle=0    → skip reading .mandu/manifest.json
+    //   ?diagnose=0  → skip runExtendedDiagnose (a11y_hints is the
+    //                  most expensive check; opt out when latency matters)
+    //   ?diff=0      → skip `git diff --name-only`
+    if (sub === "/api/agent-context" && req.method === "GET") {
+      const urlObj = new URL(req.url);
+      const wantBundle = urlObj.searchParams.get("bundle") !== "0";
+      const wantDiagnose = urlObj.searchParams.get("diagnose") !== "0";
+      const wantDiff = urlObj.searchParams.get("diff") !== "0";
+
+      const [bundleManifest, diagnoseReport, changedFiles] = await Promise.all([
+        wantBundle ? readBundleManifest(this.options.rootDir) : Promise.resolve(null),
+        wantDiagnose ? runDiagnoseSignal(this.options.rootDir) : Promise.resolve(null),
+        wantDiff ? collectChangedFiles(this.options.rootDir) : Promise.resolve(undefined),
+      ]);
+
+      return handleAgentContextRequest({
+        rootDir: this.options.rootDir,
+        manifest: this.manifest,
+        guardEnabled: !!this.options.guardConfig,
+        errors: getKitchenErrors(),
+        requests: getRecentRequests().slice(0, 100),
+        httpEvents: eventBus.getRecent(100, { type: "http" }),
+        mcpEvents: eventBus.getRecent(100, { type: "mcp" }),
+        guardEvents: eventBus.getRecent(100, { type: "guard" }),
+        agentStats: computeAgentStats(),
+        bundleManifest,
+        diagnoseReport,
+        changedFiles,
+      });
+    }
+
     // Cache API — cache store stats
     if ((sub === "/api/cache" || sub === "/api/cache-stats") && req.method === "GET") {
       const store = getGlobalCache();
@@ -440,6 +573,19 @@ export class KitchenHandler {
 
     if (sub === "/api/errors" && req.method === "GET") {
       return Response.json({ errors: storedErrors, count: storedErrors.length });
+    }
+
+    // Plan 18 P1-4 — Errors panel grouped view. Collapses identical
+    // signatures into one row with count/firstSeen/lastSeen/affected
+    // sources. The operator no longer scrolls past five copies of the
+    // same hydration error to find the new one underneath.
+    if (sub === "/api/errors/grouped" && req.method === "GET") {
+      const groups = groupErrors(storedErrors);
+      return Response.json({
+        groups,
+        groupCount: groups.length,
+        totalCount: storedErrors.length,
+      });
     }
 
     if (sub === "/api/errors" && req.method === "DELETE") {
