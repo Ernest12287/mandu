@@ -108,8 +108,4 @@ jobs:
         run: bun run scripts/publish.ts --product --skip-check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # npm trusted publishing remains enabled through id-token, while
-          # this repository-scoped secret keeps releases working until the
-          # registry-side trusted publisher is accepted for this workflow.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_DIST_TAG: ${{ inputs.dist_tag }}

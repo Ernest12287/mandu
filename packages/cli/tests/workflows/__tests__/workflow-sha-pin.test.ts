@@ -189,8 +189,8 @@ describe("Phase 11.A SLSA provenance wiring (M-01 first cut)", () => {
   });
 });
 
-describe("npm publishing authentication", () => {
-  it("publish.yml enables OIDC and scopes the npm token fallback to publishing", () => {
+describe("npm trusted publishing", () => {
+  it("publish.yml uses GitHub OIDC without a long-lived npm token", () => {
     const text = readFileSync(
       path.join(WORKFLOWS_DIR, "publish.yml"),
       "utf-8"
@@ -201,6 +201,7 @@ describe("npm publishing authentication", () => {
     expect(text).toContain('node-version: "24"');
     expect(text).toContain('registry-url: "https://registry.npmjs.org"');
     expect(text).not.toContain("registry.npmjs.org/:_authToken");
+    expect(text).not.toContain("secrets.NPM_TOKEN");
 
     const versionStep = text.slice(
       text.indexOf("- name: Version packages"),
@@ -210,11 +211,6 @@ describe("npm publishing authentication", () => {
     expect(text).toContain(
       "run: bun run scripts/publish.ts --product --skip-check",
     );
-
-    const publishStep = text.slice(
-      text.indexOf("- name: Publish to npm + GitHub Packages"),
-    );
-    expect(publishStep).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
   });
 });
 
