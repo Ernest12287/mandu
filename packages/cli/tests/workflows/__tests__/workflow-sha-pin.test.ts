@@ -208,6 +208,9 @@ describe("npm trusted publishing", () => {
       text.indexOf("- name: Pre-publish check"),
     );
     expect(versionStep).toContain("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
+    expect(text).toContain(
+      "run: bun run scripts/publish.ts --product --skip-check",
+    );
   });
 });
 
