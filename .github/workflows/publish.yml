@@ -86,6 +86,7 @@ jobs:
           fi
         env:
           NPM_DIST_TAG: ${{ inputs.dist_tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pre-publish check
         run: bun run check:product-release

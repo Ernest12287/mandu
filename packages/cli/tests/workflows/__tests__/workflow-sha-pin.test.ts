@@ -202,6 +202,12 @@ describe("npm trusted publishing", () => {
     expect(text).toContain('registry-url: "https://registry.npmjs.org"');
     expect(text).not.toContain("secrets.NPM_TOKEN");
     expect(text).not.toContain("registry.npmjs.org/:_authToken");
+
+    const versionStep = text.slice(
+      text.indexOf("- name: Version packages"),
+      text.indexOf("- name: Pre-publish check"),
+    );
+    expect(versionStep).toContain("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
   });
 });
 
