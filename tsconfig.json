@@ -39,7 +39,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "types": ["bun-types"]
+    "types": ["bun"]
   },
   "exclude": ["node_modules", "dist", "DNA", "demo"]
 }

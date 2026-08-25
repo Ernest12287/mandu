@@ -272,14 +272,14 @@ describe("mandu info CLI", () => {
       JSON.stringify({
         name: "demo-app",
         version: "1.2.3",
-        packageManager: "bun@1.3.12",
+        packageManager: "bun@1.4.0",
       }),
     );
     const { out } = await captureStdout(() => info({ json: true, include: "project" }));
     const parsed = JSON.parse(out.trim());
     expect(parsed.project.name).toBe("demo-app");
     expect(parsed.project.version).toBe("1.2.3");
-    expect(parsed.project.packageManager).toBe("bun@1.3.12");
+    expect(parsed.project.packageManager).toBe("bun@1.4.0");
     expect(parsed.project.configFile).toBeNull();
   });
 });

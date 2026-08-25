@@ -38,7 +38,8 @@ create  dev  build  start  check  agent
 5. [Core 공개 API 경계](./architect/public-api-boundary.md)
 6. [Reference app 계약](./architect/reference-apps.md)
 7. [Core v1 migration](./migration/core-v1-surface.md)
-8. [Production artifact contract](./deploy/artifact-contract.md)
+8. [Bun 1.4 migration](./migration/bun-1.4.md)
+9. [Production artifact contract](./deploy/artifact-contract.md)
 
 ## Agent 표면
 

@@ -98,16 +98,43 @@ async function stopCommand(command: RunningCommand): Promise<CompletedCommand> {
     Bun.sleep(5_000).then(() => -1),
   ]);
   if (exited === -1) {
-    try {
-      command.proc.kill("SIGKILL");
-    } catch {
-      // The process may have exited between the timeout and kill.
+    if (process.platform === "win32") {
+      // Bun 1.4 can leave a `bun run ... start` process waiting after
+      // Subprocess.kill() on Windows. taskkill closes the complete process tree
+      // so inherited stdout/stderr handles cannot keep this gate open forever.
+      const killer = Bun.spawn([
+        "taskkill.exe",
+        "/PID",
+        String(command.proc.pid),
+        "/T",
+        "/F",
+      ], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await Promise.race([killer.exited, Bun.sleep(5_000)]);
+    } else {
+      try {
+        command.proc.kill("SIGKILL");
+      } catch {
+        // The process may have exited between the timeout and kill.
+      }
     }
   }
-  const [stdout, stderr, exitCode] = await Promise.all([
-    command.stdoutPromise,
-    command.stderrPromise,
+  const finalExitCode = await Promise.race([
     command.proc.exited,
+    Bun.sleep(5_000).then(() => -1),
+  ]);
+  const [stdout, stderr, exitCode] = await Promise.all([
+    Promise.race([
+      command.stdoutPromise,
+      Bun.sleep(2_000).then(() => "<stdout stream did not close>"),
+    ]),
+    Promise.race([
+      command.stderrPromise,
+      Bun.sleep(2_000).then(() => "<stderr stream did not close>"),
+    ]),
+    Promise.resolve(finalExitCode),
   ]);
   return { ...command, stdout, stderr, exitCode };
 }

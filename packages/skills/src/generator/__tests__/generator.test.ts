@@ -41,7 +41,7 @@ beforeAll(() => {
         devDependencies: {
           "@playwright/test": "1.40.0",
         },
-        engines: { bun: ">=1.3.12" },
+        engines: { bun: ">=1.4.0" },
       },
       null,
       2,

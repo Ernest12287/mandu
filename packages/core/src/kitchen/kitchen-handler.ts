@@ -16,6 +16,7 @@ import { GuardDecisionManager } from "./api/guard-decisions";
 import { ContractPlaygroundAPI } from "./api/contract-api";
 import { handleAgentContextRequest } from "./api/agent-devtools-api";
 import { groupErrors } from "./api/errors-grouping";
+import { buildBundleReport } from "./api/bundle-inspector";
 import type { BundleManifest } from "../bundler/types";
 import type { DiagnoseReport } from "../diagnose/types";
 import { runExtendedDiagnose } from "../diagnose/run";
@@ -573,6 +574,41 @@ export class KitchenHandler {
 
     if (sub === "/api/errors" && req.method === "GET") {
       return Response.json({ errors: storedErrors, count: storedErrors.length });
+    }
+
+    // Plan 18 P2-6 — Bundle inspector. Reads .mandu/manifest.json and
+    // adds byte sizes from disk so the operator can see at a glance
+    // which island is largest, which routes have CSS chunks, and how
+    // big the shared runtime / vendor / router bundles are.
+    if (sub === "/api/bundle" && req.method === "GET") {
+      const report = await buildBundleReport(this.options.rootDir);
+      return Response.json(report);
+    }
+
+    // Plan 18 P2-5 — Diagnose panel data. Runs `runExtendedDiagnose`
+    // and returns the structured report so the Kitchen UI can render
+    // every rule (manifest_freshness / nested_internal_core /
+    // package_export_gaps / a11y_hints / ...) on one screen with the
+    // suggestion line attached. Same source as P0-2's signal collector
+    // but always fresh (no caching) so the operator's "Refresh" press
+    // reflects the latest state.
+    if (sub === "/api/diagnose" && req.method === "GET") {
+      const report = await runDiagnoseSignal(this.options.rootDir);
+      if (!report) {
+        return Response.json({
+          healthy: false,
+          errorCount: 1,
+          warningCount: 0,
+          checks: [{
+            ok: false,
+            rule: "diagnose_runner",
+            severity: "error",
+            message: "Diagnose runner failed to execute. See dev server logs.",
+          }],
+          summary: { total: 1, passed: 0, failed: 1 },
+        });
+      }
+      return Response.json(report);
     }
 
     // Plan 18 P1-4 — Errors panel grouped view. Collapses identical

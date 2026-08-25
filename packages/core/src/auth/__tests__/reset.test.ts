@@ -34,7 +34,7 @@ const SECRET = "reset-flow-test-secret-32-bytes-or-more!!";
 const URL_TEMPLATE = "https://app.example.com/reset?token={token}";
 const FROM = "noreply@example.com";
 const ARGON2ID_PREFIX = "$argon2id$";
-const FAST_ARGON2 = { algorithm: "argon2id", memoryCost: 4, timeCost: 2 } as const;
+const FAST_ARGON2 = { algorithm: "argon2id", memoryCost: 8, timeCost: 2 } as const;
 
 interface Fixture {
   store: AuthTokenStore;

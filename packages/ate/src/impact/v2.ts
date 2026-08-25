@@ -11,7 +11,7 @@
  * emitted. New callers read `affected`, `suggestions`, `changed`.
  *
  * Git invocation uses `Bun.spawn` per spec, with `node:child_process`
- * fallback (the package sets `engines.bun >=1.3.12`, but tests run
+ * fallback (the package sets `engines.bun >=1.4.0`, but tests run
  * under Bun so this is fine in CI; the fallback handles the uncommon
  * case where the binding is unavailable).
  */

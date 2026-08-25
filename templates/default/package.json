@@ -2,6 +2,10 @@
   "name": "{{PROJECT_NAME}}",
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "bun@1.4.0",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
   "scripts": {
     "dev": "mandu dev",
     "build": "mandu build",
@@ -17,6 +21,7 @@
   },
   "devDependencies": {
     "@mandujs/cli": "{{CLI_VERSION}}",
+    "@types/bun": "^1.4.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "typescript": "^5.0.0"

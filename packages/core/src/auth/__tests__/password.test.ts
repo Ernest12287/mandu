@@ -18,7 +18,7 @@ const BCRYPT_PREFIX_RE = /^\$2[aby]\$/;
 // Minimum argon2 cost params — keep tests fast without changing behavior.
 const FAST_ARGON2 = {
   algorithm: "argon2id",
-  memoryCost: 4,
+  memoryCost: 8,
   timeCost: 2,
 } as const;
 
@@ -67,10 +67,20 @@ describe("@mandujs/core/compat/auth/password — hashPassword", () => {
     // We assert the timeCost is preserved end-to-end.
     const h = await hashPassword("same-password", {
       algorithm: "argon2id",
-      memoryCost: 4,
+      memoryCost: 8,
       timeCost: 3,
     });
-    expect(h).toMatch(/\$argon2id\$v=\d+\$m=4,t=3,p=\d+\$/);
+    expect(h).toMatch(/\$argon2id\$v=\d+\$m=8,t=3,p=\d+\$/);
+  });
+
+  it("rejects Argon2 memoryCost values below Bun 1.4's minimum", async () => {
+    await expect(
+      hashPassword("same-password", {
+        algorithm: "argon2id",
+        memoryCost: 4,
+        timeCost: 2,
+      }),
+    ).rejects.toThrow(/memoryCost must be at least 8/);
   });
 });
 

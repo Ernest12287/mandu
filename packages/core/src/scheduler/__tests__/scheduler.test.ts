@@ -24,6 +24,7 @@ import {
 interface FakeSchedule {
   schedule: string;
   handler: () => void | Promise<void>;
+  options?: { tz?: string };
   stop: ReturnType<typeof mock>;
 }
 
@@ -33,9 +34,9 @@ function makeFakeScheduler(): {
   tick(index: number): Promise<void>;
 } {
   const schedules: FakeSchedule[] = [];
-  const scheduleFn: CronScheduleFn = (schedule, handler) => {
+  const scheduleFn: CronScheduleFn = (schedule, handler, options) => {
     const stop = mock(() => {});
-    schedules.push({ schedule, handler, stop });
+    schedules.push({ schedule, handler, options, stop });
     return { stop };
   };
   return {

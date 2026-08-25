@@ -1011,7 +1011,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v1
         with:
-          bun-version: latest
+          bun-version: 1.4.0
 
       - name: 의존성 설치
         run: bun install
@@ -1118,7 +1118,7 @@ stages:
 
 ate-tests:
   stage: test
-  image: oven/bun:latest
+  image: oven/bun:1.4.0
 
   services:
     - name: playwright/browsers:chromium

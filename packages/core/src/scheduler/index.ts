@@ -110,7 +110,8 @@ export interface CronJobConfig {
    * against this zone. **Not supported on Cloudflare Workers** — Workers cron
    * triggers always fire in UTC; emit a warning but still emit the crontab.
    *
-   * Default: host system timezone (Bun.cron's default).
+   * Default: `"UTC"`. Mandu passes the zone explicitly so Bun 1.4's local-time
+   * default does not change existing schedules or diverge from Workers cron.
    */
   timezone?: string;
   /**
@@ -198,6 +199,7 @@ interface CronJobHandle {
 export type CronScheduleFn = (
   schedule: string,
   handler: () => void | Promise<void>,
+  options?: { tz?: string },
 ) => CronJobHandle | void;
 
 interface BunCronGlobal {
@@ -212,7 +214,7 @@ function getBunCron(): CronScheduleFn {
   const g = globalThis as unknown as { Bun?: BunCronGlobal };
   if (!g.Bun || typeof g.Bun.cron !== "function") {
     throw new Error(
-      "[@mandujs/core/scheduler] Bun.cron is unavailable — this module requires the Bun runtime (>= 1.3.12).",
+      "[@mandujs/core/scheduler] Bun.cron is unavailable — this module requires the Bun runtime (>= 1.4.0).",
     );
   }
   return g.Bun.cron;
@@ -255,7 +257,9 @@ export function defineCron(
   // Probe lazily so `defineCron({})` with no entries can still be called in
   // environments without `Bun.cron`. When the user actually goes to `start()`,
   // the probe runs — matching `getBunPassword()` behaviour.
-  return _defineCronWith(jobs, (schedule, handler) => getBunCron()(schedule, handler));
+  return _defineCronWith(jobs, (schedule, handler, options) =>
+    getBunCron()(schedule, handler, options),
+  );
 }
 
 /**
@@ -499,7 +503,9 @@ export function _defineCronWith(
     for (const state of states.values()) {
       if (state.skipped) continue;
       const tick = makeTickHandler(state);
-      const handle = scheduleFn(state.config.schedule, tick);
+      const handle = scheduleFn(state.config.schedule, tick, {
+        tz: state.config.timezone ?? "UTC",
+      });
       state.handle = handle ?? null;
     }
   }

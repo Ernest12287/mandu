@@ -38,7 +38,8 @@ a verified artifact and leaves provider operations to provider tooling.
 5. [Core public API boundary](./architect/public-api-boundary.md)
 6. [Reference app contracts](./architect/reference-apps.md)
 7. [Core v1 migration](./migration/core-v1-surface.md)
-8. [Production artifact contract](./deploy/artifact-contract.md)
+8. [Bun 1.4 migration](./migration/bun-1.4.md)
+9. [Production artifact contract](./deploy/artifact-contract.md)
 
 ## Agent surface
 

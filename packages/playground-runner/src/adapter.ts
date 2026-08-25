@@ -64,7 +64,7 @@ export class MockAdapter implements PlaygroundAdapter {
     const script = this.options.script ?? defaultMockScript(opts);
 
     // Bun.spawn signature differs slightly; we cast to avoid pulling
-    // bun-types into consumers. The test env guarantees Bun >= 1.3.12.
+    // Bun runtime types into consumers. The test env guarantees Bun >= 1.4.0.
     const proc: MockProcLike = (globalThis as unknown as { Bun: MockBunLike }).Bun.spawn({
       cmd: ["bun", "-e", script],
       stdout: "pipe",

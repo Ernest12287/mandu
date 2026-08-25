@@ -22,7 +22,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.0
 
       - name: Install workspace deps
         run: bun install --frozen-lockfile
@@ -100,7 +100,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - name: Compare local vs npm
         run: bun run scripts/check-npm-drift.ts --product

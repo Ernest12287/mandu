@@ -28,6 +28,7 @@
  * See https://en.wikipedia.org/wiki/Bcrypt#User_input
  */
 const BCRYPT_MAX_BYTES = 72;
+const ARGON2_MIN_MEMORY_COST = 8;
 
 /**
  * Password hashing options. Mirrors the `Bun.password` option shape.
@@ -53,7 +54,7 @@ function getBunPassword(): BunPasswordApi {
   const g = globalThis as unknown as { Bun?: { password?: BunPasswordApi } };
   if (!g.Bun || !g.Bun.password) {
     throw new Error(
-      "[@mandujs/core/auth/password] Bun.password is unavailable — this module requires the Bun runtime (>= 1.3).",
+      "[@mandujs/core/auth/password] Bun.password is unavailable — this module requires the Bun runtime (>= 1.4.0).",
     );
   }
   return g.Bun.password;
@@ -83,6 +84,17 @@ export async function hashPassword(
         `[@mandujs/core/auth/password] hashPassword: bcrypt input exceeds 72-byte limit (got ${bytes} bytes). Use argon2id for longer passwords.`,
       );
     }
+  }
+
+  const algorithm = options?.algorithm ?? "argon2id";
+  if (
+    algorithm !== "bcrypt" &&
+    options?.memoryCost !== undefined &&
+    options.memoryCost < ARGON2_MIN_MEMORY_COST
+  ) {
+    throw new RangeError(
+      `[@mandujs/core/auth/password] hashPassword: Argon2 memoryCost must be at least ${ARGON2_MIN_MEMORY_COST} on Bun 1.4.`,
+    );
   }
 
   return await getBunPassword().hash(plain, options);

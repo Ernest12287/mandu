@@ -10,7 +10,7 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "types": ["bun-types", "@cloudflare/workers-types"]
+    "types": ["bun", "@cloudflare/workers-types"]
   },
   "include": ["app/**/*", "src/**/*", "mandu.config.ts"]
 }

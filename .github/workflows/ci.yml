@@ -60,14 +60,14 @@ jobs:
               - 'packages/cli/src/commands/dev.ts'
               - '.github/workflows/ci.yml'
 
-  # Linux: full test surface across Bun latest + pinned compatibility version.
+  # Linux: full test surface across the pinned minimum + current stable channel.
   # All non-OS-sensitive suites run here only.
   quality-linux:
     name: Quality (ubuntu-latest, Bun ${{ matrix.bun }})
     strategy:
       fail-fast: false
       matrix:
-        bun: [latest, 1.3.12]
+        bun: [1.4.0, latest]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - run: bun run typecheck:labs
       - run: bun run scripts/typecheck.ts skills
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - run: bun run typecheck:product
       - run: bun run check:package-boundaries
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.0
       - run: bun install --frozen-lockfile
 
       - name: Start Postgres + MySQL via compose
@@ -201,7 +201,7 @@ jobs:
         run: docker compose -f packages/core/tests/fixtures/db/docker-compose.yml down -v
 
   performance-budget:
-    name: Performance Budget (ubuntu-latest, Bun latest)
+    name: Performance Budget (ubuntu-latest, Bun 1.4.0)
     needs: changes
     if: |
       needs.changes.outputs.perf == 'true' ||
@@ -211,7 +211,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - run: bun run perf:baseline:check
       - run: bunx playwright install chromium
@@ -238,7 +238,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium

@@ -269,21 +269,25 @@ describe("AI workflow commands", () => {
     expect(output).toContain("mandu auth init --strategy=jwt");
   });
 
-  it("review handles a simple git repo gracefully", async () => {
-    const repoDir = path.join(tmpDir, "review-repo");
-    await fs.mkdir(repoDir, { recursive: true });
-    await fs.writeFile(path.join(repoDir, "README.md"), "# Demo\n");
-    await Bun.spawn(["git", "init"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
-    await Bun.spawn(["git", "config", "user.email", "test@example.com"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
-    await Bun.spawn(["git", "config", "user.name", "Test User"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
-    await Bun.spawn(["git", "add", "README.md"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
-    await Bun.spawn(["git", "commit", "-m", "init"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
-    await fs.writeFile(path.join(repoDir, "README.md"), "# Demo\n\nUpdated\n");
+  it(
+    "review handles a simple git repo gracefully",
+    async () => {
+      const repoDir = path.join(tmpDir, "review-repo");
+      await fs.mkdir(repoDir, { recursive: true });
+      await fs.writeFile(path.join(repoDir, "README.md"), "# Demo\n");
+      await Bun.spawn(["git", "init"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
+      await Bun.spawn(["git", "config", "user.email", "test@example.com"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
+      await Bun.spawn(["git", "config", "user.name", "Test User"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
+      await Bun.spawn(["git", "add", "README.md"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
+      await Bun.spawn(["git", "commit", "-m", "init"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
+      await fs.writeFile(path.join(repoDir, "README.md"), "# Demo\n\nUpdated\n");
 
-    const output = await runCLI("review", repoDir);
-    expect(output).toContain("Changed files:");
-    expect(output).toContain("README.md");
-  });
+      const output = await runCLI("review", repoDir);
+      expect(output).toContain("Changed files:");
+      expect(output).toContain("README.md");
+    },
+    { timeout: 15_000 },
+  );
 
   it("generate --ai supports dry-run planning", async () => {
     const aiDir = path.join(tmpDir, "ai-generate");

@@ -38,7 +38,7 @@ import type {
  * constant (not a runtime lookup) so the artifact is deterministic even
  * in CI where `package.json` is read-only.
  */
-const DEFAULT_BUN_IMAGE_TAG = "1.3.14-alpine";
+const DEFAULT_BUN_IMAGE_TAG = "1.4.0-alpine";
 const DEFAULT_PORT = 3333;
 
 // ---------------------------------------------------------------------
@@ -46,7 +46,7 @@ const DEFAULT_PORT = 3333;
 // ---------------------------------------------------------------------
 
 export interface DockerfileOptions {
-  /** Override the Bun image tag (e.g. `"1.3.14-debian"`). */
+  /** Override the Bun image tag (e.g. `"1.4.0-debian"`). */
   bunImageTag?: string;
   /** Expose port (defaults to Mandu's 3333). */
   port?: number;

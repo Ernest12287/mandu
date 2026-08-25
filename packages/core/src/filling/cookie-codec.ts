@@ -178,13 +178,15 @@ export function createBunCookieMapCodec(): CookieCodec | null {
     parseRequestHeader(header: string | null): Map<string, string> {
       const cookies = new Map<string, string>();
       if (!header) return cookies;
-      // Bun.CookieMap handles URL-decoding and whitespace, and iterates
-      // entries in insertion order.
+      // Bun.CookieMap handles value URL-decoding and whitespace, and iterates
+      // entries in insertion order. Bun 1.4 preserves encoded cookie names,
+      // so decode names here to retain Mandu's cross-runtime codec contract.
       const map = new CookieMap(header);
       for (const [name, value] of map.entries()) {
         if (!name) continue;
+        const decodedName = safeDecode(name);
         // First-wins semantics to match LegacyCookieCodec and RFC 6265.
-        if (!cookies.has(name)) cookies.set(name, value);
+        if (!cookies.has(decodedName)) cookies.set(decodedName, value);
       }
       return cookies;
     },

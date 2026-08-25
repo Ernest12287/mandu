@@ -48,7 +48,7 @@
     "access": "public"
   },
   "engines": {
-    "bun": ">=1.3.12"
+    "bun": ">=1.4.0"
   },
   "peerDependencies": {
     "@mandujs/core": "^0.54.0"

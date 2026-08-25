@@ -26,6 +26,7 @@ import {
 interface FakeSchedule {
   schedule: string;
   handler: () => void | Promise<void>;
+  options?: { tz?: string };
   stop: ReturnType<typeof mock>;
 }
 
@@ -35,9 +36,9 @@ function makeFakeScheduler(): {
   tick(index: number): Promise<void>;
 } {
   const schedules: FakeSchedule[] = [];
-  const scheduleFn: CronScheduleFn = (schedule, handler) => {
+  const scheduleFn: CronScheduleFn = (schedule, handler, options) => {
     const stop = mock(() => {});
-    schedules.push({ schedule, handler, stop });
+    schedules.push({ schedule, handler, options, stop });
     return { stop };
   };
   return {
@@ -159,7 +160,7 @@ describe("scheduler runtime — ctx.log", () => {
   });
 });
 
-describe("scheduler runtime — timezone survives normalization", () => {
+describe("scheduler runtime — deterministic timezone", () => {
   it("preserves timezone field through defineCron → CronJobConfig", () => {
     const normalized = normalizeDefineCronInput([
       {
@@ -170,6 +171,33 @@ describe("scheduler runtime — timezone survives normalization", () => {
       },
     ]);
     expect(normalized.tz.timezone).toBe("America/New_York");
+  });
+
+  it("passes an explicit timezone to Bun.cron", () => {
+    const { scheduleFn, schedules } = makeFakeScheduler();
+    const normalized = normalizeDefineCronInput([
+      {
+        name: "new-york",
+        schedule: "0 9 * * *",
+        timezone: "America/New_York",
+        handler: () => {},
+      },
+    ]);
+
+    _defineCronWith(normalized, scheduleFn).start();
+
+    expect(schedules[0].options).toEqual({ tz: "America/New_York" });
+  });
+
+  it("defaults to UTC instead of Bun 1.4's host-local timezone", () => {
+    const { scheduleFn, schedules } = makeFakeScheduler();
+    const normalized = normalizeDefineCronInput([
+      { name: "stable-default", schedule: "0 9 * * *", handler: () => {} },
+    ]);
+
+    _defineCronWith(normalized, scheduleFn).start();
+
+    expect(schedules[0].options).toEqual({ tz: "UTC" });
   });
 });
 

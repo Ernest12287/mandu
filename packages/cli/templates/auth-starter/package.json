@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.0",
   "engines": {
-    "bun": ">=1.3.12"
+    "bun": ">=1.4.0"
   },
   "scripts": {
     "dev": "mandu dev",
@@ -28,6 +28,7 @@
   "devDependencies": {
     "@mandujs/cli": "^1.0.0",
     "@mandujs/mcp": "^1.0.0",
+    "@types/bun": "^1.4.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "typescript": ">=6.0.0",

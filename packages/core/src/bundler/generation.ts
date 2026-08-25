@@ -18,6 +18,8 @@ const BUILD_STATE_FILE = "build-state.json";
 const STAGING_DIR = path.join(".staging", "client-builds");
 const GENERATION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{5,127}$/;
 const GENERATIONS_TO_KEEP = 3;
+const WINDOWS_RENAME_RETRY_DELAYS_MS = [10, 25, 50, 100] as const;
+const WINDOWS_TRANSIENT_RENAME_CODES = new Set(["EACCES", "EBUSY", "ENOTEMPTY", "EPERM"]);
 
 export interface BuildGenerationPointer {
   schemaVersion: typeof SCHEMA_VERSION;
@@ -52,6 +54,14 @@ export interface ActiveBuildArtifacts {
   clientDir: string;
   manifestPath: string;
   source: "generation" | "legacy";
+}
+
+interface BuildGenerationPromotionOperations {
+  rename(source: string, destination: string): Promise<void>;
+  copy(source: string, destination: string): Promise<void>;
+  remove(target: string): Promise<void>;
+  sleep(milliseconds: number): Promise<void>;
+  platform: string;
 }
 
 const activeArtifactsCache = new Map<string, ActiveBuildArtifacts>();
@@ -91,6 +101,83 @@ async function pathExists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isTransientWindowsRenameError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    WINDOWS_TRANSIENT_RENAME_CODES.has(error.code)
+  );
+}
+
+async function promoteStagedBuildGeneration(
+  generation: BuildGeneration,
+  overrides: Partial<BuildGenerationPromotionOperations> = {},
+): Promise<void> {
+  const operations: BuildGenerationPromotionOperations = {
+    rename: (source, destination) => fs.rename(source, destination),
+    copy: (source, destination) =>
+      fs.cp(source, destination, {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+      }),
+    remove: (target) => fs.rm(target, { recursive: true, force: true }),
+    sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    platform: process.platform,
+    ...overrides,
+  };
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await operations.rename(generation.stagingRoot, generation.finalRoot);
+      return;
+    } catch (error) {
+      const retryDelay = WINDOWS_RENAME_RETRY_DELAYS_MS[attempt];
+      if (
+        operations.platform !== "win32" ||
+        !isTransientWindowsRenameError(error) ||
+        retryDelay === undefined
+      ) {
+        if (
+          operations.platform !== "win32" ||
+          !isTransientWindowsRenameError(error)
+        ) {
+          throw error;
+        }
+        break;
+      }
+      await operations.sleep(retryDelay);
+    }
+  }
+
+  // Bun 1.4 on Windows can retain build-output handles briefly after Bun.build(),
+  // preventing a directory rename. The final directory is not observable until
+  // the active pointer is updated, so a validated copy preserves publication
+  // atomicity while avoiding a runtime-specific handle race.
+  try {
+    await operations.copy(generation.stagingRoot, generation.finalRoot);
+    const finalClient = path.join(generation.finalRoot, "client");
+    const finalManifest = path.join(generation.finalRoot, "manifest.json");
+    if (!(await pathExists(finalClient)) || !(await pathExists(finalManifest))) {
+      throw new Error(`Copied build generation ${generation.id} is incomplete.`);
+    }
+  } catch (error) {
+    await operations.remove(generation.finalRoot).catch(() => {});
+    throw error;
+  }
+
+  await operations.remove(generation.stagingRoot).catch(() => {});
+}
+
+export async function __promoteStagedBuildGenerationForTests(
+  generation: BuildGeneration,
+  overrides: Partial<BuildGenerationPromotionOperations> = {},
+): Promise<void> {
+  await promoteStagedBuildGeneration(generation, overrides);
 }
 
 async function atomicWriteFile(target: string, content: string): Promise<void> {
@@ -427,7 +514,7 @@ export async function publishBuildGeneration(
   }
 
   await fs.mkdir(path.dirname(generation.finalRoot), { recursive: true });
-  await fs.rename(generation.stagingRoot, generation.finalRoot);
+  await promoteStagedBuildGeneration(generation);
 
   const legacyClient = path.join(manduDir(generation.rootDir), "client");
   const legacyManifest = path.join(manduDir(generation.rootDir), "manifest.json");

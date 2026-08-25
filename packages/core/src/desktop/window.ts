@@ -63,6 +63,11 @@ type WebviewBunModule = {
   SizeHint: { NONE: number; MIN: number; MAX: number; FIXED: number };
 };
 
+// Widen the specifier to `string` so TypeScript does not pull this optional
+// peer's source-only FFI types into Core. Bun resolves the same bare module at
+// runtime when a desktop window is actually requested.
+const WEBVIEW_BUN_MODULE_ID: string = "webview-bun";
+
 let webviewBunCache: WebviewBunModule | null = null;
 
 /**
@@ -80,12 +85,9 @@ export async function _loadWebviewBun(): Promise<WebviewBunModule> {
     // probing — so bundlers can tree-shake the whole desktop subtree in a
     // web-only build.
     //
-    // `@ts-ignore` is used because `webview-bun` is an OPTIONAL peer — tsc
-    // must not hard-fail module resolution when the peer is absent. The
-    // runtime behaviour is guarded: the try/catch below rethrows a clean
-    // "please install" error if the import itself rejects at runtime.
-    // @ts-ignore -- optional peer, may not be resolvable at typecheck time
-    const mod = (await import("webview-bun")) as unknown as WebviewBunModule;
+    // The runtime behaviour is guarded: the try/catch below rethrows a clean
+    // "please install" error if the optional peer is absent.
+    const mod = (await import(WEBVIEW_BUN_MODULE_ID)) as unknown as WebviewBunModule;
     webviewBunCache = mod;
     return mod;
   } catch (cause) {

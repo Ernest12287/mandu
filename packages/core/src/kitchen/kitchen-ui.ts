@@ -60,6 +60,8 @@ export function renderKitchenHTML(): string {
     <nav class="tabs">
       <button class="tab" data-panel="activity">Activity</button>
       <button class="tab" data-panel="errors">Errors</button>
+      <button class="tab" data-panel="diagnose">Diagnose</button>
+      <button class="tab" data-panel="bundle">Bundle</button>
       <button class="tab" data-panel="agent">Agent</button>
       <button class="tab active" data-panel="routes">Routes</button>
       <button class="tab" data-panel="guard">Guard</button>
@@ -112,6 +114,44 @@ export function renderKitchenHTML(): string {
         </div>
         <div id="errors-list" class="errors-list">
           <div class="empty-state">No errors captured yet.</div>
+        </div>
+      </section>
+
+      <section id="panel-diagnose" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Diagnose</h2>
+            <p class="panel-subtitle">Extended diagnose suite (manifest, prerender, dev-artifacts, package exports, nested core, a11y). Errors block deploy; warnings are FYI.</p>
+          </div>
+          <button id="refresh-diagnose" class="btn-sm">Refresh</button>
+        </div>
+        <div id="diagnose-summary" class="diagnose-summary">
+          <span id="diagnose-summary-text">Open Diagnose to run the suite.</span>
+        </div>
+        <div id="diagnose-list" class="diagnose-list">
+          <div class="empty-state">Press Refresh to run extended diagnose.</div>
+        </div>
+      </section>
+
+      <section id="panel-bundle" class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Bundle Inspector</h2>
+            <p class="panel-subtitle">Bundle manifest + on-disk byte sizes. Largest island first — quick perf-budget read.</p>
+          </div>
+          <button id="refresh-bundle" class="btn-sm">Refresh</button>
+        </div>
+        <div id="bundle-summary" class="bundle-summary">
+          <span id="bundle-summary-text">Open Bundle to inspect emitted bundles.</span>
+        </div>
+        <div id="bundle-shared" class="bundle-shared"></div>
+        <h3 class="bundle-section-title">Islands</h3>
+        <div id="bundle-islands" class="bundle-list">
+          <div class="empty-state">Press Refresh to load bundle manifest.</div>
+        </div>
+        <h3 class="bundle-section-title">Route bundles</h3>
+        <div id="bundle-routes" class="bundle-list">
+          <div class="empty-state">Press Refresh to load bundle manifest.</div>
         </div>
       </section>
 
@@ -563,6 +603,237 @@ const CSS = /* css */ `
   }
 
   .error-group.expanded .error-detail { display: block; }
+
+  /* Plan 18 P2-5 — Diagnose panel */
+  .diagnose-summary {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: var(--surface-strong);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .diagnose-summary .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .diagnose-summary .pill.healthy { background: rgba(107, 158, 71, 0.18); color: var(--success); }
+  .diagnose-summary .pill.unhealthy { background: rgba(200, 84, 80, 0.18); color: var(--danger); }
+
+  .diagnose-list {
+    max-height: calc(100vh - 240px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .diagnose-check {
+    background: var(--surface);
+    border: 2px solid var(--line);
+    border-left-width: 6px;
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease;
+  }
+  .diagnose-check:hover {
+    box-shadow: var(--shadow-sm);
+  }
+  .diagnose-check.expanded {
+    box-shadow: var(--shadow);
+  }
+  .diagnose-check.sev-error   { border-left-color: var(--danger); }
+  .diagnose-check.sev-warning { border-left-color: var(--warning); }
+  .diagnose-check.sev-info    { border-left-color: var(--info); }
+  .diagnose-check.ok          { border-left-color: var(--success); }
+
+  .diagnose-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .diagnose-icon { font-size: 16px; }
+  .diagnose-rule {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .diagnose-message {
+    flex: 1 1 280px;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .diagnose-sev-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .diagnose-sev-badge.error   { background: rgba(200, 84, 80, 0.18); color: var(--danger); }
+  .diagnose-sev-badge.warning { background: rgba(232, 169, 58, 0.20); color: var(--warning); }
+  .diagnose-sev-badge.info    { background: rgba(74, 144, 194, 0.18); color: var(--info); }
+  .diagnose-sev-badge.ok      { background: rgba(107, 158, 71, 0.18); color: var(--success); }
+
+  .diagnose-detail {
+    display: none;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .diagnose-check.expanded .diagnose-detail { display: block; }
+
+  .diagnose-suggestion {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: var(--accent-soft);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink);
+  }
+
+  .diagnose-details-json {
+    margin-top: 8px;
+    padding: 8px;
+    background: var(--surface-strong);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  /* Plan 18 P2-6 — Bundle inspector */
+  .bundle-summary {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: var(--surface-strong);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .bundle-summary strong {
+    font-family: var(--font-mono);
+    font-weight: 700;
+  }
+
+  .bundle-shared {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .bundle-shared-card {
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+  }
+
+  .bundle-shared-card .label {
+    color: var(--muted);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+  }
+
+  .bundle-shared-card .size {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+
+  .bundle-section-title {
+    margin: 18px 0 8px;
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .bundle-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .bundle-row {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) 90px 70px minmax(120px, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 2px solid var(--line);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    color: var(--ink);
+  }
+
+  .bundle-row .name {
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bundle-row .size {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .bundle-row .priority {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .bundle-row .bar {
+    height: 8px;
+    background: var(--surface-strong);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .bundle-row .bar > span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
 
   .activity-item {
     padding: 8px 12px;
@@ -2578,6 +2849,189 @@ const JS = /* js */ `
       .catch(function() { /* noop */ });
   });
 
+  // ─── Diagnose (plan 18 P2-5) ────────────────
+  var diagnoseSummaryEl = document.getElementById('diagnose-summary-text');
+  var diagnoseListEl = document.getElementById('diagnose-list');
+
+  function diagnoseIcon(check) {
+    if (check.ok) return 'OK';
+    if (check.severity === 'error') return 'ER';
+    if (check.severity === 'warning') return 'WN';
+    return 'IN';
+  }
+
+  function loadDiagnose() {
+    if (!diagnoseListEl) return;
+    diagnoseListEl.innerHTML = '<div class="empty-state">Running diagnose suite...</div>';
+    if (diagnoseSummaryEl) diagnoseSummaryEl.textContent = 'Running...';
+
+    fetchJson('/__kitchen/api/diagnose', function(err, report) {
+      if (err) {
+        diagnoseListEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      var checks = report.checks || [];
+      var summary = report.summary || { total: 0, passed: 0, failed: 0 };
+
+      if (diagnoseSummaryEl) {
+        diagnoseSummaryEl.innerHTML =
+          '<span class="pill ' + (report.healthy ? 'healthy' : 'unhealthy') + '">' +
+            (report.healthy ? 'HEALTHY' : 'UNHEALTHY') +
+          '</span>' +
+          '<span>' + summary.passed + '/' + summary.total + ' checks passed</span>' +
+          (report.errorCount ? '<span>' + report.errorCount + ' error(s)</span>' : '') +
+          (report.warningCount ? '<span>' + report.warningCount + ' warning(s)</span>' : '');
+      }
+
+      if (!checks.length) {
+        diagnoseListEl.innerHTML = '<div class="empty-state">No diagnose checks ran.</div>';
+        return;
+      }
+
+      // Sort: errors first, then warnings, then info, then ok.
+      var weight = { error: 0, warning: 1, info: 2 };
+      var sorted = checks.slice().sort(function(a, b) {
+        var aw = a.ok ? 3 : (weight[a.severity] || 2);
+        var bw = b.ok ? 3 : (weight[b.severity] || 2);
+        return aw - bw;
+      });
+
+      var html = '';
+      for (var i = 0; i < sorted.length; i++) {
+        var c = sorted[i];
+        var sevCls = c.ok ? 'ok' : ('sev-' + (c.severity || 'info'));
+        var sevBadge = c.ok ? 'ok' : (c.severity || 'info');
+        var sevLabel = c.ok ? 'OK' : (c.severity || 'info');
+        var hasDetails = c.suggestion || c.details;
+        var suggestionBlock = c.suggestion
+          ? '<div class="diagnose-suggestion">' + escapeHtml(c.suggestion) + '</div>'
+          : '';
+        var detailsBlock = c.details
+          ? '<div class="diagnose-details-json">' + escapeHtml(JSON.stringify(c.details, null, 2)) + '</div>'
+          : '';
+        html += '<div class="diagnose-check ' + sevCls + (hasDetails ? '' : ' no-detail') + '" data-rule="' + escapeHtml(c.rule) + '">' +
+          '<div class="diagnose-head">' +
+            '<span class="diagnose-icon">' + diagnoseIcon(c) + '</span>' +
+            '<span class="diagnose-sev-badge ' + sevBadge + '">' + escapeHtml(sevLabel) + '</span>' +
+            '<span class="diagnose-rule">' + escapeHtml(c.rule) + '</span>' +
+            '<div class="diagnose-message">' + escapeHtml(c.message || '') + '</div>' +
+          '</div>' +
+          (hasDetails ? '<div class="diagnose-detail">' + suggestionBlock + detailsBlock + '</div>' : '') +
+          '</div>';
+      }
+      diagnoseListEl.innerHTML = html;
+      var rows = diagnoseListEl.querySelectorAll('.diagnose-check');
+      for (var r = 0; r < rows.length; r++) {
+        rows[r].addEventListener('click', function() {
+          if (this.classList.contains('no-detail')) return;
+          this.classList.toggle('expanded');
+        });
+      }
+    });
+  }
+
+  var refreshDiagnoseBtn = document.getElementById('refresh-diagnose');
+  if (refreshDiagnoseBtn) refreshDiagnoseBtn.addEventListener('click', loadDiagnose);
+
+  // ─── Bundle Inspector (plan 18 P2-6) ───────
+  var bundleSummaryEl = document.getElementById('bundle-summary-text');
+  var bundleSharedEl = document.getElementById('bundle-shared');
+  var bundleIslandsEl = document.getElementById('bundle-islands');
+  var bundleRoutesEl = document.getElementById('bundle-routes');
+
+  function fmtBytes(n) {
+    if (!n) return '0 B';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(2) + ' MB';
+  }
+
+  function bundleRow(name, bytes, maxBytes, priority, route) {
+    var pct = maxBytes > 0 ? Math.max(2, Math.round((bytes / maxBytes) * 100)) : 0;
+    return '<div class="bundle-row">' +
+      '<span class="name" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
+      '<span class="size">' + escapeHtml(fmtBytes(bytes)) + '</span>' +
+      '<span class="priority">' + escapeHtml(priority || '') + (route ? ' / ' + escapeHtml(route) : '') + '</span>' +
+      '<span class="bar"><span style="width:' + pct + '%"></span></span>' +
+    '</div>';
+  }
+
+  function loadBundle() {
+    if (!bundleIslandsEl) return;
+    if (bundleSummaryEl) bundleSummaryEl.textContent = 'Loading bundle manifest...';
+    bundleIslandsEl.innerHTML = '<div class="empty-state">Loading...</div>';
+    bundleRoutesEl.innerHTML = '<div class="empty-state">Loading...</div>';
+    if (bundleSharedEl) bundleSharedEl.innerHTML = '';
+
+    fetchJson('/__kitchen/api/bundle', function(err, report) {
+      if (err) {
+        bundleIslandsEl.innerHTML = '<div class="empty-state">Failed: ' + escapeHtml(err.message) + '</div>';
+        return;
+      }
+      if (!report.loaded) {
+        if (bundleSummaryEl) bundleSummaryEl.textContent = report.reason || 'Bundle manifest not loaded.';
+        bundleIslandsEl.innerHTML = '<div class="empty-state">Run \`mandu build\` first.</div>';
+        bundleRoutesEl.innerHTML = '<div class="empty-state">No bundles yet.</div>';
+        return;
+      }
+
+      var totals = report.totals || {};
+      var meta = report.manifest || {};
+      if (bundleSummaryEl) {
+        bundleSummaryEl.innerHTML =
+          '<span>env <strong>' + escapeHtml(meta.env || '?') + '</strong></span>' +
+          '<span>built <strong>' + escapeHtml(meta.buildTime || '?') + '</strong></span>' +
+          '<span>total <strong>' + escapeHtml(fmtBytes(totals.totalBytes)) + '</strong></span>' +
+          '<span>islands <strong>' + (totals.islandCount || 0) + ' (' + escapeHtml(fmtBytes(totals.islandBytes)) + ')</strong></span>' +
+          '<span>routes <strong>' + (totals.bundleCount || 0) + ' (' + escapeHtml(fmtBytes(totals.bundleBytes)) + ')</strong></span>';
+      }
+
+      if (bundleSharedEl) {
+        var sharedHtml = '';
+        var shared = report.shared || {};
+        ['runtime', 'vendor', 'router'].forEach(function(k) {
+          var s = shared[k];
+          if (!s) return;
+          sharedHtml += '<div class="bundle-shared-card">' +
+            '<div class="label">' + escapeHtml(k) + '</div>' +
+            '<div class="size">' + escapeHtml(fmtBytes(s.bytes)) + '</div>' +
+            '<div class="name" title="' + escapeHtml(s.path) + '" style="font-family:var(--font-mono);color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(s.path) + '</div>' +
+          '</div>';
+        });
+        bundleSharedEl.innerHTML = sharedHtml;
+      }
+
+      var islands = report.islands || [];
+      var maxIslandBytes = islands.length ? islands[0].bytes : 0;
+      if (!islands.length) {
+        bundleIslandsEl.innerHTML = '<div class="empty-state">No island bundles emitted. Either this project is SSR-only or no client islands were declared.</div>';
+      } else {
+        var islandHtml = '';
+        for (var i = 0; i < islands.length; i++) {
+          var isl = islands[i];
+          islandHtml += bundleRow(isl.islandId, isl.bytes, maxIslandBytes, isl.priority, isl.route);
+        }
+        bundleIslandsEl.innerHTML = islandHtml;
+      }
+
+      var routes = report.bundles || [];
+      var maxRouteBytes = routes.length ? routes[0].bytes : 0;
+      if (!routes.length) {
+        bundleRoutesEl.innerHTML = '<div class="empty-state">No per-route bundles emitted.</div>';
+      } else {
+        var routeHtml = '';
+        for (var j = 0; j < routes.length; j++) {
+          var rt = routes[j];
+          routeHtml += bundleRow(rt.routeId, rt.bytes, maxRouteBytes, rt.priority, '');
+        }
+        bundleRoutesEl.innerHTML = routeHtml;
+      }
+    });
+  }
+
+  var refreshBundleBtn = document.getElementById('refresh-bundle');
+  if (refreshBundleBtn) refreshBundleBtn.addEventListener('click', loadBundle);
+
   function loadRequests() {
     requestsListEl.innerHTML = '<div class="empty-state">Loading requests...</div>';
     fetchJson('/__kitchen/api/requests?limit=100', function(err, data) {
@@ -2779,6 +3233,8 @@ const JS = /* js */ `
   var tabLoaders = {
     'agent': loadAgentContext,
     'errors': loadErrors,
+    'diagnose': loadDiagnose,
+    'bundle': loadBundle,
     'requests': loadRequests,
     'mcp-activity': loadMcpActivity,
     'cache': loadCacheStats,

@@ -39,7 +39,7 @@ with client files from another generation.
 
 ## Runtime contract
 
-- Runtime: Bun `>=1.3.12`; official build images use Bun 1.3.14.
+- Runtime: Bun `>=1.4.0`; official build images use Bun 1.4.0.
 - Entrypoint: `bunx mandu start`.
 - Port: `PORT`, falling back to `mandu.config` and then `3333`.
 - Environment: set `NODE_ENV=production`; provide secrets through the hosting
@@ -51,7 +51,7 @@ with client files from another generation.
 ## Provider-neutral container example
 
 ```dockerfile
-FROM oven/bun:1.3.14 AS application
+FROM oven/bun:1.4.0 AS application
 WORKDIR /app
 
 COPY package.json bun.lock ./

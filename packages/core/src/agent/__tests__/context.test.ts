@@ -58,7 +58,7 @@ describe("agent context", () => {
     await writeFile(root, "package.json", JSON.stringify({
       name: "agent-app",
       version: "1.2.3",
-      packageManager: "bun@1.3.14",
+      packageManager: "bun@1.4.0",
     }));
     await writeFile(root, ".mandu/routes.manifest.json", JSON.stringify({
       version: 1,
@@ -121,7 +121,7 @@ describe("agent context", () => {
 
     expect(context.framework).toBe("mandu");
     expect(context.project.name).toBe("agent-app");
-    expect(context.project.packageManager).toBe("bun@1.3.14");
+    expect(context.project.packageManager).toBe("bun@1.4.0");
     expect(context.routeSource).toBe("manifest");
     expect(context.routes).toHaveLength(2);
     expect(context.pages.map((r) => r.id)).toEqual(["home"]);

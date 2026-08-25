@@ -6,6 +6,7 @@ import type { RoutesManifest } from "../../spec/schema";
 import { buildClientBundles } from "../build";
 import {
   __clearBuildGenerationCacheForTests,
+  __promoteStagedBuildGenerationForTests,
   beginBuildGeneration,
   failBuildGeneration,
   publishBuildGeneration,
@@ -78,6 +79,58 @@ describe("atomic client build generations", () => {
       await fs.readFile(path.join(rootDir, ".mandu", "manifest.json"), "utf8"),
     ) as { generationId?: string };
     expect(manifest.generationId).toBe(generation.id);
+  });
+
+  test("falls back to a validated copy when Windows keeps build handles open", async () => {
+    const generation = await beginBuildGeneration(rootDir);
+    await fs.writeFile(path.join(generation.clientDir, "runtime.js"), "copied-generation");
+    await fs.writeFile(generation.manifestPath, JSON.stringify({ version: 1 }));
+    let renameAttempts = 0;
+
+    await __promoteStagedBuildGenerationForTests(generation, {
+      platform: "win32",
+      rename: async () => {
+        renameAttempts++;
+        throw Object.assign(new Error("build output is still open"), { code: "EPERM" });
+      },
+      sleep: async () => {},
+    });
+
+    expect(renameAttempts).toBe(5);
+    expect(await fs.readFile(path.join(generation.finalRoot, "client", "runtime.js"), "utf8")).toBe(
+      "copied-generation",
+    );
+    expect(await Bun.file(path.join(generation.finalRoot, "manifest.json")).exists()).toBe(true);
+    expect(await Bun.file(generation.stagingRoot).exists()).toBe(false);
+  });
+
+  test("removes a partial final generation when the Windows copy fallback fails", async () => {
+    const generation = await beginBuildGeneration(rootDir);
+    await fs.writeFile(path.join(generation.clientDir, "runtime.js"), "partial-generation");
+    await fs.writeFile(generation.manifestPath, JSON.stringify({ version: 1 }));
+
+    const promotion = __promoteStagedBuildGenerationForTests(generation, {
+      platform: "win32",
+      rename: async () => {
+        throw Object.assign(new Error("build output is still open"), { code: "EPERM" });
+      },
+      sleep: async () => {},
+      copy: async (_source, destination) => {
+        await fs.mkdir(destination, { recursive: true });
+        await fs.writeFile(path.join(destination, "partial.js"), "partial");
+        throw new Error("injected copy failure");
+      },
+    });
+
+    await expect(promotion).rejects.toThrow("injected copy failure");
+    expect(await Bun.file(generation.finalRoot).exists()).toBe(false);
+    expect(await fs.access(generation.stagingRoot).then(
+      () => true,
+      () => false,
+    )).toBe(true);
+    expect(
+      await fs.readFile(path.join(rootDir, ".mandu", "client", "runtime.js"), "utf8"),
+    ).toBe("legacy-good");
   });
 
   test("failed generation keeps the active and compatibility artifacts unchanged", async () => {

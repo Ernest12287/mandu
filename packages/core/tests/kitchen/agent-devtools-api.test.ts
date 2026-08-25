@@ -245,6 +245,109 @@ describe("buildAgentContextPack", () => {
   });
 });
 
+describe("KitchenHandler /api/bundle endpoint (plan 18 P2-6)", () => {
+  let tmpDir: string;
+  let handler: KitchenHandler;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kitchen-bundle-"));
+    handler = new KitchenHandler({
+      rootDir: tmpDir,
+      manifest: pageOnlyManifest,
+      guardConfig: null,
+    });
+  });
+
+  afterEach(() => {
+    handler.stop();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns loaded:false when no bundle manifest exists", async () => {
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/bundle`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/bundle`);
+    const body = await res!.json() as { loaded: boolean; reason?: string };
+
+    expect(body.loaded).toBe(false);
+    expect(body.reason).toMatch(/manifest/);
+  });
+
+  it("reports island and route bundle sizes when manifest + files exist", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".mandu", "client"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, ".mandu", "manifest.json"),
+      JSON.stringify({
+        version: 1,
+        buildTime: "2026-05-12T00:00:00.000Z",
+        env: "production",
+        bundles: { home: { js: "/.mandu/client/home.js", dependencies: [], priority: "visible" } },
+        islands: { counter: { js: "/.mandu/client/counter.island.js", route: "home", priority: "visible" } },
+        shared: { runtime: "/.mandu/client/runtime.js", vendor: "/.mandu/client/vendor.js" },
+      }),
+    );
+    fs.writeFileSync(path.join(tmpDir, ".mandu", "client", "home.js"), "h".repeat(400));
+    fs.writeFileSync(path.join(tmpDir, ".mandu", "client", "counter.island.js"), "c".repeat(1200));
+    fs.writeFileSync(path.join(tmpDir, ".mandu", "client", "runtime.js"), "r".repeat(800));
+    fs.writeFileSync(path.join(tmpDir, ".mandu", "client", "vendor.js"), "v".repeat(60_000));
+
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/bundle`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/bundle`);
+    const body = await res!.json() as {
+      loaded: boolean;
+      islands: Array<{ islandId: string; bytes: number }>;
+      bundles: Array<{ routeId: string; bytes: number }>;
+      totals: { totalBytes: number; largestIsland?: { id: string } };
+    };
+
+    expect(body.loaded).toBe(true);
+    expect(body.islands[0].islandId).toBe("counter");
+    expect(body.islands[0].bytes).toBe(1200);
+    expect(body.bundles[0].routeId).toBe("home");
+    expect(body.totals.totalBytes).toBe(400 + 1200 + 800 + 60_000);
+    expect(body.totals.largestIsland?.id).toBe("counter");
+  });
+});
+
+describe("KitchenHandler /api/diagnose endpoint (plan 18 P2-5)", () => {
+  let tmpDir: string;
+  let handler: KitchenHandler;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kitchen-diagnose-"));
+    handler = new KitchenHandler({
+      rootDir: tmpDir,
+      manifest: pageOnlyManifest,
+      guardConfig: null,
+    });
+  });
+
+  afterEach(() => {
+    handler.stop();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("runs the full diagnose suite and returns a structured report", async () => {
+    const req = new Request(`http://localhost:3000${KITCHEN_PREFIX}/api/diagnose`);
+    const res = await handler.handle(req, `${KITCHEN_PREFIX}/api/diagnose`);
+    expect(res!.status).toBe(200);
+
+    const body = await res!.json() as {
+      healthy: boolean;
+      errorCount: number;
+      warningCount: number;
+      checks: Array<{ rule: string; ok: boolean }>;
+      summary: { total: number };
+    };
+
+    // 7 extended checks today (plan 17/261/etc.) — keep the lower bound
+    // generous so the test does not crack on future additions.
+    expect(body.summary.total).toBeGreaterThanOrEqual(6);
+    const rules = body.checks.map((c) => c.rule);
+    expect(rules).toContain("manifest_freshness");
+    expect(rules).toContain("nested_internal_core");
+  });
+});
+
 describe("KitchenHandler /api/errors/grouped endpoint (plan 18 P1-4)", () => {
   let tmpDir: string;
   let handler: KitchenHandler;

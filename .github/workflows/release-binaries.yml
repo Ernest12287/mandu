@@ -39,9 +39,9 @@ on:
   workflow_dispatch:
     inputs:
       bun_version:
-        description: "Bun version to use (default: 1.3.14)"
+        description: "Bun version to use (default: 1.4.0)"
         required: false
-        default: "1.3.14"
+        default: "1.4.0"
       attach_release:
         description: "Also create/update GitHub Release (only set for dry-run tag tests)"
         required: false
@@ -107,7 +107,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: ${{ github.event.inputs.bun_version || '1.3.14' }}
+          bun-version: ${{ github.event.inputs.bun_version || '1.4.0' }}
 
       - name: Install dependencies
         run: bun install
@@ -150,7 +150,7 @@ jobs:
           echo "Building ${outfile}"
           # `cd packages/cli` so relative imports resolve exactly as they do
           # for `bun run mandu`. `--compile` implies `--production` and
-          # `--minify` (Bun 1.3.x). We intentionally do NOT pass
+          # `--minify` (Bun 1.4.x). We intentionally do NOT pass
           # `--bytecode` — Mandu CLI uses top-level await in its command
           # registry init path and the +44% size cost is not justified.
           cd packages/cli
@@ -395,7 +395,7 @@ jobs:
           # Binaries are unsigned during Phase 9b rollout. This notice lives
           # on every release until code signing is enabled.
           body: |
-            Mandu CLI standalone binaries (Bun ${{ github.event.inputs.bun_version || '1.3.14' }}).
+            Mandu CLI standalone binaries (Bun ${{ github.event.inputs.bun_version || '1.4.0' }}).
 
             ### Quick install
 

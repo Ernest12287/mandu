@@ -24,6 +24,7 @@ import {
   transformClientBoundaries,
   validateClientBoundaryServerOnlyImports,
 } from "../packages/core/src/bundler/client-boundary-transform";
+import { collectBunLockConsistencyIssues } from "./bun-lock-consistency";
 
 interface PackageJson {
   name: string;
@@ -504,10 +505,20 @@ try {
     existsSync(resolve(process.cwd(), file))
   );
   if (lockfiles.length === 0) throw new Error("No Bun lockfile found");
-  execSync("bun install --frozen-lockfile --lockfile-only --ignore-scripts", {
-    stdio: "inherit",
-    cwd: process.cwd(),
-  });
+  const metadataIssues = await collectBunLockConsistencyIssues(process.cwd());
+  if (metadataIssues.length > 0) {
+    throw new Error(metadataIssues.join("\n"));
+  }
+  // Nested Bun install processes can stall on Bun 1.4 for Windows after the
+  // parent has run build/server subprocesses. The deterministic workspace
+  // metadata comparison above catches stale manifest edits on every platform;
+  // non-Windows release environments also retain Bun's native frozen check.
+  if (process.platform !== "win32") {
+    execSync("bun install --frozen-lockfile --lockfile-only --ignore-scripts", {
+      stdio: "inherit",
+      cwd: process.cwd(),
+    });
+  }
   console.log("✅ Frozen lockfile is internally consistent\n");
 } catch {
   hasIssues = true;
