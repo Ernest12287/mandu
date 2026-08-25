@@ -1,5 +1,16 @@
 # @mandujs/core
 
+## 0.55.0-beta.1
+
+### Minor Changes
+
+- [`7fd072a`](https://github.com/konamgil/mandu/commit/7fd072a7516b9625902b03c28f701726ad2b553a) Thanks [@konamgil](https://github.com/konamgil)! - Agent DevTools P2 cycle (plan 18): Diagnose panel + Bundle inspector — two read-only Kitchen surfaces that turn data already on disk into one-screen answers.
+
+  - **Diagnose** — new `/__kitchen/api/diagnose` endpoint runs `runExtendedDiagnose` on demand and the new "Diagnose" tab renders every rule (manifest_freshness, prerender_pollution, cloneelement_warnings, dev_artifacts_in_prod, package_export_gaps, nested_internal_core, a11y_hints) sorted by severity. Each row expands to show suggestion + raw details JSON.
+  - **Bundle inspector** — new `/__kitchen/api/bundle` endpoint reads `.mandu/manifest.json` and stat's every emitted file (`shared.runtime`, `shared.vendor`, optional `shared.router`, per-route bundles, per-island bundles) to attach on-disk byte sizes. The new "Bundle" tab shows totals, the shared chunk cards, and an islands/routes table sorted biggest-first with proportional bars. `mandu build` produces it; missing files show up as 0 bytes without crashing.
+
+- [`7fd072a`](https://github.com/konamgil/mandu/commit/7fd072a7516b9625902b03c28f701726ad2b553a) Thanks [@konamgil](https://github.com/konamgil)! - Require Bun 1.4 across the stable Mandu product packages, generated projects, CI, deployment artifacts, and container images. Preserve UTC as the default scheduler timezone despite Bun 1.4's new local-time default, make atomic client-build publication resilient to Windows build-output handle races, validate Windows lock consistency without a nested package-manager process, bound Windows reference-app subprocess shutdown, enforce Bun 1.4's Argon2 minimum memory cost with a clear configuration error, keep percent-encoded cookie names stable across runtime versions, isolate optional desktop peers from Bun 1.4 FFI type changes until runtime loading, and use bounded Bun 1.4 file-level parallelism for the CLI test suite.
+
 ## 0.55.0-beta.0
 
 ### Minor Changes
